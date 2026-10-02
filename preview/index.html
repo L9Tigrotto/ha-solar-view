@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Solar view preview</title>
+<style>
+  html,body{margin:0;height:100%}
+  #dev{position:fixed;right:6px;top:6px;z-index:9;font:11px system-ui;background:#0008;color:#fff;padding:3px 6px;border-radius:6px}
+  #dev select,#dev button{font:inherit}
+</style>
+</head>
+<body>
+<!-- Preview of the real panel (../solar-view/solar-view.js)
+     driven by a fake `hass` object: states, Energy settings, statistics and forecast. ?scenario= ?lang=en|it|es|fr|de|pt|nl|pl ?dark=0|1 ?admin=0 ?extras=0 ?first=1
+     ?day=N picks the advice line as if it were day N (0, 1, 2...), instead of today's.
+     ?loading=2 starts with 2 seconds of "Home Assistant is still starting"; the button replays it.
+     The checks are the console.assert calls below: the console must stay free of assertion failures. -->
+<div id="dev"><label>scenario <select></select></label> <button type="button">loading 2s</button></div>
+<solar-view></solar-view>
+<script type="module">
+import { STRINGS, entitiesFrom, clockOf, totals } from "../solar-view/solar-view.js";
+
+// The sensors of the fake house, named as its fake Energy settings name them.
+const ID = {
+  solarW: "sensor.solar_power", battW: "sensor.battery_power", gridW: "sensor.grid_power", soc: "sensor.battery_soc",
+  solarKwh: "sensor.solar_energy", batteryKwh: "sensor.battery_out_energy", chargeKwh: "sensor.battery_in_energy",
+  gridImportKwh: "sensor.grid_in_energy", gridExportKwh: "sensor.grid_out_energy",
+};
+// v: solar W, battery W (+ discharging), grid W (+ importing), soc, sun elevation, rising. House use is their sum.
+// today: [solar, house, import, export] in kWh.
+const SCENARIOS = {
+  midday:  { v: [2500, -2100, 0, 70, 42, false], today: [7.8, 6.1, 0.2, 0], expect: "go" },
+  full:    { v: [2500, 0, -2100, 100, 40, false], today: [9.4, 6.6, 0.2, 1.1], expect: "go" },
+  dawn:    { v: [130, 270, 0, 24, 3, true], today: [0.2, 2.6, 0.1, 0], expect: "ok" },
+  dusk:    { v: [30, 620, 0, 60, 1, false], today: [15.2, 12.4, 0.3, 0.1], expect: "ok" },
+  night:   { v: [8, 0, 350, 12, -30, false], today: [15.2, 14.1, 0.9, 0.1], expect: "low" },
+  evening: { v: [0, 350, 0, 60, -20, false], today: [15.2, 12.4, 0.3, 0.1], expect: "ok" }, // the night-time "ok" lines
+  // Grey day with a sunny tomorrow: the forecast hint. The same grey day without a forecast stays "ok".
+  poor:    { v: [250, 150, 0, 45, 30, false], today: [1.2, 5.0, 0.4, 0], forecast: [5, 16], expect: "wait" },
+  poorNoForecast: { v: [250, 150, 0, 45, 30, false], today: [1.2, 5.0, 0.4, 0], forecast: null, expect: "ok" },
+  // A house with panels and a grid connection, no battery.
+  nobattery: { v: [2500, 0, -2100, 0, 42, false], today: [7.8, 6.1, 1.2, 2.9], battery: false, expect: "go" },
+  // The Energy page of Home Assistant was never set up.
+  nodata:  null,
+  // The inverter is down: the sensors exist but have no value.
+  offline: { v: ["unavailable", "unavailable", "unavailable", "unavailable", 30, false], today: [3, 3, 0, 0], offline: true },
+};
+const q = new URLSearchParams(location.search);
+const name = q.get("scenario") in SCENARIOS ? q.get("scenario") : "midday";
+const lang = q.get("lang") || navigator.language;
+const dark = q.has("dark") ? q.get("dark") === "1" : matchMedia("(prefers-color-scheme: dark)").matches;
+// ?admin=0 shows the page as a non-admin user (no Info tab). ?extras=0 drops forecast and prices.
+const admin = q.get("admin") !== "0";
+const extras = q.get("extras") !== "0";
+const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const localMidnight = (daysBack = 0) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - daysBack); return d.getTime(); };
+const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
+
+// The Energy settings as energy/get_prefs returns them.
+function fakePrefs(s) {
+  const sources = [{ type: "solar", stat_energy_from: ID.solarKwh, stat_rate: ID.solarW, config_entry_solar_forecast: ["fc"] },
+    { type: "grid", stat_energy_from: ID.gridImportKwh, stat_energy_to: ID.gridExportKwh, stat_rate: ID.gridW,
+      number_energy_price: extras ? 0.3 : null, number_energy_price_export: extras ? 0.1 : null }];
+  if (s.battery !== false) sources.push({ type: "battery", stat_energy_from: ID.batteryKwh, stat_energy_to: ID.chargeKwh,
+    stat_rate: ID.battW, stat_soc: ID.soc, capacity: 10 });
+  return { energy_sources: sources };
+}
+// Statistics rows: 62 finished days, and today's total as one 5 minute row.
+function fakeStats(s, msg) {
+  const battery = s.battery !== false;
+  const [solar, house, imp, exp] = s.today;
+  const out = battery ? 3.4 : 0;
+  const today = { solarKwh: solar, gridImportKwh: imp, gridExportKwh: exp, batteryKwh: out, chargeKwh: solar + out + imp - exp - house };
+  const week = [15.6, 9.2, 14.9, 16.1, 12.4, 15.5, 14.5]; // days 7 to 1 ago
+  const past = (back) => ({ solarKwh: back <= 7 ? week[7 - back] : 14, gridImportKwh: 0.3, gridExportKwh: name === "full" ? 0.4 : 0,
+    batteryKwh: battery ? 6 : 0, chargeKwh: battery ? 6.6 : 0 });
+  const res = {};
+  for (const id of msg.statistic_ids) {
+    const part = Object.keys(ID).find((k) => ID[k] === id);
+    res[id] = msg.period === "day"
+      ? Array.from({ length: 62 }, (_, i) => ({ start: localMidnight(62 - i), change: past(62 - i)[part] }))
+      : [{ start: localMidnight() + 60e3, change: today[part] }];
+  }
+  return res;
+}
+
+function fakeHass(s, loading = false) {
+  const states = {};
+  const set = (id, state, attributes = {}) => { states[id] = { state: String(state), attributes }; };
+  if (s) {
+    const [solar, batt, grid, soc, elevation, rising] = s.v;
+    set("sun.sun", elevation > 0 ? "above_horizon" : "below_horizon", { elevation, rising });
+    // Home Assistant still starting: everything is there except the energy sensors.
+    if (!loading) {
+      set(ID.solarW, solar, { unit_of_measurement: "W" }); set(ID.gridW, grid, { unit_of_measurement: "W" });
+      if (s.battery !== false) { set(ID.battW, batt, { unit_of_measurement: "W" }); set(ID.soc, soc); }
+    }
+  }
+  const forecast = s && s.forecast === undefined ? [15, 14] : s && s.forecast;
+  const noon = (daysAhead) => new Date(localMidnight(-daysAhead) + 12 * 36e5).toISOString();
+  return {
+    states, language: lang, locale: { language: lang }, themes: { darkMode: dark }, user: { is_admin: admin },
+    config: { state: loading ? "NOT_RUNNING" : "RUNNING", time_zone: TZ, currency: "EUR" },
+    callWS: async (msg) => {
+      if (msg.type === "energy/get_prefs") { if (!s) throw { code: "not_found", message: "No prefs" }; return fakePrefs(s); }
+      if (msg.type === "energy/solar_forecast") return extras && forecast ? { fc: { wh_hours: { [noon(0)]: forecast[0] * 1000, [noon(1)]: forecast[1] * 1000 } } } : {};
+      return fakeStats(s, msg);
+    },
+  };
+}
+
+const panel = document.querySelector("solar-view");
+if (q.has("day")) panel.testDay = Number(q.get("day"));
+panel.narrow = innerWidth < 870;
+// Loading as Home Assistant shows it right after a restart: no energy sensors yet, then they appear.
+function load(seconds) {
+  panel.hass = fakeHass(SCENARIOS[name], seconds > 0);
+  if (seconds > 0) setTimeout(() => { panel.hass = fakeHass(SCENARIOS[name]); }, seconds * 1000);
+}
+document.querySelector("#dev button").addEventListener("click", () => load(2));
+
+// A throwaway panel, drawn once its numbers have loaded.
+const draw = async (hass, more = {}, config) => {
+  const p = document.createElement("solar-view");
+  if (config) p.panel = { config };
+  Object.assign(p, more.props || {});
+  p.hass = { ...hass, ...more, props: undefined };
+  await tick();
+  return p;
+};
+const $ = (p, sel) => p.shadowRoot.querySelector(sel);
+
+// Check: every scenario must give the expected advice in the real rendered panel.
+for (const [k, s] of Object.entries(SCENARIOS)) {
+  const p = await draw(fakeHass(s));
+  if (!s || s.offline) { console.assert($(p, ".empty"), `${k} must show a message, not zeros`); continue; }
+  const kind = $(p, ".advice").dataset.kind;
+  const expect = !extras && s.expect === "wait" ? "ok" : s.expect;
+  console.assert(kind === expect, `advice for ${k}: got ${kind}, expected ${expect}`);
+}
+
+// Check: every language has every text, the advice pools have the same number of lines, and no
+// string can break out of an attribute (they go into data-hint and aria-label unescaped).
+for (const [code, other] of Object.entries(STRINGS)) for (const [key, en] of Object.entries(STRINGS.en)) {
+  console.assert(other[key] !== undefined, `strings: ${key} missing in ${code}`);
+  if (Array.isArray(en)) console.assert(Array.isArray(other[key]) && other[key].length === en.length && en.length > 1, `advice lines: ${key} differs between en and ${code}`);
+}
+for (const text of Object.values(STRINGS).flatMap((t) => Object.values(t)).flatMap((v) => (typeof v === "string" ? v : Object.values(v))))
+  console.assert(text && !/["<>&\u2014]/.test(text), `string not safe in an attribute: ${text}`);
+
+// Check: the owner's own advice lines (panel config) are added, can replace, and cannot inject markup.
+{
+  const it = { language: "it", locale: { language: "it" } };
+  const adviceOf = async (config, day) => $(await draw(fakeHass(SCENARIOS.midday), { ...it, props: { testDay: day } }, config), ".advice p");
+  const n = STRINGS.it.adviceGo.length;
+  console.assert((await adviceOf({ advice: { it: { go: ["Riga mia"] } } }, n)).textContent === "Riga mia", "own advice: not added after the built-in lines");
+  console.assert((await adviceOf({ advice: { it: { go: ["Riga mia"] } } }, 0)).textContent === STRINGS.it.adviceGo[0], "own advice: built-in lines lost");
+  console.assert((await adviceOf({ advice: { it: { go: ["Solo mia"] } }, advice_replace: true }, 3)).textContent === "Solo mia", "own advice: replace failed");
+  const hostile = await adviceOf({ advice: { it: { go: ["<b>x</b>"] } }, advice_replace: true }, 0);
+  console.assert(hostile.textContent === "<b>x</b>" && !hostile.querySelector("b"), "own advice: markup not escaped");
+  console.assert((await adviceOf({ advice: { it: { nope: ["x"], go: [] } } }, 0)).textContent === STRINGS.it.adviceGo[0], "own advice: bad config changed something");
+}
+
+// Check: reading the Energy settings, the owner's config, units, time zone, language and currency.
+{
+  // Older grid shape (lists of flows), two batteries of different size, an entity named in config.
+  const src = entitiesFrom({ energy_sources: [
+    { type: "grid", flow_from: [{ stat_energy_from: "in1", number_energy_price: 0.25 }, { stat_energy_from: "in2" }], flow_to: [{ stat_energy_to: "out1" }], power: [{ stat_rate: "gw" }] },
+    { type: "battery", stat_energy_from: "bo1", stat_energy_to: "bi1", stat_soc: "soc1", capacity: 5 },
+    { type: "battery", stat_energy_from: "bo2", stat_energy_to: "bi2", stat_soc: "soc2", capacity: 15 },
+    { type: "gas", stat_energy_from: "gas" },
+  ] }, { entities: { solar_power: "sp", load_power: ["lp"] }, price_sell: "input_number.sell", battery_floor: 20 });
+  console.assert(JSON.stringify([src.gridImportKwh, src.gridExportKwh, src.gridW, src.solarW, src.loadW, src.batteryKwh, src.solarKwh])
+    === JSON.stringify([["in1", "in2"], ["out1"], ["gw"], ["sp"], ["lp"], ["bo1", "bo2"], []]), "entities: wrong lists", src);
+  console.assert(src.batt.kwh === 20 && src.batt.floor === 20 && src.price.buy === 0.25 && src.price.sell === "input_number.sell", "entities: wrong battery or prices", src);
+  console.assert(entitiesFrom(null).solarW.length === 0 && entitiesFrom(null, { battery_kwh: 7 }).batt.kwh === 7, "entities: no Energy settings");
+  // The older grid shape keeps the selling price on the export flow, under the same name as the buying price.
+  const old = entitiesFrom({ energy_sources: [{ type: "grid", flow_from: [{ stat_energy_from: "in1" }], flow_to: [{ stat_energy_to: "out1", number_energy_price: 0.1 }] }] });
+  console.assert(old.price.buy === null && old.price.sell === 0.1 && old.gridExportKwh[0] === "out1", "entities: old export price read as the buying price", old);
+
+  // Days are Home Assistant's days: 11:30 UTC is already tomorrow in Auckland. One row each side of
+  // that midnight: rows land on 1 and 30 September (twice), 1 October (yesterday) and today.
+  const clock = clockOf("Pacific/Auckland"), now = Date.UTC(2026, 9, 1, 11, 30); // 2 October 00:30 there
+  console.assert(clock(now).key === "2026-10-02" && clock(now).hour === 0, "clock: wrong day for the time zone");
+  const one = entitiesFrom({ energy_sources: [{ type: "solar", stat_energy_from: "s" }] });
+  const sums = totals(one, { s: [{ start: Date.UTC(2026, 7, 31, 12), change: 9 }, { start: Date.UTC(2026, 8, 29, 12), change: 4 }, { start: Date.UTC(2026, 8, 30, 10), change: 5 }, { start: Date.UTC(2026, 8, 30, 12), change: 3 }] },
+    { s: [{ start: now - 60e3, change: 0.5 }, { start: now - 3600e3, change: 2 }] }, {}, clock, now);
+  console.assert(sums.today.solarKwh === 0.5 && sums.yesterday.solarKwh === 3 && sums.month.solarKwh === 3.5 && sums.lastMonth.solarKwh === 18 && sums.lastMonth.days === 2
+    && sums.week[6].solarKwh === 3 && sums.week[5].solarKwh === 9, "totals: wrong day or month buckets", sums);
+
+  // kW sensors, two solar arrays, a dollar house, and a language without texts (English shows).
+  const h = fakeHass(SCENARIOS.midday);
+  h.states[ID.solarW] = { state: "1.5", attributes: { unit_of_measurement: "kW" } };
+  h.states["sensor.roof2"] = { state: "500", attributes: { unit_of_measurement: "W" } };
+  const prefs = fakePrefs(SCENARIOS.midday);
+  prefs.energy_sources.push({ type: "solar", stat_energy_from: "sensor.roof2_energy", stat_rate: "sensor.roof2" });
+  const callWS = h.callWS;
+  let p = await draw(h, { language: "ja-JP", locale: { language: "ja-JP" }, config: { ...h.config, currency: "USD" }, callWS: async (m) => (m.type === "energy/get_prefs" ? prefs : callWS(m)) });
+  console.assert($(p, ".flow").textContent.includes("2000 W"), "units: kW and a second array not summed in W");
+  console.assert($(p, ".tabs button").textContent === STRINGS.en.tabNow && (!extras || /\$/.test($(p, ".money").textContent)), "language fallback or currency");
+
+  // A price typed as text in the config is a number, not an entity id.
+  p = await draw(fakeHass(SCENARIOS.midday), {}, { price_buy: "0.3" });
+  console.assert($(p, ".money"), "price as text: not read as a number");
+
+  // No battery: no card, no place in the flow, no row. No state of charge: the flow keeps the battery.
+  p = await draw(fakeHass(SCENARIOS.nobattery));
+  console.assert(!$(p, ".battery") && p.shadowRoot.querySelectorAll(".flow .node").length === 3 && p.shadowRoot.querySelectorAll("#today .row").length === 4
+    && !p.shadowRoot.innerHTML.includes("NaN"), "no battery: something of it is still drawn");
+  p = await draw(fakeHass(SCENARIOS.midday), {}, { entities: { battery_soc: [] } });
+  console.assert(!$(p, ".battery") && p.shadowRoot.querySelectorAll(".flow .node").length === 4 && !p.shadowRoot.innerHTML.includes("NaN"), "no state of charge: the card must go, the battery stays in the flow");
+
+  // A sensor named in the settings that does not exist: a message that names it, for admins only.
+  p = await draw(fakeHass(SCENARIOS.midday), {}, { entities: { grid_power: "sensor.typo" } });
+  console.assert($(p, ".empty") && $(p, ".empty").textContent.includes("sensor.typo") === admin, "missing sensor: no message, or the name shown to a non-admin");
+}
+
+// Checks for edge cases, each on a throwaway panel: the midday scenario with something changed.
+{
+  const midday = (states = {}) => { const h = fakeHass(SCENARIOS.midday); Object.assign(h.states, states); return h; };
+  const val = (state) => ({ state: String(state), attributes: {} });
+  const focus = (p, sel) => $(p, sel).dispatchEvent(new FocusEvent("focusin", { bubbles: true, composed: true }));
+  const hinted = (p) => $(p, ".hint").classList.contains("on");
+
+  // sun.sun without a value must not reach the sky colours or the page as NaN.
+  let p = await draw(midday({ "sun.sun": { state: "unknown", attributes: {} } }));
+  console.assert(/^#[0-9a-f]{6}$/.test(p.style.getPropertyValue("--s1")) && !p.shadowRoot.innerHTML.includes("NaN"), "sun without elevation: NaN on the page");
+
+  // "Enough until": not in the morning, and counting what the setting sun still covers (0.2 h here).
+  p = await draw(fakeHass(SCENARIOS.dawn));
+  console.assert(!/\d/.test($(p, ".batt-say p").textContent), "dawn: battery end time shown while the sun is rising");
+  const firstLight = fakeHass(SCENARIOS.evening);
+  firstLight.states["sun.sun"] = { state: "below_horizon", attributes: { elevation: -3, rising: true } };
+  p = await draw(firstLight);
+  console.assert(!/\d/.test($(p, ".batt-say p").textContent), "first light: battery end time shown just before sunrise");
+  p = await draw(midday({ [ID.solarW]: val(900), [ID.battW]: val(100), [ID.soc]: val(12),
+    "sun.sun": { state: "above_horizon", attributes: { elevation: 8, rising: false } } }));
+  console.assert(!/\d/.test($(p, ".batt-say p").textContent), "setting sun: battery end time ignores the sun's share");
+  p = await draw(fakeHass(SCENARIOS.evening));
+  console.assert(/\d/.test($(p, ".batt-say p").textContent), "evening: no battery end time");
+
+  // Properties set before the element was defined (Home Assistant on a first visit) must still draw.
+  p = document.createElement("solar-view");
+  for (const [k, v] of Object.entries({ hass: midday(), narrow: true, panel: { config: {} } })) Object.defineProperty(p, k, { value: v, writable: true, configurable: true, enumerable: true });
+  document.body.append(p); await tick(); p.remove();
+  console.assert($(p, "#now .advice") && $(p, ".tabs button").textContent, "early properties: the page stayed empty");
+
+  // The menu button: on a narrow screen, and on a wide one when the sidebar is always hidden.
+  const menu = async (narrow, dockedSidebar) => !$(await draw(midday(), { dockedSidebar, props: { narrow } }), "ha-menu-button").hidden;
+  console.assert(await menu(true, "auto") && !(await menu(false, "docked")) && await menu(false, "always_hidden"), "menu button: wrong for some sidebar setting");
+
+  // A hint must not outlive the numbers it was read from.
+  p = await draw(midday());
+  focus(p, ".gauge");
+  console.assert(hinted(p), "hint: not shown on focus");
+  p.hass = midday({ [ID.soc]: val(33) });
+  console.assert(!hinted(p), "hint: still showing the old numbers after a redraw");
+
+  // Skeleton: really hidden from screen readers, and no hint from its placeholder numbers.
+  p = await draw(fakeHass(SCENARIOS.midday, true));
+  console.assert($(p, ".pager").classList.contains("skel") && $(p, "#now").getAttribute("aria-hidden") === "true" && $(p, "#now").inert, "skeleton: pages not hidden");
+  focus(p, ".gauge");
+  console.assert(!hinted(p), "skeleton: hint shows placeholder numbers");
+
+  // A remembered copy that cannot be drawn must not leave the page blank.
+  localStorage.setItem("solar-view-last", JSON.stringify({ now: { soc: 50 }, week: [{ solarKwh: 3 }], batt: null }));
+  const error = console.error;
+  console.error = () => {}; // the panel reports the failed draw, which is expected here
+  try { p = await draw(fakeHass(SCENARIOS.midday, true)); } catch (e) { p = null; }
+  console.error = error;
+  console.assert(p && $(p, "#now .advice"), "broken remembered copy: blank page");
+
+  // Nothing is remembered now, as on a first visit: that skeleton must not be redrawn by every update.
+  const header = $(p, "#now header");
+  await tick(5); p.hass = { ...p.hass };
+  console.assert(header === $(p, "#now header"), "first visit: the skeleton is redrawn on every update");
+
+  // The numbers are asked again a minute after a failure, and right after midnight.
+  const now = Date.now, at = (ms) => { Date.now = () => ms; };
+  let calls = 0;
+  const count = (h, fail) => ({ callWS: (m) => { if (m.type === "energy/get_prefs") calls++; return fail ? Promise.reject(new Error("check")) : h.callWS(m); } });
+  let h = midday();
+  p = await draw(h, count(h, true));
+  at(now() + 2 * 60e3); p.hass = { ...p.hass };
+  console.assert(calls === 2, `reload: ${calls} loads two minutes after a failure, expected 2`);
+  const late = new Date(); late.setHours(23, 58, 0, 0);
+  calls = 0; at(late.getTime()); h = midday(); p = await draw(h, count(h));
+  at(late.getTime() + 60e3); p.hass = { ...p.hass };
+  console.assert(calls === 1, `reload: ${calls} loads before midnight, expected 1`);
+  at(late.getTime() + 3 * 60e3); p.hass = { ...p.hass };
+  console.assert(calls === 2, `reload: ${calls} loads across midnight, expected 2`);
+  Date.now = now;
+  await tick();
+}
+
+// The skeleton is drawn from what this browser showed last time. Pretend the last visit was this
+// same scenario, so "loading" looks as it would on a second visit. ?first=1 shows a first visit.
+if (q.get("first") === "1") localStorage.removeItem("solar-view-last");
+else if (SCENARIOS[name] && !SCENARIOS[name].offline) await draw(fakeHass(SCENARIOS[name]));
+load(Number(q.get("loading")) || 0);
+
+// For screenshots: ?shot=1 hides this tool's own controls, ?page=today|history|details opens on that page.
+if (q.get("shot") === "1") document.getElementById("dev").hidden = true;
+if (q.has("page")) setTimeout(() => panel.shadowRoot.querySelector(`.tabs [data-page="${q.get("page")}"]`)?.click(), 300);
+
+// Check: week bars show the 7 finished days from the statistics. Offline draws no bars at all.
+if (SCENARIOS[name] && !SCENARIOS[name].offline) setTimeout(() => {
+  const bars = [...panel.shadowRoot.querySelectorAll(".week li .num")].map((e) => e.textContent);
+  console.assert(bars.join(" ") === "16 9 15 16 12 16 15", `week bars: got ${bars}`);
+  console.log("week bars", bars.join(" "));
+}, 300);
+
+// Check (?check=skeleton, or skeletonCheck() in the console; skeletonCheck(true) for a first visit):
+// every box of the loading skeleton must sit where the loaded page puts it. Two allowances:
+// a grey bar may be as wide as the loaded text instead of the loaded box (it hugs the text), and
+// the big share number is a shorter bar on the same centre (the inline box is taller than the digits).
+// Returns { path: [x, y, width, height, text x, text width] } relative to the panel. The path is
+// the place in the DOM, since both states share one markup.
+function boxes() {
+  const root = panel.shadowRoot, host = panel.getBoundingClientRect(), range = document.createRange(), out = {};
+  for (const el of root.querySelectorAll(".page *, footer, footer *")) {
+    if (el.closest("defs") || el.matches(".halo, .streak, .lit")) continue; // not drawn, or always moving
+    const r = el.getBoundingClientRect();
+    if (!r.width && !r.height) continue;
+    let left = Infinity, right = -Infinity;
+    // "Text" is the text nodes plus empty marks such as the dot before the battery word.
+    for (const texts = document.createTreeWalker(el, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT); texts.nextNode();) {
+      if (texts.currentNode.firstChild) continue;
+      range.selectNode(texts.currentNode);
+      for (const c of range.getClientRects()) { left = Math.min(left, c.left); right = Math.max(right, c.right); }
+    }
+    let path = "";
+    for (let e = el; e.parentNode !== root; e = e.parentElement) {
+      const cls = e.matches(".page") ? e.id : [...e.classList].join(".");
+      path = `${e.localName}${cls ? "." + cls : ""}:${[...e.parentElement.children].indexOf(e)} ${path}`;
+    }
+    out[path.trim()] = [r.x - host.x, r.y - host.y, r.width, r.height, left - host.x, right - left];
+  }
+  return out;
+}
+async function skeletonCheck(first = false) {
+  const s = SCENARIOS[name];
+  await new Promise((r) => setTimeout(r, 400)); // the week statistics have landed and been remembered
+  if (first) localStorage.removeItem("solar-view-last");
+  const still = () => panel.shadowRoot.querySelector(".pager").classList.remove("fresh"); // the rise animation moves things 8px
+  panel.hass = fakeHass(s, true);
+  still();
+  const skel = boxes();
+  panel.hass = fakeHass(s);
+  still();
+  const loaded = boxes();
+  const diffs = [];
+  for (const path of new Set([...Object.keys(skel), ...Object.keys(loaded)])) {
+    const a = skel[path], b = loaded[path];
+    if (!a || !b) { diffs.push({ path, note: a ? "only in skeleton" : "only when loaded" }); continue; }
+    const off = (v) => Math.abs(v) > 0.5;
+    const d = [0, 1, 2, 3].map((i) => Math.round((a[i] - b[i]) * 10) / 10);
+    const hugs = !off(a[0] - b[4]) && !off(a[2] - b[5]);
+    const centred = /share:\d+ span\.big:\d+$/.test(path) && !off(d[1] + d[3] / 2);
+    if ((!hugs && (off(d[0]) || off(d[2]))) || (!centred && (off(d[1]) || off(d[3])))) diffs.push({ path, dx: d[0], dy: d[1], dw: d[2], dh: d[3] });
+  }
+  console.log(`skeleton check, ${name}, ${first ? "first" : "second"} visit: ${Object.keys(loaded).length} boxes, ${diffs.length} differ`);
+  if (diffs.length) console.table(diffs);
+  if (!first) console.assert(!diffs.length, `skeleton: ${diffs.length} boxes move when the data lands`);
+  return diffs;
+}
+Object.assign(window, { skeletonCheck, skeletonBoxes: boxes });
+if (q.get("check") === "skeleton" && SCENARIOS[name] && !SCENARIOS[name].offline) skeletonCheck(q.get("first") === "1");
+
+const select = document.querySelector("#dev select");
+select.innerHTML = Object.keys(SCENARIOS).map((k) => `<option${k === name ? " selected" : ""}>${k}</option>`).join("");
+select.addEventListener("change", () => { q.set("scenario", select.value); location.search = q; });
+</script>
+</body>
+</html>
