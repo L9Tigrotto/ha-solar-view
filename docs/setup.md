@@ -11,7 +11,8 @@ Developed and tested on Home Assistant 2026.9. Power sensors in the Energy setti
 
 ## Install
 
-1. Copy the `solar-view` folder of this repository into `config/www/`, so that you have `config/www/solar-view/solar-view.js`, `strings.js` and `styles.js`.2. Add this to `configuration.yaml`:
+1. Copy the `solar-view` folder of this repository into `config/www/`, so that you have `config/www/solar-view/solar-view.js`, `strings.js` and `styles.js`.
+2. Add this to `configuration.yaml`:
 
    ```yaml
    panel_custom:
