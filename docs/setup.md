@@ -11,8 +11,7 @@ Developed and tested on Home Assistant 2026.9. Power sensors in the Energy setti
 
 ## Install
 
-1. Copy the `solar-view` folder of this repository into `config/www/`, so that you have `config/www/solar-view/solar-view.js`, `strings.js` and `styles.js`. If `www` did not exist before, restart Home Assistant once so it starts serving the folder.
-2. Add this to `configuration.yaml`:
+1. Copy the `solar-view` folder of this repository into `config/www/`, so that you have `config/www/solar-view/solar-view.js`, `strings.js` and `styles.js`.2. Add this to `configuration.yaml`:
 
    ```yaml
    panel_custom:
@@ -23,7 +22,7 @@ Developed and tested on Home Assistant 2026.9. Power sensors in the Energy setti
        module_url: /local/solar-view/solar-view.js?v=1
    ```
 
-3. Restart Home Assistant. "Solar" appears in the sidebar.
+3. Restart Home Assistant (a full restart, not a YAML reload). "Solar" appears in the sidebar.
 
 ## Updating
 
