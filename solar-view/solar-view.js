@@ -38,6 +38,8 @@ const BETTER_TIMES = 1.5;     // tomorrow must beat today by this factor before 
 const BATTERY_FLOOR_SOC = 10; // percent where the inverter stops discharging, unless config says battery_floor
 const LASTS_MIN_H = 0.5;      // "enough until" is only shown between these many hours
 const LASTS_MAX_H = 18;
+const USUAL_DAYS = 14;    // "enough until" follows the house's usual use per hour over these many days
+const USUAL_MIN = 3;      // until every hour of the day has this many days behind it, the present draw is used
 const SURPLUS_W = 1000;   // solar minus house use above this: good moment for big appliances
 const EXPORT_W = 50;      // exporting more than this also means spare energy
 const IMPORT_W = 50;      // importing more than this counts as "the grid is helping"
@@ -139,14 +141,34 @@ function withOwnAdvice(strings, config, lang) {
 // Text typed by the owner goes into the page as text, never as markup.
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-// Hours the battery can carry the house at the present draw. 0 when it is not carrying it.
-function batteryLastsH(n, sun, batt) {
+// Hours the battery can carry the house. 0 when it is not carrying it or the answer is not worth
+// showing, Infinity when the sun takes over before it runs out.
+// With `plan` (the usual day, see totals) it walks forward hour by hour: each hour the house takes
+// what it usually takes then, and the sun gives what is forecast. The rest of the present hour
+// counts too, at whichever is worse for the battery: the present draw or the usual one. `at` is
+// the present hour and minute in Home Assistant's time zone.
+// Without a plan (the first days after install) the present draw is all there is.
+function batteryLastsH(n, sun, batt, plan, at) {
   if (n.soc === null || !batt.kwh || n.batteryDischargeW <= MIN_FLOW_W || n.solarW >= n.loadW) return 0;
-  // Morning, from first light: the sun is about to take over, so an end time would be wrong.
-  if (sun.rising && sun.elevation > SKY_NIGHT_DEG) return 0;
-  // What the sun still covers falls to the battery once it sets.
-  const h = (n.soc - batt.floor) / 100 * batt.kwh * 1000 / (n.batteryDischargeW + n.solarW);
-  return h >= LASTS_MIN_H && h <= LASTS_MAX_H ? h : 0;
+  let wh = Math.max(0, n.soc - batt.floor) / 100 * batt.kwh * 1000;
+  const shown = (h) => (h >= LASTS_MIN_H && h <= LASTS_MAX_H ? h : 0);
+  if (!plan) {
+    // Morning, from first light: the sun is about to take over, so an end time would be wrong.
+    if (sun.rising && sun.elevation > SKY_NIGHT_DEG) return 0;
+    // What the sun still covers falls to the battery once it sets.
+    return shown(wh / (n.batteryDischargeW + n.solarW));
+  }
+  let h = 0;
+  for (let i = 0; h < LASTS_MAX_H; i++) {
+    const hour = (at.hour + i) % 24, span = i ? 1 : (60 - at.minute) / 60;
+    const drain = i ? plan.loadW[hour] - plan.solarW[hour]
+      : Math.max(n.loadW, plan.loadW[hour]) - Math.min(n.solarW, plan.solarW[hour]);
+    if (drain <= 0) return Infinity;
+    if (wh <= drain * span) return shown(h + wh / drain);
+    wh -= drain * span;
+    h += span;
+  }
+  return 0;
 }
 
 function batteryWord(soc) {
@@ -237,10 +259,40 @@ function byDay(res, src, clock) {
   return days;
 }
 
+// House use: its own sensor when the owner named one, else what flowed in minus what flowed out.
+const houseKwh = (d, src) => (src.loadKwh.length ? d.loadKwh
+  : Math.max(0, d.solarKwh + d.batteryKwh + d.gridImportKwh - d.chargeKwh - d.gridExportKwh));
+
+// The usual day from hour rows: average W of house use and of sun for each hour of the day
+// (0 to 23, Home Assistant's time zone). null until every hour of the day has USUAL_MIN hours
+// behind it. An hour some sensor has no row for is skipped: its share would be missing.
+function usualDay(res, src, clock) {
+  const parts = ENERGY.filter((k) => src[k].length), ids = parts.flatMap((k) => src[k]);
+  const hours = new Map();
+  for (const part of parts) for (const id of src[part]) for (const r of res[id] || []) {
+    if (!hours.has(r.start)) hours.set(r.start, { rows: 0, ...Object.fromEntries(ENERGY.map((k) => [k, 0])) });
+    const h = hours.get(r.start);
+    h.rows++;
+    h[part] += Math.max(0, r.change || 0);
+  }
+  const load = Array(24).fill(0), sun = Array(24).fill(0), count = Array(24).fill(0);
+  for (const [start, h] of hours) if (h.rows === ids.length) {
+    const hour = clock(start).hour;
+    count[hour]++;
+    load[hour] += houseKwh(h, src);
+    sun[hour] += h.solarKwh;
+  }
+  if (!ids.length || count.some((c) => c < USUAL_MIN)) return null;
+  // kWh in one hour is the average kW over it.
+  const avg = (kwh) => kwh.map((v, i) => Math.round(v / count[i] * 1000));
+  return { loadW: avg(load), solarW: avg(sun) };
+}
+
 // Everything that comes from the statistics, as plain numbers: today, yesterday, both months,
 // the week bars and the forecast. `daily` holds day rows, `recent` 5 minute rows that cover today
-// (day rows lag by up to an hour), `forecast` the answer of energy/solar_forecast.
-function totals(src, daily, recent, forecast, clock, now) {
+// (day rows lag by up to an hour), `hourly` hour rows of the last USUAL_DAYS days, `forecast` the
+// answer of energy/solar_forecast.
+function totals(src, daily, recent, hourly, forecast, clock, now) {
   const at = clock(now), today = at.key;
   const month = today.slice(0, 7), last = shiftKey(month + "-01", -1).slice(0, 7);
   const days = byDay(daily, src, clock);
@@ -250,8 +302,7 @@ function totals(src, daily, recent, forecast, clock, now) {
     const d = Object.fromEntries(ENERGY.map((k) => [k, 0]));
     let count = 0;
     for (const key of keys) if (days.get(key)) { count++; for (const k of ENERGY) d[k] += days.get(key)[k]; }
-    // House use: its own sensor when the owner named one, else what flowed in minus what flowed out.
-    if (!src.loadKwh.length) d.loadKwh = Math.max(0, d.solarKwh + d.batteryKwh + d.gridImportKwh - d.chargeKwh - d.gridExportKwh);
+    d.loadKwh = houseKwh(d, src);
     return { ...d, days: count };
   };
   const of = (prefix) => [...days.keys()].filter((k) => k.startsWith(prefix));
@@ -259,10 +310,20 @@ function totals(src, daily, recent, forecast, clock, now) {
   const week = [7, 6, 5, 4, 3, 2, 1].map((back) => shiftKey(today, -back))
     .map((key) => ({ date: Date.parse(key) + 432e5, solarKwh: sum([key]).solarKwh }));
   const sunny = week.filter((w) => w.solarKwh > 0);
-  const wh = {};
+  const wh = {}, whHour = {};
   for (const f of Object.values(forecast || {})) for (const [time, v] of Object.entries(f.wh_hours || {})) {
-    const key = clock(Date.parse(time)).key;
-    wh[key] = (wh[key] || 0) + v;
+    // Each value goes to the hour its time falls in, as the Energy dashboard draws it.
+    const c = clock(Date.parse(time)), hour = `${c.key} ${c.hour}`;
+    wh[c.key] = (wh[c.key] || 0) + v;
+    whHour[hour] = (whHour[hour] || 0) + v;
+  }
+  // The plan for "enough until": the usual house use, and for the sun the forecast of the next 24
+  // hours where it covers that day (an hour it leaves out has no sun), else the usual sun.
+  const usual = usualDay(hourly, src, clock);
+  const plan = usual && { loadW: usual.loadW, solarW: [...usual.solarW] };
+  if (plan) for (let i = 0; i < 24; i++) {
+    const c = clock(now + i * 36e5);
+    if (c.key in wh) plan.solarW[c.hour] = Math.round(whHour[`${c.key} ${c.hour}`] || 0);
   }
   const tomorrow = shiftKey(today, 1);
   const thisMonth = sum(of(month));
@@ -272,6 +333,7 @@ function totals(src, daily, recent, forecast, clock, now) {
     month: { ...thisMonth, days: thisMonth.days - (days.get(today) ? 1 : 0) + at.hour / 24 },
     forecast: today in wh && tomorrow in wh && sunny.length
       ? { today: wh[today] / 1000, tomorrow: wh[tomorrow] / 1000, usual: sunny.reduce((a, w) => a + w.solarKwh, 0) / sunny.length } : null,
+    plan,
     msToMidnight: ((23 - at.hour) * 60 + 60 - at.minute) * 60e3,
   };
 }
@@ -336,11 +398,19 @@ function placeholder(hass) {
   };
 }
 
+// 12 or 24 hour clock: the panel's `time_format`, else the viewer's profile in Home Assistant
+// (Time format: "12", "24", "system" or "language"). undefined leaves it to the language.
+function hourCycle(config, locale) {
+  const pick = String(config?.time_format ?? locale?.time_format ?? "language");
+  if (pick === "system") return /h1[12]/.test(new Intl.DateTimeFormat(undefined, { hour: "numeric" }).resolvedOptions().hourCycle) ? "h12" : "h23";
+  return pick === "12" ? "h12" : pick === "24" ? "h23" : undefined;
+}
+
 // One set of Intl formatters per draw.
-function formats(lang, currency) {
+function formats(lang, currency, cycle) {
   const number = new Intl.NumberFormat(lang, { maximumFractionDigits: 1 });
   const money = new Intl.NumberFormat(lang, { style: "currency", currency });
-  const time = new Intl.DateTimeFormat(lang, { hour: "numeric", minute: "2-digit" }); // "alle 2:30", as spoken
+  const time = new Intl.DateTimeFormat(lang, { hour: "numeric", minute: "2-digit", hourCycle: cycle }); // "alle 2:30", as spoken
   // Days arrive as noon UTC of the calendar day (see totals).
   const weekday = new Intl.DateTimeFormat(lang, { weekday: "short", timeZone: "UTC" });
   const date = new Intl.DateTimeFormat(lang, { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
@@ -442,7 +512,7 @@ const big = (v) => `<span class="big">${v}<small>%</small></span>`;
 const row = (f, label, kwh, top, color, word) =>
   `<div class="row"><span class="lab">${label}${word ? ` <em>${word}</em>` : ""}</span><span class="num">${f.kwh(kwh)}</span>${bar(kwh / top, color)}</div>`;
 
-function nowHtml({ data, t, f, sky, loading, day }) {
+function nowHtml({ data, t, f, sky, loading, day, clock }) {
   const n = data.now, today = data.today;
   const charging = n.batteryChargeW > MIN_FLOW_W, discharging = n.batteryDischargeW > MIN_FLOW_W;
   const exporting = n.gridExportW > EXPORT_W;
@@ -455,12 +525,14 @@ function nowHtml({ data, t, f, sky, loading, day }) {
   const batt = data.batt;
   const word = n.soc === null ? "" : batteryWord(n.soc);
   const battColor = word === "low" || word === "empty" ? "--low" : "--batt";
-  const lastsH = batt ? batteryLastsH(n, data.sun, batt) : 0;
+  const now = Date.now();
+  const lastsH = batt ? batteryLastsH(n, data.sun, batt, data.plan, clock(now)) : 0;
   // Rounded to the half hour: the estimate is rough, and the text stays still between updates.
-  const until = new Date(Math.round((Date.now() + lastsH * 36e5) / 18e5) * 18e5);
+  const until = () => new Date(Math.round((now + lastsH * 36e5) / 18e5) * 18e5);
   const battW = Math.round(n.batteryChargeW || n.batteryDischargeW);
   const battState = charging ? t.charging
-    : lastsH ? say(t.until, { t: f.time(until) })
+    : lastsH === Infinity ? t.untilSun
+    : lastsH ? say(t.until, { t: f.time(until()) })
     : discharging ? t.discharging : t.resting;
   const hints = {
     sun: say(n.solarW > 0 ? t.hSun : t.hSunOff, { w: Math.round(n.solarW), k: f.kwh(today.solarKwh) }),
@@ -688,8 +760,9 @@ class SolarView extends HTMLElement {
   get hass() { return this._hass; }
 
   // Which entities to read (Energy settings plus config), then their totals from the statistics.
-  // Kept simple: everything is asked again every 5 minutes, about 2000 small rows. Ask the day rows
-  // hourly instead if that ever shows up as load.
+  // Kept simple: everything is asked again every 5 minutes, about 2000 small rows, except the hour
+  // rows of the usual day (as many again), asked once an hour. Ask the day rows hourly too if that
+  // ever shows up as load.
   async _load() {
     const hass = this._hass, now = Date.now(), run = (this._run = (this._run || 0) + 1);
     this._next = now + REFRESH_MS;
@@ -702,14 +775,17 @@ class SolarView extends HTMLElement {
         type: "recorder/statistics_during_period", start_time: new Date(start).toISOString(),
         statistic_ids: ids, period, types: ["change"], units: { energy: "kWh" },
       }) : {});
+      // The usual day moves slowly: its hour rows are asked once an hour.
+      const kept = this._hourly && this._hourly.ids === ids.join() && now < this._hourly.until ? this._hourly : null;
       // 63 days reach the first day of last month from any day. 25 hours cover today, even a long one.
-      const [daily, recent, forecast] = await Promise.all([stat("day", now - 63 * 864e5), stat("5minute", now - 25 * 36e5),
-        hass.callWS({ type: "energy/solar_forecast" }).catch(() => ({}))]);
+      const [daily, recent, hourly, forecast] = await Promise.all([stat("day", now - 63 * 864e5), stat("5minute", now - 25 * 36e5),
+        kept ? kept.rows : stat("hour", now - USUAL_DAYS * 864e5), hass.callWS({ type: "energy/solar_forecast" }).catch(() => ({}))]);
       // `hass` and `panel` each start a load when the page opens: only the newest may answer,
       // or entities read without the config could land last.
       if (run !== this._run) return;
       this._src = src;
-      this._stats = totals(src, daily, recent, forecast, clockOf(hass.config?.time_zone), now);
+      this._hourly = kept || { ids: ids.join(), until: now + 36e5, rows: hourly };
+      this._stats = totals(src, daily, recent, hourly, forecast, clockOf(hass.config?.time_zone), now);
       // Just after midnight "today" must start from zero.
       this._next = Math.min(this._next, now + this._stats.msToMidnight + 5e3);
       this._render();
@@ -775,7 +851,8 @@ class SolarView extends HTMLElement {
     // skeleton has exactly the size of what replaces it.
     const data = loading ? placeholder(hass) : readData(hass, src, this._stats);
     const day = this.testDay ?? Math.round(new Date().setHours(0, 0, 0, 0) / 864e5); // testDay: preview harness only (?day=)
-    const key = loading + locale + dark + day + JSON.stringify(data);
+    const cycle = hourCycle(this._panel?.config, hass.locale);
+    const key = loading + locale + cycle + dark + day + JSON.stringify(data);
     if (key === this._drawn) return; // same data again: leave the DOM (and its motion) alone
     this._drawn = key;
     if (loading) this.removeAttribute("ready");
@@ -793,7 +870,8 @@ class SolarView extends HTMLElement {
     this.style.setProperty("--glow", sky.colors[3]);
     this.style.setProperty("--stars", dark ? (0.7 * (1 - sky.up)).toFixed(2) : "0");
 
-    const c = { data, t, f: formats(locale, hass.config?.currency || "EUR"), sky, loading, day };
+    const f = formats(locale, hass.config?.currency || "EUR", cycle);
+    const c = { data, t, f, sky, loading, day, clock: clockOf(hass.config?.time_zone) };
     let html;
     try {
       html = [nowHtml(c), todayHtml(c), historyHtml(c), data.admin ? detailsHtml(c) : ""];
@@ -818,4 +896,4 @@ class SolarView extends HTMLElement {
 // A tab left open across an update loads the new version beside the old one: keep the old
 // element until the page is refreshed instead of throwing.
 if (!customElements.get("solar-view")) customElements.define("solar-view", SolarView);
-export { STRINGS, entitiesFrom, clockOf, totals }; // for the checks in the preview harness
+export { STRINGS, entitiesFrom, clockOf, totals, batteryLastsH }; // for the checks in the preview harness
