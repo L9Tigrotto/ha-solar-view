@@ -5,7 +5,8 @@
 - Home Assistant with the Energy dashboard set up (Settings, Dashboards, Energy): solar panels and a grid connection, each **with its power sensor**.
 - Optional: a battery with power sensor, state of charge and capacity.
 - Optional: a price on the grid connection, for the money figures.
-- Optional: a solar forecast linked to the solar panels, for the "wait for tomorrow" advice.
+- Optional: a solar forecast linked to the solar panels, for the "wait for tomorrow" advice and a better ["enough until"](#enough-until).
+- Optional: [HACS](https://hacs.xyz), to install and update in a few clicks. Without it, copy the files by hand.
 
 Developed and tested on Home Assistant 2026.9. Power sensors in the Energy settings are a fairly recent addition. On an older version, name the sensors yourself under [`entities`](#options).
 
@@ -135,7 +136,7 @@ With `advice_replace: true`, a pool that has lines of yours shows only those. Ke
 
 ## Who sees what
 
-Every user sees Now, Today and Past days in the language of their profile. The Info page is shown to admin users only. That is tidiness, not security: the sensors behind it are readable by any user anyway.
+Every user sees Now, Today and Past days in the language and time format of their profile. The Info page is shown to admin users only. That is tidiness, not security: the sensors behind it are readable by any user anyway.
 
 ## Troubleshooting
 
@@ -143,6 +144,7 @@ Every user sees Now, Today and Past days in the language of their profile. The I
 |---|---|
 | "Nothing to show yet..." | The Energy settings have no solar power sensor, or a named sensor does not exist. Admin users also see the names of the missing sensors. |
 | "The inverter is not answering..." | The sensors exist but have no value right now. It clears by itself. |
+| No "enough until" on the battery card | The battery is charging or resting, the end is less than half an hour or more than 18 hours away, or there is no battery size (`battery_kwh`). |
 | A grey loading skeleton that stays | Home Assistant is still starting, or the statistics have not answered. |
 | The old page after an update | Installed by hand: raise `?v=` and restart. On a phone, close the app fully and reopen it. |
 

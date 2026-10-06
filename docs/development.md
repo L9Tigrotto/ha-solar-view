@@ -1,6 +1,6 @@
 # Development
 
-There is no build step. The three files in `dist/` are what Home Assistant loads:
+There is no build step. The three files in `dist/` are what Home Assistant loads, and what HACS downloads: it takes every `.js` file in that folder, so nothing else belongs there.
 
 | File | What is in it |
 |---|---|
@@ -38,7 +38,13 @@ The checks are `console.assert` calls in the preview page. The browser console m
 
 Warnings that say "loading the numbers failed Error: check" come from the tool's own failure test and are expected.
 
+The scenarios have no hourly statistics, so "enough until" uses the present draw and the checks give the same result at any time of day. The walk through the usual day is checked on its own, with fixed hours.
+
 `?check=skeleton` must log "0 differ": the loading skeleton has to sit exactly where the loaded page puts things, so nothing jumps when the numbers arrive. Run it after any change to markup, CSS or text length, at phone width.
+
+## Publishing
+
+The repository has no releases, so HACS follows the latest commit on `main`: every merge into `main` reaches every HACS install as an update. Run the preview checks before merging.
 
 ## Adding or fixing a language
 

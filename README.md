@@ -2,9 +2,9 @@
 
 Your solar system in plain words, as a page in Home Assistant.
 
-Most solar dashboards are for whoever installed the system. This one is for everyone else. It says "The house is running on the sun" instead of showing watts, calls the battery "Low", "Good" or "Full" next to its percent, and gives one line of advice that follows the moment: "The sun is paying: run the big appliances now" when there is sun to spare, a warning when the battery runs low, a hint to wait when tomorrow looks sunnier. You can add [advice lines of your own](docs/setup.md#your-own-advice-lines).
+Most solar dashboards are for whoever installed the system. This one is for everyone else. It says "The house is running on the sun" instead of showing watts, calls the battery "Low", "Good" or "Full" next to its percent, says how long it will power the house (learned from your usual day, hour by hour), and gives one line of advice that follows the moment: "The sun is paying: run the big appliances now" when there is sun to spare, a warning when the battery runs low, a hint to wait when tomorrow looks sunnier. You can add [advice lines of your own](docs/setup.md#your-own-advice-lines).
 
-Any brand works, because it reads Home Assistant's own Energy settings. One page to swipe on a phone, four columns on a wide screen, light and dark. Three simple pages for the family, a fourth with the technical numbers for admins. 8 languages (en, it, es, fr, de, pt, nl, pl), following each user's profile.
+Any brand works, because it reads Home Assistant's own Energy settings. One page to swipe on a phone, four columns on a wide screen, light and dark. Three simple pages for the family, a fourth with the technical numbers for admins. 8 languages (en, it, es, fr, de, pt, nl, pl) and a 12 or 24 hour clock, following each user's profile.
 
 Three files, no build step, no dependencies. Installs and updates through HACS. No data leaves your Home Assistant.
 
