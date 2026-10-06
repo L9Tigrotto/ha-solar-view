@@ -42,6 +42,8 @@ const LASTS_MAX_H = 18;
 const USUAL_DAYS = 14;    // "enough until" follows the house's usual use per hour over these many days, unless config says usual_days
 const USUAL_MIN = 3;      // until every hour of the day has this many days behind it, the present draw is used
 const SURPLUS_W = 1000;   // solar minus house use above this: good moment for big appliances
+const FADE_MIN_W = 500;   // the sun forecast for this hour must reach this before a drop in the next 3 hours is worth a warning
+const FADE_SHARE = 0.4;   // the next 3 hours average under this share of this hour: the sun is fading soon
 const EXPORT_W = 50;      // exporting more than this also means spare energy
 const IMPORT_W = 50;      // importing more than this counts as "the grid is helping"
 // Battery words by whole percent: 0 empty, 1 to 15 low, 16 to 84 good, 85 to 99 almost full, 100 full.
@@ -103,8 +105,10 @@ const stateNum = (hass, id) => { const v = parseFloat(hass.states[id]?.state); r
 
 // "wait": today's forecast is poor against a usual day here (the average of the last 7 days),
 // and tomorrow's is clearly better.
+// "soon": spare sun now, but the forecast says it fades within 3 hours (a cycle would run into it).
 function advice(n, forecast, daytime) {
-  if (n.solarW - n.loadW > SURPLUS_W || n.gridExportW > EXPORT_W) return "go";
+  if (n.solarW - n.loadW > SURPLUS_W || n.gridExportW > EXPORT_W)
+    return forecast && forecast.fade.now >= FADE_MIN_W && forecast.fade.next < forecast.fade.now * FADE_SHARE ? "soon" : "go";
   if (n.soc !== null && n.soc < LOW_SOC && n.solarW < LOW_SOLAR_W) return "low";
   if (daytime && forecast && forecast.today < forecast.usual * POOR_SHARE && forecast.tomorrow >= forecast.today * BETTER_TIMES) return "wait";
   return "ok";
@@ -118,6 +122,7 @@ function advicePool(t, kind, word, charging, daytime) {
   if (kind === "go") return high ? [...t.adviceGoFull, ...t.adviceGo] : t.adviceGo;
   if (kind === "low") return word === "empty" ? t.adviceEmpty : t.adviceLow;
   if (kind === "wait") return t.adviceWait;
+  if (kind === "soon") return t.adviceSoon;
   if (charging && (word === "low" || word === "empty")) return t.adviceOkRefill;
   return high ? [...t.adviceOkFull, ...general] : general;
 }
@@ -126,7 +131,7 @@ function advicePool(t, kind, word, charging, daytime) {
 // panel's `config:` in configuration.yaml (see the example there), so nobody edits this file:
 //   advice: { it: { ok: ["..."], go: ["..."] }, en: { ... } }   added to the built-in lines
 //   advice_replace: true                                        a pool with own lines uses only those
-// Pool names: go, goFull, low, empty, wait, ok, okNight, okFull, okRefill.
+// Pool names: go, goFull, soon, low, empty, wait, ok, okNight, okFull, okRefill.
 function withOwnAdvice(strings, config, lang) {
   const own = config?.advice?.[lang];
   if (!own) return strings;
@@ -329,13 +334,16 @@ function totals(src, daily, recent, hourly, forecast, clock, now) {
     if (c.key in wh) plan.solarW[c.hour] = Math.round(whHour[`${c.key} ${c.hour}`] || 0);
   }
   const tomorrow = shiftKey(today, 1);
+  // The sun forecast of this hour, and the average of the next 3.
+  const fcHour = (i) => { const c = clock(now + i * 36e5); return whHour[`${c.key} ${c.hour}`] || 0; };
+  const fade = { now: fcHour(0), next: (fcHour(1) + fcHour(2) + fcHour(3)) / 3 };
   const thisMonth = sum(of(month));
   return {
     today: sum([today]), yesterday: sum([shiftKey(today, -1)]), lastMonth: sum(of(last)), week,
     // Today counts as the part of it that has passed.
     month: { ...thisMonth, days: thisMonth.days - (days.get(today) ? 1 : 0) + at.hour / 24 },
     forecast: today in wh && tomorrow in wh && sunny.length
-      ? { today: wh[today] / 1000, tomorrow: wh[tomorrow] / 1000, usual: sunny.reduce((a, w) => a + w.solarKwh, 0) / sunny.length } : null,
+      ? { fade, today: wh[today] / 1000, tomorrow: wh[tomorrow] / 1000, usual: sunny.reduce((a, w) => a + w.solarKwh, 0) / sunny.length } : null,
     plan,
     msToMidnight: ((23 - at.hour) * 60 + 60 - at.minute) * 60e3,
   };
@@ -503,6 +511,7 @@ const ADVICE_ICON = {
   ok: `<path d="M5.5 12.6l4.3 4.3 8.7-9.4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>`,
   wait: `<circle cx="12" cy="12" r="8.6" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M12 7.4V12l3.2 2.1" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>`,
 };
+ADVICE_ICON.soon = ADVICE_ICON.wait;
 
 // ---- Pages: each returns the HTML of one page from c = { data, t, f, sky, loading } ----
 const PAGES = ["now", "today", "history", "details"]; // "details" is for admin users only

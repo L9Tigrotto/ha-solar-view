@@ -51,6 +51,12 @@ export const STRINGS = {
       "Full battery, full sun: washing machine time",
       "The battery's full, so anything extra is a gift. Use it",
     ],
+    adviceSoon: [ // spare sun now, but the forecast says it fades within 3 hours
+      "Sun to spare, but less is forecast soon: stick to a short cycle",
+      "The sun may fade within hours: only start what finishes quickly",
+      "Less sun is forecast soon: best not to start a long cycle now",
+      "Sunny now, but not for long: long cycles may end up on the grid",
+    ],
     adviceLow: [ // battery low and no sun
       "Battery's low, so big appliances will use the grid",
       "Battery nearly empty: best keep the big appliances for later",
@@ -179,6 +185,12 @@ export const STRINGS = {
       "Il sole non sa più dove andare: accendi qualcosa",
       "Batteria piena, sole pieno: è l'ora della lavatrice",
       "La batteria è piena, il resto è un regalo: usalo",
+    ],
+    adviceSoon: [
+      "Sole in avanzo, ma presto ne è previsto meno: meglio un ciclo breve",
+      "Tra qualche ora il sole potrebbe calare: avvia solo ciò che finisce presto",
+      "Si prevede meno sole a breve: meglio non far partire un ciclo lungo ora",
+      "Adesso c'è sole, ma non durerà: i cicli lunghi potrebbero finire sulla rete",
     ],
     adviceLow: [
       "Batteria bassa: lavatrice e forno ora userebbero la rete",
@@ -309,6 +321,12 @@ export const STRINGS = {
       "Batería llena y pleno sol: hora de la lavadora",
       "La batería está llena, el resto es un regalo: úsalo",
     ],
+    adviceSoon: [
+      "Sobra sol, pero pronto se prevé menos: mejor un programa corto",
+      "El sol podría bajar en unas horas: pon solo lo que termine pronto",
+      "Se espera menos sol en breve: mejor no empezar un programa largo ahora",
+      "Ahora hay sol, pero no durará: los programas largos podrían acabar tirando de la red",
+    ],
     adviceLow: [
       "Batería baja: los electrodomésticos grandes usarán la red",
       "Batería casi vacía: deja los electrodomésticos grandes para luego",
@@ -437,6 +455,12 @@ export const STRINGS = {
       "Le soleil ne sait plus où aller : allume quelque chose",
       "Batterie pleine, plein soleil : place à la lessive",
       "La batterie est pleine, le reste est cadeau : profites-en",
+    ],
+    adviceSoon: [
+      "Du soleil en trop, mais moins est prévu bientôt : mieux vaut un programme court",
+      "Le soleil pourrait baisser d'ici quelques heures : lance seulement ce qui finit vite",
+      "Moins de soleil prévu bientôt : mieux vaut ne pas lancer un long programme maintenant",
+      "Il y a du soleil, mais pas pour longtemps : les longs programmes risquent de finir sur le réseau",
     ],
     adviceLow: [
       "Batterie faible : les gros appareils iront sur le réseau",
@@ -567,6 +591,12 @@ export const STRINGS = {
       "Volle Batterie, volle Sonne: Zeit für die Waschmaschine",
       "Die Batterie ist voll, der Rest ist geschenkt: Nutz ihn",
     ],
+    adviceSoon: [
+      "Sonne übrig, aber bald wird weniger erwartet: Lieber ein kurzes Programm",
+      "Die Sonne könnte in ein paar Stunden nachlassen: Starte nur, was schnell fertig ist",
+      "Bald wird weniger Sonne erwartet: Lieber kein langes Programm jetzt starten",
+      "Gerade scheint die Sonne, aber nicht mehr lange: Lange Programme laufen vielleicht übers Netz",
+    ],
     adviceLow: [
       "Batterie niedrig: Große Geräte laufen jetzt übers Netz",
       "Batterie fast leer: Große Geräte lieber später anmachen",
@@ -695,6 +725,12 @@ export const STRINGS = {
       "O sol não tem mais onde ficar: ligue algo grande",
       "Bateria cheia, sol pleno: hora da máquina de lavar",
       "A bateria está cheia, o resto é presente: aproveite",
+    ],
+    adviceSoon: [
+      "Sol de sobra, mas em breve deve ter menos: melhor um ciclo curto",
+      "O sol pode diminuir em poucas horas: ligue só o que termina rápido",
+      "A previsão é de menos sol em breve: melhor não iniciar um ciclo longo agora",
+      "Agora tem sol, mas não vai durar: ciclos longos podem acabar usando a rede",
     ],
     adviceLow: [
       "Bateria baixa: aparelhos grandes vão usar a rede",
@@ -825,6 +861,12 @@ export const STRINGS = {
       "Volle batterij, volle zon: tijd voor de wasmachine",
       "De batterij is vol, de rest is cadeau: gebruik het",
     ],
+    adviceSoon: [
+      "Zon over, maar binnenkort wordt er minder verwacht: kies liever een kort programma",
+      "De zon kan over een paar uur afnemen: start alleen wat snel klaar is",
+      "Binnenkort wordt minder zon verwacht: begin nu liever niet aan een lang programma",
+      "Nu is er zon, maar niet lang meer: lange programma's draaien straks misschien op het net",
+    ],
     adviceLow: [
       "Batterij laag: grote apparaten gebruiken nu het net",
       "Batterij bijna leeg: bewaar de grote apparaten voor later",
@@ -953,6 +995,12 @@ export const STRINGS = {
       "Słońca nie ma już gdzie schować: włącz coś dużego",
       "Pełna bateria, pełne słońce: czas na pralkę",
       "Bateria pełna, reszta to prezent: korzystaj",
+    ],
+    adviceSoon: [
+      "Słońca w nadmiarze, ale wkrótce będzie go mniej: lepiej krótki program",
+      "Za kilka godzin słońca może ubyć: włączaj tylko to, co szybko się skończy",
+      "Wkrótce prognozowane jest mniej słońca: lepiej nie zaczynać teraz długiego programu",
+      "Teraz świeci słońce, ale nie na długo: długie programy mogą skończyć na prądzie z sieci",
     ],
     adviceLow: [
       "Słaba bateria: duże urządzenia wezmą prąd z sieci",

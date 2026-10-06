@@ -38,6 +38,8 @@ const SCENARIOS = {
   evening: { v: [0, 350, 0, 60, -20, false], today: [15.2, 12.4, 0.3, 0.1], expect: "ok" }, // the night-time "ok" lines
   // Grey day with a sunny tomorrow: the forecast hint. The same grey day without a forecast stays "ok".
   poor:    { v: [250, 150, 0, 45, 30, false], today: [1.2, 5.0, 0.4, 0], forecast: [5, 16], expect: "wait" },
+  // Spare sun now, but the forecast drops from [this hour, the next 3 hours] in Wh: "soon" instead of "go".
+  fading:  { v: [2500, -2100, 0, 70, 42, false], today: [7.8, 6.1, 0.2, 0], fade: [3000, 400], expect: "soon" },
   poorNoForecast: { v: [250, 150, 0, 45, 30, false], today: [1.2, 5.0, 0.4, 0], forecast: null, expect: "ok" },
   // A house with panels and a grid connection, no battery.
   nobattery: { v: [2500, 0, -2100, 0, 42, false], today: [7.8, 6.1, 1.2, 2.9], battery: false, expect: "go" },
@@ -109,7 +111,13 @@ function fakeHass(s, loading = false) {
     config: { state: loading ? "NOT_RUNNING" : "RUNNING", time_zone: TZ, currency: "EUR" },
     callWS: async (msg) => {
       if (msg.type === "energy/get_prefs") { if (!s) throw { code: "not_found", message: "No prefs" }; return fakePrefs(s); }
-      if (msg.type === "energy/solar_forecast") return extras && forecast ? { fc: { wh_hours: { [noon(0)]: forecast[0] * 1000, [noon(1)]: forecast[1] * 1000 } } } : {};
+      if (msg.type === "energy/solar_forecast") {
+        if (!extras || !forecast) return {};
+        const wh_hours = { [noon(0)]: forecast[0] * 1000, [noon(1)]: forecast[1] * 1000 };
+        const hour = Math.floor(Date.now() / 36e5) * 36e5;
+        if (s.fade) for (let i = 0; i < 4; i++) wh_hours[new Date(hour + i * 36e5).toISOString()] = s.fade[i ? 1 : 0];
+        return { fc: { wh_hours } };
+      }
       return fakeStats(s, msg);
     },
   };
@@ -141,7 +149,7 @@ for (const [k, s] of Object.entries(SCENARIOS)) {
   const p = await draw(fakeHass(s));
   if (!s || s.offline) { console.assert($(p, ".empty"), `${k} must show a message, not zeros`); continue; }
   const kind = $(p, ".advice").dataset.kind;
-  const expect = !extras && s.expect === "wait" ? "ok" : s.expect;
+  const expect = !extras && { wait: "ok", soon: "go" }[s.expect] || s.expect;
   console.assert(kind === expect, `advice for ${k}: got ${kind}, expected ${expect}`);
 }
 
