@@ -39,7 +39,7 @@ const BETTER_TIMES = 1.5;     // tomorrow must beat today by this factor before 
 const BATTERY_FLOOR_SOC = 10; // percent where the inverter stops discharging, unless config says battery_floor
 const LASTS_MIN_H = 0.5;      // "enough until" is only shown between these many hours
 const LASTS_MAX_H = 18;
-const USUAL_DAYS = 14;    // "enough until" follows the house's usual use per hour over these many days
+const USUAL_DAYS = 14;    // "enough until" follows the house's usual use per hour over these many days, unless config says usual_days
 const USUAL_MIN = 3;      // until every hour of the day has this many days behind it, the present draw is used
 const SURPLUS_W = 1000;   // solar minus house use above this: good moment for big appliances
 const EXPORT_W = 50;      // exporting more than this also means spare energy
@@ -241,6 +241,8 @@ function entitiesFrom(prefs, config = {}) {
       kwh: config.battery_kwh ?? (sized ? batteries.reduce((sum, b) => sum + b.capacity, 0) : null),
       floor: config.battery_floor ?? BATTERY_FLOOR_SOC,
     },
+    // Fewer than USUAL_MIN days could never make a usual day.
+    usualDays: Math.max(USUAL_MIN, Math.round(Number(config.usual_days)) || USUAL_DAYS),
     // A number, or the id of an entity holding one.
     price: { buy: price(config.price_buy, "entity_energy_price", "number_energy_price"),
       sell: price(config.price_sell, "entity_energy_price_export", "number_energy_price_export") },
@@ -777,15 +779,16 @@ class SolarView extends HTMLElement {
         statistic_ids: ids, period, types: ["change"], units: { energy: "kWh" },
       }) : {});
       // The usual day moves slowly: its hour rows are asked once an hour.
-      const kept = this._hourly && this._hourly.ids === ids.join() && now < this._hourly.until ? this._hourly : null;
+      const asked = `${ids} ${src.usualDays}`;
+      const kept = this._hourly && this._hourly.asked === asked && now < this._hourly.until ? this._hourly : null;
       // 63 days reach the first day of last month from any day. 25 hours cover today, even a long one.
       const [daily, recent, hourly, forecast] = await Promise.all([stat("day", now - 63 * 864e5), stat("5minute", now - 25 * 36e5),
-        kept ? kept.rows : stat("hour", now - USUAL_DAYS * 864e5), hass.callWS({ type: "energy/solar_forecast" }).catch(() => ({}))]);
+        kept ? kept.rows : stat("hour", now - src.usualDays * 864e5), hass.callWS({ type: "energy/solar_forecast" }).catch(() => ({}))]);
       // `hass` and `panel` each start a load when the page opens: only the newest may answer,
       // or entities read without the config could land last.
       if (run !== this._run) return;
       this._src = src;
-      this._hourly = kept || { ids: ids.join(), until: now + 36e5, rows: hourly };
+      this._hourly = kept || { asked, until: now + 36e5, rows: hourly };
       this._stats = totals(src, daily, recent, hourly, forecast, clockOf(hass.config?.time_zone), now);
       // Just after midnight "today" must start from zero.
       this._next = Math.min(this._next, now + this._stats.msToMidnight + 5e3);
