@@ -519,8 +519,9 @@ function nowHtml({ data, t, f, sky, loading, day, clock }) {
   const n = data.now, today = data.today;
   const charging = n.batteryChargeW > MIN_FLOW_W, discharging = n.batteryDischargeW > MIN_FLOW_W;
   const exporting = n.gridExportW > EXPORT_W;
-  const src = sources(n).map((s) => t.src[s]);
-  const sentence = say(t.runOn, { a: src.length > 1 ? say(t.and, { a: src[0], b: src[1] }) : src[0] });
+  const names = sources(n), src = names.map((s) => t.src[s]);
+  const sentence = names.length > 1 && !names.includes("grid") ? t.sunBatt
+    : say(t.runOn, { a: src.length > 1 ? say(t.and, { a: src[0], b: src[1] }) : src[0] });
   const sub = n.gridImportW > IMPORT_W ? t.subGrid
     : exporting ? t.subExport
     : charging ? t.subCharge
