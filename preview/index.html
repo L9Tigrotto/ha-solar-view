@@ -40,6 +40,8 @@ const SCENARIOS = {
   poor:    { v: [250, 150, 0, 45, 30, false], today: [1.2, 5.0, 0.4, 0], forecast: [5, 16], expect: "wait" },
   // Spare sun now, but the forecast drops from [this hour, the next 3 hours] in Wh: "soon" instead of "go".
   fading:  { v: [2500, -2100, 0, 70, 42, false], today: [7.8, 6.1, 0.2, 0], fade: [3000, 400], expect: "soon" },
+  // Not much sun now, but the next 3 hours are forecast to be clearly sunnier: "later".
+  brightening: { v: [250, 150, 0, 45, 30, false], today: [1.2, 5.0, 0.4, 0], fade: [300, 1500], expect: "later" },
   poorNoForecast: { v: [250, 150, 0, 45, 30, false], today: [1.2, 5.0, 0.4, 0], forecast: null, expect: "ok" },
   // A house with panels and a grid connection, no battery.
   nobattery: { v: [2500, 0, -2100, 0, 42, false], today: [7.8, 6.1, 1.2, 2.9], battery: false, expect: "go" },
@@ -105,7 +107,6 @@ function fakeHass(s, loading = false) {
     }
   }
   const forecast = s && s.forecast === undefined ? [15, 14] : s && s.forecast;
-  const noon = (daysAhead) => new Date(localMidnight(-daysAhead) + 12 * 36e5).toISOString();
   return {
     states, language: lang, locale: { language: lang }, themes: { darkMode: dark }, user: { is_admin: admin },
     config: { state: loading ? "NOT_RUNNING" : "RUNNING", time_zone: TZ, currency: "EUR" },
@@ -113,7 +114,10 @@ function fakeHass(s, loading = false) {
       if (msg.type === "energy/get_prefs") { if (!s) throw { code: "not_found", message: "No prefs" }; return fakePrefs(s); }
       if (msg.type === "energy/solar_forecast") {
         if (!extras || !forecast) return {};
-        const wh_hours = { [noon(0)]: forecast[0] * 1000, [noon(1)]: forecast[1] * 1000 };
+        // Spread flat over the day, so a forecast alone never looks like the sun fading or returning.
+        const wh_hours = {};
+        for (const [ahead, kwh] of [[0, forecast[0]], [1, forecast[1]]])
+          for (let h = 0; h < 24; h++) wh_hours[new Date(localMidnight(-ahead) + h * 36e5).toISOString()] = kwh * 1000 / 24;
         const hour = Math.floor(Date.now() / 36e5) * 36e5;
         if (s.fade) for (let i = 0; i < 4; i++) wh_hours[new Date(hour + i * 36e5).toISOString()] = s.fade[i ? 1 : 0];
         return { fc: { wh_hours } };
@@ -149,7 +153,7 @@ for (const [k, s] of Object.entries(SCENARIOS)) {
   const p = await draw(fakeHass(s));
   if (!s || s.offline) { console.assert($(p, ".empty"), `${k} must show a message, not zeros`); continue; }
   const kind = $(p, ".advice").dataset.kind;
-  const expect = !extras && { wait: "ok", soon: "go" }[s.expect] || s.expect;
+  const expect = !extras && { wait: "ok", soon: "go", later: "ok" }[s.expect] || s.expect;
   console.assert(kind === expect, `advice for ${k}: got ${kind}, expected ${expect}`);
 }
 

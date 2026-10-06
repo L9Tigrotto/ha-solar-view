@@ -57,6 +57,12 @@ export const STRINGS = {
       "Less sun is forecast soon: best not to start a long cycle now",
       "Sunny now, but not for long: long cycles may end up on the grid",
     ],
+    adviceLater: [ // no spare sun now, but clearly more is forecast within 3 hours
+      "More sun is on its way: the dishwasher can wait a little",
+      "The sun should pick up within hours: big jobs can wait",
+      "Better sun is forecast soon: hold off on the big appliances",
+      "Not much sun yet, but more is coming: worth waiting a bit",
+    ],
     adviceLow: [ // battery low and no sun
       "Battery's low, so big appliances will use the grid",
       "Battery nearly empty: best keep the big appliances for later",
@@ -191,6 +197,12 @@ export const STRINGS = {
       "Tra qualche ora il sole potrebbe calare: avvia solo ciò che finisce presto",
       "Si prevede meno sole a breve: meglio non far partire un ciclo lungo ora",
       "Adesso c'è sole, ma non durerà: i cicli lunghi potrebbero finire sulla rete",
+    ],
+    adviceLater: [
+      "Sta arrivando più sole: la lavastoviglie può aspettare un po'",
+      "Tra qualche ora il sole dovrebbe aumentare: gli elettrodomestici grossi possono aspettare",
+      "Presto è previsto più sole: meglio aspettare con gli elettrodomestici grossi",
+      "Per ora poco sole, ma sta per arrivarne: vale la pena aspettare un po'",
     ],
     adviceLow: [
       "Batteria bassa: lavatrice e forno ora userebbero la rete",
@@ -327,6 +339,12 @@ export const STRINGS = {
       "Se espera menos sol en breve: mejor no empezar un programa largo ahora",
       "Ahora hay sol, pero no durará: los programas largos podrían acabar tirando de la red",
     ],
+    adviceLater: [
+      "Se acerca más sol: el lavavajillas puede esperar un poco",
+      "El sol debería subir en unas horas: los electrodomésticos grandes pueden esperar",
+      "Pronto se prevé más sol: mejor esperar con los electrodomésticos grandes",
+      "Todavía poco sol, pero viene más: merece la pena esperar un poco",
+    ],
     adviceLow: [
       "Batería baja: los electrodomésticos grandes usarán la red",
       "Batería casi vacía: deja los electrodomésticos grandes para luego",
@@ -461,6 +479,12 @@ export const STRINGS = {
       "Le soleil pourrait baisser d'ici quelques heures : lance seulement ce qui finit vite",
       "Moins de soleil prévu bientôt : mieux vaut ne pas lancer un long programme maintenant",
       "Il y a du soleil, mais pas pour longtemps : les longs programmes risquent de finir sur le réseau",
+    ],
+    adviceLater: [
+      "Plus de soleil en route : le lave-vaisselle peut attendre un peu",
+      "Le soleil devrait remonter d'ici quelques heures : les gros appareils peuvent attendre",
+      "Plus de soleil prévu bientôt : mieux vaut attendre pour les gros appareils",
+      "Encore peu de soleil, mais ça arrive : ça vaut la peine d'attendre un peu",
     ],
     adviceLow: [
       "Batterie faible : les gros appareils iront sur le réseau",
@@ -597,6 +621,12 @@ export const STRINGS = {
       "Bald wird weniger Sonne erwartet: Lieber kein langes Programm jetzt starten",
       "Gerade scheint die Sonne, aber nicht mehr lange: Lange Programme laufen vielleicht übers Netz",
     ],
+    adviceLater: [
+      "Mehr Sonne ist unterwegs: Die Spülmaschine kann noch etwas warten",
+      "Die Sonne sollte in ein paar Stunden zulegen: Große Geräte können warten",
+      "Bald wird mehr Sonne erwartet: Große Geräte lieber noch aufschieben",
+      "Noch wenig Sonne, aber es wird mehr: Etwas Warten lohnt sich",
+    ],
     adviceLow: [
       "Batterie niedrig: Große Geräte laufen jetzt übers Netz",
       "Batterie fast leer: Große Geräte lieber später anmachen",
@@ -731,6 +761,12 @@ export const STRINGS = {
       "O sol pode diminuir em poucas horas: ligue só o que termina rápido",
       "A previsão é de menos sol em breve: melhor não iniciar um ciclo longo agora",
       "Agora tem sol, mas não vai durar: ciclos longos podem acabar usando a rede",
+    ],
+    adviceLater: [
+      "Vem mais sol por aí: a lava-louças pode esperar um pouco",
+      "O sol deve aumentar em poucas horas: os aparelhos grandes podem esperar",
+      "A previsão é de mais sol em breve: melhor segurar os aparelhos grandes",
+      "Ainda pouco sol, mas vem mais: vale a pena esperar um pouco",
     ],
     adviceLow: [
       "Bateria baixa: aparelhos grandes vão usar a rede",
@@ -867,6 +903,12 @@ export const STRINGS = {
       "Binnenkort wordt minder zon verwacht: begin nu liever niet aan een lang programma",
       "Nu is er zon, maar niet lang meer: lange programma's draaien straks misschien op het net",
     ],
+    adviceLater: [
+      "Er komt meer zon aan: de vaatwasser kan nog even wachten",
+      "De zon trekt over een paar uur aan: grote apparaten kunnen wachten",
+      "Binnenkort wordt meer zon verwacht: wacht liever met de grote apparaten",
+      "Nog weinig zon, maar er komt meer: even wachten loont",
+    ],
     adviceLow: [
       "Batterij laag: grote apparaten gebruiken nu het net",
       "Batterij bijna leeg: bewaar de grote apparaten voor later",
@@ -1001,6 +1043,12 @@ export const STRINGS = {
       "Za kilka godzin słońca może ubyć: włączaj tylko to, co szybko się skończy",
       "Wkrótce prognozowane jest mniej słońca: lepiej nie zaczynać teraz długiego programu",
       "Teraz świeci słońce, ale nie na długo: długie programy mogą skończyć na prądzie z sieci",
+    ],
+    adviceLater: [
+      "Idzie więcej słońca: zmywarka może chwilę poczekać",
+      "Za kilka godzin słońca powinno przybyć: duże urządzenia mogą poczekać",
+      "Wkrótce prognozowane jest więcej słońca: duże urządzenia lepiej odłożyć",
+      "Na razie mało słońca, ale będzie więcej: warto chwilę poczekać",
     ],
     adviceLow: [
       "Słaba bateria: duże urządzenia wezmą prąd z sieci",

@@ -118,7 +118,7 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .advice{display:flex;align-items:center;gap:14px;padding:14px 16px;--tile:#a6e3a1}
 .advice[data-kind="go"]{--tile:#f9e2af}
 .advice[data-kind="low"]{--tile:#f38ba8}
-.advice[data-kind="wait"],.advice[data-kind="soon"]{--tile:#89b4fa}
+.advice[data-kind="wait"],.advice[data-kind="soon"],.advice[data-kind="later"]{--tile:#89b4fa}
 .advice .tile{flex:none;display:grid;place-items:center;width:44px;height:44px;border-radius:var(--r-m);background:var(--tile);color:#0b1626}
 .advice .tile svg{width:26px;height:26px}
 .advice p{font-size:17.5px;font-weight:500;line-height:1.3;letter-spacing:-.01em;text-wrap:balance}

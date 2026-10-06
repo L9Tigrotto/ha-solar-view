@@ -127,6 +127,7 @@ config:
 | `go` | There is spare sun right now. |
 | `goFull` | Spare sun, and the battery is nearly or fully charged. |
 | `soon` | Spare sun now, but the forecast says it fades within 3 hours. Needs a solar forecast. |
+| `later` | No spare sun now, but the forecast says clearly more within 3 hours. Needs a solar forecast. |
 | `low` | Battery low and no sun. |
 | `empty` | Battery at 0 and no sun. |
 | `wait` | Little sun forecast today, clearly more tomorrow. Needs a solar forecast. |
