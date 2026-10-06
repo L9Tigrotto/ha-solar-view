@@ -19,7 +19,7 @@
 <div id="dev"><label>scenario <select></select></label> <button type="button">loading 2s</button></div>
 <solar-view></solar-view>
 <script type="module">
-import { STRINGS, entitiesFrom, clockOf, totals } from "../solar-view/solar-view.js";
+import { STRINGS, entitiesFrom, clockOf, totals, batteryLastsH } from "../solar-view/solar-view.js";
 
 // The sensors of the fake house, named as its fake Energy settings name them.
 const ID = {
@@ -66,8 +66,13 @@ function fakePrefs(s) {
     stat_rate: ID.battW, stat_soc: ID.soc, capacity: 10 });
   return { energy_sources: sources };
 }
-// Statistics rows: 62 finished days, and today's total as one 5 minute row.
+// Statistics rows: 62 finished days, and today's total as one 5 minute row. Hour rows only when
+// the scenario has `hourly` (kWh per hour, the same every hour): without them "enough until" uses
+// the present draw, which keeps the checks below independent of the time of day they run at.
 function fakeStats(s, msg) {
+  if (msg.period === "hour") return Object.fromEntries(msg.statistic_ids.map((id) => [id, s.hourly
+    ? Array.from({ length: 14 * 24 }, (_, i) => ({ start: localMidnight(14) + i * 36e5, change: s.hourly[Object.keys(ID).find((k) => ID[k] === id)] || 0 }))
+    : []]));
   const battery = s.battery !== false;
   const [solar, house, imp, exp] = s.today;
   const out = battery ? 3.4 : 0;
@@ -185,7 +190,7 @@ for (const text of Object.values(STRINGS).flatMap((t) => Object.values(t)).flatM
   console.assert(clock(now).key === "2026-10-02" && clock(now).hour === 0, "clock: wrong day for the time zone");
   const one = entitiesFrom({ energy_sources: [{ type: "solar", stat_energy_from: "s" }] });
   const sums = totals(one, { s: [{ start: Date.UTC(2026, 7, 31, 12), change: 9 }, { start: Date.UTC(2026, 8, 29, 12), change: 4 }, { start: Date.UTC(2026, 8, 30, 10), change: 5 }, { start: Date.UTC(2026, 8, 30, 12), change: 3 }] },
-    { s: [{ start: now - 60e3, change: 0.5 }, { start: now - 3600e3, change: 2 }] }, {}, clock, now);
+    { s: [{ start: now - 60e3, change: 0.5 }, { start: now - 3600e3, change: 2 }] }, {}, {}, clock, now);
   console.assert(sums.today.solarKwh === 0.5 && sums.yesterday.solarKwh === 3 && sums.month.solarKwh === 3.5 && sums.lastMonth.solarKwh === 18 && sums.lastMonth.days === 2
     && sums.week[6].solarKwh === 3 && sums.week[5].solarKwh === 9, "totals: wrong day or month buckets", sums);
 
@@ -239,6 +244,43 @@ for (const text of Object.values(STRINGS).flatMap((t) => Object.values(t)).flatM
   console.assert(!/\d/.test($(p, ".batt-say p").textContent), "setting sun: battery end time ignores the sun's share");
   p = await draw(fakeHass(SCENARIOS.evening));
   console.assert(/\d/.test($(p, ".batt-say p").textContent), "evening: no battery end time");
+
+  // "Enough until" from the usual day: 10 kWh, floor 10 %. A quiet night at 127 W, people up at 7.
+  const batt = { kwh: 10, floor: 10 }, sunUp = { elevation: -10, rising: true };
+  const quiet = (soc, loadW = 127) => ({ soc, loadW, solarW: 0, batteryDischargeW: loadW });
+  const usual = (load, solar) => ({ loadW: Array.from({ length: 24 }, (_, h) => load[h] ?? load.at(-1)), solarW: Array.from({ length: 24 }, (_, h) => solar[h] ?? 0) });
+  const morning = usual([150, 150, 150, 150, 150, 150, 150, 900, 1200, 600], [0, 0, 0, 0, 0, 0, 0, 100, 400, 1200]);
+  const lasts = (n, plan, hour, minute) => batteryLastsH(n, sunUp, batt, plan, { hour, minute });
+  // 800 Wh left at 6:30: half an hour at 150 W, then 800 W from 7. Not the 6.3 h of 127 W.
+  const took = lasts(quiet(18), morning, 6, 30);
+  console.assert(Math.abs(took - (0.5 + 725 / 800)) < 1e-9, `usual day: ${took} h at 6:30, expected 1.41`);
+  // 1800 Wh are enough to reach 9:00, when the sun covers the house.
+  console.assert(lasts(quiet(28), morning, 6, 30) === Infinity, "usual day: the sun taking over not seen");
+  // The rest of the present hour counts: 1000 W in hour 6, 250 W after. 1 kWh lasts 1 h from 6:00, 2.5 h from 6:30.
+  const heavy = usual([1000, 1000, 1000, 1000, 1000, 1000, 1000, 250], []);
+  console.assert(lasts(quiet(20, 900), heavy, 6, 0) === 1 && lasts(quiet(20, 900), heavy, 6, 30) === 2.5, "usual day: the present hour not counted by its minutes");
+  // The present draw counts for the present hour when it is above the usual one: 2 kWh, 2000 W for half an hour, then 250 W.
+  console.assert(lasts(quiet(30, 2000), heavy, 7, 30) === 4.5, "usual day: an oven on now is ignored");
+  // No usual day yet: the present draw, as before.
+  console.assert(Math.abs(lasts(quiet(18), null, 3, 0) - 800 / 127) < 1e-9, "no usual day: not the present draw");
+
+  // The usual day from hour rows (UTC here): needs three of every hour, and the forecast replaces the sun of the days it covers.
+  const rows = (days) => ({ s: Array.from({ length: days * 24 }, (_, i) => ({ start: Date.UTC(2026, 9, 3) + i * 36e5, change: 0.5 })) });
+  const utc = clockOf("UTC"), six = Date.UTC(2026, 9, 6, 6, 30);
+  const solarOnly = entitiesFrom({ energy_sources: [{ type: "solar", stat_energy_from: "s" }] });
+  console.assert(totals(solarOnly, {}, {}, rows(2), {}, utc, six).plan === null, "usual day: built from too few days");
+  const plan = totals(solarOnly, {}, {}, rows(3), { fc: { wh_hours: { "2026-10-06T09:00:00+00:00": 1200 } } }, utc, six).plan;
+  console.assert(plan && plan.loadW[3] === 500 && plan.solarW[9] === 1200 && plan.solarW[7] === 0 && plan.solarW[3] === 500, "usual day: wrong plan", plan);
+
+  // In the panel: a usual day with sun all day long (500 W house, 1500 W sun), no forecast: the sun takes over within the hour.
+  const en = { language: "en", locale: { language: "en" } };
+  p = await draw(fakeHass({ ...SCENARIOS.evening, forecast: null, hourly: { solarKwh: 1.5, gridExportKwh: 1 } }), en);
+  console.assert($(p, ".batt-say p").textContent === STRINGS.en.untilSun, "usual day in the panel: the sun taking over not shown");
+
+  // 12 or 24 hours: the panel config first, then the viewer's profile.
+  const clockText = async (more, config) => $(await draw(fakeHass(SCENARIOS.evening), { language: "en", locale: { language: "en", ...more } }, config), ".batt-say p").textContent;
+  console.assert(/[AP]M/.test(await clockText({})) && !/[AP]M/.test(await clockText({ time_format: "24" })) && !/[AP]M/.test(await clockText({}, { time_format: 24 }))
+    && /[AP]M/.test(await clockText({ time_format: "24" }, { time_format: "12" })), "time format: 12 or 24 hours not followed");
 
   // Properties set before the element was defined (Home Assistant on a first visit) must still draw.
   p = document.createElement("solar-view");

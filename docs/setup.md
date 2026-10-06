@@ -37,6 +37,18 @@ The number matters. Files under `/local/` are cached hard by browsers and by the
 - Day, week and month totals come from the long-term statistics of the energy sensors named there.
 - Prices and the solar forecast come from the same place, when they are set.
 
+### "Enough until"
+
+While the battery powers the house, the Now page says how long it will last. It does not divide what is left by the present draw: a quiet night at 150 W says nothing about the breakfast hour.
+
+Instead it learns the usual day from the last 14 days of hourly statistics: how much the house uses, and how much sun there is, in each hour of the day. From now on it goes forward one hour at a time:
+
+- The rest of the present hour counts by its minutes. At 6:30, half of the 6 o'clock hour is still to come. For that half hour the higher of the present draw and the usual one counts, so an oven switched on right now is not ignored.
+- Every later hour takes what the house usually uses at that hour, minus the sun of that hour. The sun comes from the solar forecast when there is one for that day, otherwise from the usual day.
+- If the battery reaches `battery_floor` first, the page shows that time, rounded to the half hour. If the sun covers the house first, it says the battery is enough until the sun takes over. If neither happens within 18 hours, it shows no time.
+
+During the first three days after install there is not enough history yet, and the page uses the present draw as before.
+
 Parts you do not have hide themselves: no battery, no state of charge, no price, no forecast, no export.
 
 ## Options
@@ -53,6 +65,7 @@ panel_custom:
     config:
       battery_kwh: 10
       battery_floor: 10
+      time_format: 24
       price_buy: 0.30
       price_sell: input_number.sell_price
       entities:
@@ -64,6 +77,7 @@ panel_custom:
 |---|---|---|
 | `battery_kwh` | Usable battery size in kWh. Used for "enough until", the hint on the battery bar and the cycle count. | The capacity in the Energy settings. Without either, those three are hidden. |
 | `battery_floor` | Percent at which the inverter stops discharging. | `10` |
+| `time_format` | `24` or `12`: the clock for "enough until", for every user. | Each user's Time format in their Home Assistant profile, which by default follows their language. |
 | `price_buy`, `price_sell` | Price per kWh bought and sold: a number, or the id of an entity that holds one. | The prices on the grid connection in the Energy settings. |
 | `entities` | Replace what the Energy settings say, or add what they cannot know. One entity id or a list. An empty list switches that part off. | The Energy settings. |
 | `advice`, `advice_replace` | Your own advice lines, see below. | Built-in lines only. |
@@ -127,6 +141,7 @@ Every user sees Now, Today and Past days in the language of their profile. The I
 
 - Statistics only reach back to when Home Assistant started recording a sensor, so "last month" is incomplete during the first weeks. The per-day comparison only counts days that have data.
 - Today's totals come from the 5 minute statistics and can lag a few minutes.
+- "Enough until" knows the usual day, not today's plans: a washing machine started later than usual is only counted once it is running. Weekdays and weekends share one usual day. It assumes the battery alone carries the house.
 - If one of several named sensors has no value, the whole page shows the "not answering" message.
 - A house with neither a battery nor a grid power sensor reads "running on the sun" at night, because every flow is zero.
 - The thresholds behind the advice (for example 1000 W of spare sun) are constants at the top of `solar-view.js`, not options.
