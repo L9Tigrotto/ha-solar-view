@@ -1,6 +1,6 @@
 # Development
 
-There is no build step. The three files in `solar-view/` are what Home Assistant loads:
+There is no build step. The three files in `dist/` are what Home Assistant loads:
 
 | File | What is in it |
 |---|---|
@@ -42,7 +42,7 @@ Warnings that say "loading the numbers failed Error: check" come from the tool's
 
 ## Adding or fixing a language
 
-Every text is in `solar-view/strings.js`. To add a language, copy the `en` object, name it with the language code, and translate it.
+Every text is in `dist/strings.js`. To add a language, copy the `en` object, name it with the language code, and translate it.
 
 - Every key of `en` must be there.
 - Each advice pool keeps the same number of lines, in the same order.

@@ -9,10 +9,11 @@
 
 Developed and tested on Home Assistant 2026.9. Power sensors in the Energy settings are a fairly recent addition. On an older version, name the sensors yourself under [`entities`](#options).
 
-## Install
+## Install with HACS
 
-1. Copy the `solar-view` folder of this repository into `config/www/`, so that you have `config/www/solar-view/solar-view.js`, `strings.js` and `styles.js`.
-2. Add this to `configuration.yaml`:
+1. In HACS, open the three dots menu, **Custom repositories**. Add `https://github.com/L9Tigrotto/ha-solar-view` with the type **Dashboard**.
+2. Search HACS for **Solar View** and download it. The files land in `config/www/community/ha-solar-view/`.
+3. Add this to `configuration.yaml`:
 
    ```yaml
    panel_custom:
@@ -20,14 +21,22 @@ Developed and tested on Home Assistant 2026.9. Power sensors in the Energy setti
        url_path: solar
        sidebar_title: Solar
        sidebar_icon: mdi:solar-power-variant
-       module_url: /local/solar-view/solar-view.js?v=1
+       module_url: /hacsfiles/ha-solar-view/solar-view.js
    ```
 
-3. Restart Home Assistant (a full restart, not a YAML reload). "Solar" appears in the sidebar.
+4. Restart Home Assistant (a full restart, not a YAML reload). "Solar" appears in the sidebar.
 
-## Updating
+HACS may also list the file under Settings, Dashboards, Resources. The page is a panel, not a card, and does not need it there: you can delete that entry.
 
-Replace the three files, raise the number after `?v=` in `module_url`, and restart Home Assistant.
+**Updating:** new versions show up in Settings, Updates. Install the update and reload the page. `/hacsfiles/` tells the browser not to cache, so nothing else is needed. On a phone, if the old page stays, close the app fully and reopen it.
+
+## Install by hand
+
+1. Copy the `dist` folder of this repository into `config/www/` and rename it to `solar-view`, so that you have `config/www/solar-view/solar-view.js`, `strings.js` and `styles.js`.
+2. Add the `panel_custom` entry above, with `module_url: /local/solar-view/solar-view.js?v=1`.
+3. Restart Home Assistant.
+
+**Updating:** replace the three files, raise the number after `?v=` in `module_url`, and restart Home Assistant.
 
 The number matters. Files under `/local/` are cached hard by browsers and by the phone app. The main file loads the other two with its own `?v=`, so one bump refreshes all three.
 
@@ -61,7 +70,7 @@ panel_custom:
     url_path: solar
     sidebar_title: Solar
     sidebar_icon: mdi:solar-power-variant
-    module_url: /local/solar-view/solar-view.js?v=1
+    module_url: /hacsfiles/ha-solar-view/solar-view.js
     config:
       battery_kwh: 10
       battery_floor: 10
@@ -135,7 +144,7 @@ Every user sees Now, Today and Past days in the language of their profile. The I
 | "Nothing to show yet..." | The Energy settings have no solar power sensor, or a named sensor does not exist. Admin users also see the names of the missing sensors. |
 | "The inverter is not answering..." | The sensors exist but have no value right now. It clears by itself. |
 | A grey loading skeleton that stays | Home Assistant is still starting, or the statistics have not answered. |
-| The old page after an update | Raise `?v=` and restart. On a phone, close the app fully and reopen it. |
+| The old page after an update | Installed by hand: raise `?v=` and restart. On a phone, close the app fully and reopen it. |
 
 ## Known limits
 
@@ -151,4 +160,4 @@ Every user sees Now, Today and Past days in the language of their profile. The I
 
 The page talks only to your own Home Assistant. It remembers the last numbers it showed in the browser's `localStorage` (key `solar-view-last`), so the loading skeleton has the right shape next time. Nothing leaves the device.
 
-The three files are served without login under `/local/`, like everything in `config/www`. They contain code only, never your data. Do not put secrets in them.
+The three files are served without login, under `/hacsfiles/` or `/local/`, like everything in `config/www`. They contain code only, never your data. Do not put secrets in them.

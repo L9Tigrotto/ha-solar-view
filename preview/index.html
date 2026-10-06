@@ -11,7 +11,7 @@
 </style>
 </head>
 <body>
-<!-- Preview of the real panel (../solar-view/solar-view.js)
+<!-- Preview of the real panel (../dist/solar-view.js)
      driven by a fake `hass` object: states, Energy settings, statistics and forecast. ?scenario= ?lang=en|it|es|fr|de|pt|nl|pl ?dark=0|1 ?admin=0 ?extras=0 ?first=1
      ?day=N picks the advice line as if it were day N (0, 1, 2...), instead of today's.
      ?loading=2 starts with 2 seconds of "Home Assistant is still starting"; the button replays it.
@@ -19,7 +19,7 @@
 <div id="dev"><label>scenario <select></select></label> <button type="button">loading 2s</button></div>
 <solar-view></solar-view>
 <script type="module">
-import { STRINGS, entitiesFrom, clockOf, totals, batteryLastsH } from "../solar-view/solar-view.js";
+import { STRINGS, entitiesFrom, clockOf, totals, batteryLastsH } from "../dist/solar-view.js";
 
 // The sensors of the fake house, named as its fake Energy settings name them.
 const ID = {
