@@ -1,7 +1,8 @@
 /* Solar page in plain words: a Home Assistant custom panel (panel_custom in configuration.yaml).
    Home Assistant sets `hass` on the element, so login, live states and language come for free.
-   Served WITHOUT login under /local/: never put a secret here.
-   /local/ is cached hard: bump ?v= in configuration.yaml after every edit of any of the three files.
+   Served WITHOUT login, under /hacsfiles/ (HACS) or /local/ (copied by hand): never put a secret here.
+   /local/ is cached hard: there, bump ?v= in configuration.yaml after every edit of any of the three
+   files. /hacsfiles/ tells the browser not to cache.
 
    Files: this one (rules, logic, drawing, the element), strings.js (every text), styles.js (the CSS).
    Sections here: entities, rules, sky, parts, logic, data, drawing, pages, element. */
@@ -75,7 +76,7 @@ const SKY = {
 };
 
 // ---- Parts: texts and stylesheet live in their own files ----
-// They must load with this file's own ?v=, or the browser keeps stale copies (/local/ is cached hard).
+// They must load with this file's own ?v=, or under /local/ the browser keeps stale copies.
 const version = new URL(import.meta.url).search;
 const [{ STRINGS }, { CSS }] = await Promise.all([import(`./strings.js${version}`), import(`./styles.js${version}`)]);
 

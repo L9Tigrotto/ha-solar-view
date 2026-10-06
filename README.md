@@ -6,7 +6,7 @@ Most solar dashboards are for whoever installed the system. This one is for ever
 
 Any brand works, because it reads Home Assistant's own Energy settings. One page to swipe on a phone, four columns on a wide screen, light and dark. Three simple pages for the family, a fourth with the technical numbers for admins. 8 languages (en, it, es, fr, de, pt, nl, pl), following each user's profile.
 
-Three files, no build step, no dependencies. No data leaves your Home Assistant.
+Three files, no build step, no dependencies. Installs and updates through HACS. No data leaves your Home Assistant.
 
 ![The four pages side by side on a desktop, dark theme](docs/screenshots/desktop-dark.png)
 
@@ -23,7 +23,7 @@ The sky at dawn, midday, dusk and night:
 
 ## Quick start
 
-1. Copy the `solar-view` folder into `config/www/`.
+1. In HACS, add `https://github.com/L9Tigrotto/ha-solar-view` as a custom repository of type **Dashboard**, then download **Solar View**.
 2. Add to `configuration.yaml`:
 
    ```yaml
@@ -32,10 +32,12 @@ The sky at dawn, midday, dusk and night:
        url_path: solar
        sidebar_title: Solar
        sidebar_icon: mdi:solar-power-variant
-       module_url: /local/solar-view/solar-view.js?v=1
+       module_url: /hacsfiles/ha-solar-view/solar-view.js
    ```
 
 3. Restart Home Assistant.
+
+Without HACS, copy the files by hand: see the [setup guide](docs/setup.md#install-by-hand).
 
 You need the Energy dashboard set up with a power sensor for solar and grid. Details, options and troubleshooting are in the [setup guide](docs/setup.md).
 
