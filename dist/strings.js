@@ -1,6 +1,7 @@
 /* Every text of the solar panel, one object per language. Loaded by solar-view.js.
    A string must not contain a double quote, <, > or &: some go into HTML attributes.
-   Every language needs every key that `en` has. Each advice pool needs the same number of
+   Every language needs every key that `en` has. `untilOne` is extra: `until` for an end time at one
+   o'clock, only where the language says it differently. Each advice pool needs the same number of
    lines as in `en`, in the same order, each line meaning the same as the English one. */
 
 export const STRINGS = {
@@ -29,7 +30,7 @@ export const STRINGS = {
     sun: "Sun", noSun: "No sun", battery: "Battery", home: "Home", grid: "Grid",
     empty: "Empty", low: "Low", good: "Good", nearlyFull: "Almost full", full: "Full",
     noUseYet: "The house has not used anything yet today",
-    charging: "Filling up with sun", discharging: "Powering the house", resting: "Resting",
+    charging: "Filling up with sun", chargingGrid: "Charging from the grid", discharging: "Powering the house", resting: "Resting",
     adviceTitle: "Advice",
     // Advice: a pool of lines per situation, one is shown per day (see advicePool). Same order in
     // every language. Each line must stay true to its situation and fit two lines on a phone.
@@ -51,7 +52,7 @@ export const STRINGS = {
       "Full battery, full sun: washing machine time",
       "The battery's full, so anything extra is a gift. Use it",
     ],
-    adviceSoon: [ // spare sun now, but the forecast says it fades within 3 hours
+    adviceSoon: [ // spare sun now, the forecast says it fades within 3 hours, and the battery is not nearly full
       "Sun to spare, but less is forecast soon: stick to a short cycle",
       "The sun may fade within hours: only start what finishes quickly",
       "Less sun is forecast soon: best not to start a long cycle now",
@@ -63,14 +64,14 @@ export const STRINGS = {
       "Better sun is forecast soon: hold off on the big appliances",
       "Not much sun yet, but more is coming: worth waiting a bit",
     ],
-    adviceLow: [ // battery low and no sun
+    adviceLow: [ // battery low (under 16 percent above the floor) and no sun
       "Battery's low, so big appliances will use the grid",
       "Battery nearly empty: best keep the big appliances for later",
       "Low battery and no sun: the washing can wait",
       "Battery running low: go easy until the sun is back",
       "Little left in the battery: big jobs can wait",
     ],
-    adviceEmpty: [ // battery at 0 and no sun
+    adviceEmpty: [ // battery at the floor and no sun
       "Battery empty: the house is on the grid for now",
       "Nothing left in the battery, the sun will refill it",
       "Empty battery: best wait for the sun for big jobs",
@@ -107,13 +108,13 @@ export const STRINGS = {
       "Good night from the house, all is well",
       "Nothing to do until the sun comes back",
     ],
-    adviceOkFull: [ // nothing to do and the battery is nearly or fully charged
+    adviceOkFull: [ // nothing to do, by day, and the battery is nearly or fully charged
       "Battery nicely full, nothing to do",
       "Plenty in the battery: a calm day ahead",
       "The battery is topped up and all is well",
       "Full of energy here. How about you?",
     ],
-    adviceOkRefill: [ // battery low, but the sun is charging it
+    adviceOkRefill: [ // battery low, but the sun (not the grid) is charging it
       "Battery's low, but the sun is already on it",
       "The sun is refilling the battery, just give it time",
       "Low battery, sun at work: nothing for you to do",
@@ -128,7 +129,7 @@ export const STRINGS = {
     monthTitle: "This month and last month",
     thisMonth: "This month so far", lastMonth: "Last month",
     more: "More sun per day than last month",
-    less: "A little less sun per day than last month",
+    less: "Less sun per day than last month",
     same: "About the same sun as last month",
     loading: "Loading...",
     hSun: "The panels are making {w} W right now. {k} so far today.",
@@ -150,7 +151,7 @@ export const STRINGS = {
   it: {
     pages: "Pagine",
     tabNow: "Adesso", tabToday: "Oggi", tabHistory: "Giorni scorsi", tabDetails: "Info",
-    until: "Alimenta la casa, dura fino alle {t} circa",
+    until: "Alimenta la casa, dura fino alle {t} circa", untilOne: "Alimenta la casa, dura fino all'{t} circa",
     untilSun: "Alimenta la casa, dura finché non torna il sole",
     saved: "Oggi circa {v} risparmiati", savedNone: "Oggi ancora niente risparmiato", earned: "{v} guadagnati vendendo",
     ySaved: "risparmiati", savedLabel: "Risparmiati",
@@ -172,7 +173,7 @@ export const STRINGS = {
     sun: "Sole", noSun: "Niente sole", battery: "Batteria", home: "Casa", grid: "Rete",
     empty: "Scarica", low: "Bassa", good: "Bene", nearlyFull: "Quasi piena", full: "Piena",
     noUseYet: "Oggi la casa non ha ancora consumato niente",
-    charging: "Si sta caricando con il sole", discharging: "Alimenta la casa", resting: "A riposo",
+    charging: "Si sta caricando con il sole", chargingGrid: "Si sta caricando dalla rete", discharging: "Alimenta la casa", resting: "A riposo",
     adviceTitle: "Consiglio",
     adviceGo: [
       "Buon momento per far partire la lavatrice o la lavastoviglie",
@@ -269,7 +270,7 @@ export const STRINGS = {
     monthTitle: "Questo mese e il mese scorso",
     thisMonth: "Questo mese finora", lastMonth: "Il mese scorso",
     more: "Più sole al giorno rispetto al mese scorso",
-    less: "Un po' meno sole al giorno rispetto al mese scorso",
+    less: "Meno sole al giorno rispetto al mese scorso",
     same: "Più o meno lo stesso sole del mese scorso",
     loading: "Caricamento...",
     hSun: "I pannelli stanno producendo {w} W adesso. {k} da stamattina.",
@@ -291,7 +292,7 @@ export const STRINGS = {
   es: {
     pages: "Páginas",
     tabNow: "Ahora", tabToday: "Hoy", tabHistory: "Días pasados", tabDetails: "Info",
-    until: "Alimenta la casa, aguanta hasta las {t} más o menos",
+    until: "Alimenta la casa, aguanta hasta las {t} más o menos", untilOne: "Alimenta la casa, aguanta hasta la {t} más o menos",
     untilSun: "Alimenta la casa, aguanta hasta que vuelva el sol",
     saved: "Hoy unos {v} ahorrados", savedNone: "Hoy todavía nada ahorrado", earned: "{v} ganados con la venta",
     ySaved: "ahorrados", savedLabel: "Ahorrado",
@@ -313,7 +314,7 @@ export const STRINGS = {
     sun: "Sol", noSun: "Sin sol", battery: "Batería", home: "Casa", grid: "Red",
     empty: "Vacía", low: "Baja", good: "Bien", nearlyFull: "Casi llena", full: "Llena",
     noUseYet: "Hoy la casa todavía no ha usado nada",
-    charging: "Cargándose con el sol", discharging: "Alimentando la casa", resting: "En reposo",
+    charging: "Cargándose con el sol", chargingGrid: "Cargándose de la red", discharging: "Alimentando la casa", resting: "En reposo",
     adviceTitle: "Consejo",
     adviceGo: [
       "Buen momento para poner la lavadora o el lavavajillas",
@@ -410,7 +411,7 @@ export const STRINGS = {
     monthTitle: "Este mes y el mes pasado",
     thisMonth: "Este mes hasta ahora", lastMonth: "El mes pasado",
     more: "Más sol por día que el mes pasado",
-    less: "Un poco menos de sol por día que el mes pasado",
+    less: "Menos sol por día que el mes pasado",
     same: "Más o menos el mismo sol que el mes pasado",
     loading: "Cargando...",
     hSun: "Los paneles están produciendo {w} W ahora. {k} en lo que va del día.",
@@ -454,7 +455,7 @@ export const STRINGS = {
     sun: "Soleil", noSun: "Sans soleil", battery: "Batterie", home: "Maison", grid: "Réseau",
     empty: "Vide", low: "Faible", good: "Bien", nearlyFull: "Presque pleine", full: "Pleine",
     noUseYet: "La maison n'a encore rien consommé aujourd'hui",
-    charging: "Se remplit de soleil", discharging: "Alimente la maison", resting: "Au repos",
+    charging: "Se remplit de soleil", chargingGrid: "Se recharge sur le réseau", discharging: "Alimente la maison", resting: "Au repos",
     adviceTitle: "Conseil",
     adviceGo: [
       "Bon moment pour lancer une lessive ou le lave-vaisselle",
@@ -551,7 +552,7 @@ export const STRINGS = {
     monthTitle: "Ce mois-ci et le mois dernier",
     thisMonth: "Depuis le début du mois", lastMonth: "Le mois dernier",
     more: "Plus de soleil par jour que le mois dernier",
-    less: "Un peu moins de soleil par jour que le mois dernier",
+    less: "Moins de soleil par jour que le mois dernier",
     same: "À peu près autant de soleil que le mois dernier",
     loading: "Chargement...",
     hSun: "Les panneaux produisent {w} W en ce moment. {k} depuis ce matin.",
@@ -573,7 +574,7 @@ export const STRINGS = {
   de: {
     pages: "Seiten",
     tabNow: "Jetzt", tabToday: "Heute", tabHistory: "Letzte Tage", tabDetails: "Info",
-    until: "Versorgt das Haus, reicht bis etwa {t} Uhr",
+    until: "Versorgt das Haus, reicht bis etwa {t}",
     untilSun: "Versorgt das Haus, reicht, bis die Sonne übernimmt",
     saved: "Heute etwa {v} gespart", savedNone: "Heute noch nichts gespart", earned: "{v} durch Verkauf verdient",
     ySaved: "gespart", savedLabel: "Gespart",
@@ -595,7 +596,7 @@ export const STRINGS = {
     sun: "Sonne", noSun: "Keine Sonne", battery: "Batterie", home: "Haus", grid: "Netz",
     empty: "Leer", low: "Niedrig", good: "Gut", nearlyFull: "Fast voll", full: "Voll",
     noUseYet: "Das Haus hat heute noch nichts verbraucht",
-    charging: "Füllt sich mit Sonne", discharging: "Versorgt das Haus", resting: "Ruht sich aus",
+    charging: "Füllt sich mit Sonne", chargingGrid: "Lädt aus dem Netz", discharging: "Versorgt das Haus", resting: "Ruht sich aus",
     adviceTitle: "Tipp",
     adviceGo: [
       "Guter Moment für Wasch- oder Spülmaschine",
@@ -692,7 +693,7 @@ export const STRINGS = {
     monthTitle: "Dieser Monat und der letzte",
     thisMonth: "Dieser bisher", lastMonth: "Der letzte",
     more: "Mehr Sonne pro Tag als im letzten Monat",
-    less: "Etwas weniger Sonne pro Tag als im letzten Monat",
+    less: "Weniger Sonne pro Tag als im letzten Monat",
     same: "Etwa gleich viel Sonne wie im letzten Monat",
     loading: "Lädt...",
     hSun: "Die Solarmodule erzeugen gerade {w} W. Heute bisher {k}.",
@@ -714,7 +715,7 @@ export const STRINGS = {
   pt: {
     pages: "Páginas",
     tabNow: "Agora", tabToday: "Hoje", tabHistory: "Últimos dias", tabDetails: "Info",
-    until: "Alimentando a casa, dá até por volta das {t}",
+    until: "Alimentando a casa, dá até por volta das {t}", untilOne: "Alimentando a casa, dá até por volta da {t}",
     untilSun: "Alimentando a casa, dá até o sol chegar",
     saved: "Cerca de {v} economizados hoje", savedNone: "Ainda nada economizado hoje", earned: "{v} ganhos com a venda",
     ySaved: "economizados", savedLabel: "Economizado",
@@ -736,7 +737,7 @@ export const STRINGS = {
     sun: "Sol", noSun: "Sem sol", battery: "Bateria", home: "Casa", grid: "Rede",
     empty: "Vazia", low: "Baixa", good: "Bem", nearlyFull: "Quase cheia", full: "Cheia",
     noUseYet: "Hoje a casa ainda não usou nada",
-    charging: "Carregando com o sol", discharging: "Alimentando a casa", resting: "Em repouso",
+    charging: "Carregando com o sol", chargingGrid: "Carregando pela rede", discharging: "Alimentando a casa", resting: "Em repouso",
     adviceTitle: "Dica",
     adviceGo: [
       "Boa hora para a máquina de lavar ou a lava-louças",
@@ -833,7 +834,7 @@ export const STRINGS = {
     monthTitle: "Este mês e o mês passado",
     thisMonth: "Este mês até agora", lastMonth: "Mês passado",
     more: "Mais sol por dia do que no mês passado",
-    less: "Um pouco menos de sol por dia do que no mês passado",
+    less: "Menos sol por dia do que no mês passado",
     same: "Mais ou menos o mesmo sol do mês passado",
     loading: "Carregando...",
     hSun: "Os painéis produzem {w} W agora. {k} hoje até agora.",
@@ -877,7 +878,7 @@ export const STRINGS = {
     sun: "Zon", noSun: "Geen zon", battery: "Batterij", home: "Huis", grid: "Net",
     empty: "Leeg", low: "Laag", good: "Goed", nearlyFull: "Bijna vol", full: "Vol",
     noUseYet: "Het huis heeft vandaag nog niets verbruikt",
-    charging: "Vult zich met zon", discharging: "Geeft het huis stroom", resting: "Rust uit",
+    charging: "Vult zich met zon", chargingGrid: "Laadt op van het net", discharging: "Geeft het huis stroom", resting: "Rust uit",
     adviceTitle: "Tip",
     adviceGo: [
       "Goed moment voor de wasmachine of de vaatwasser",
@@ -974,7 +975,7 @@ export const STRINGS = {
     monthTitle: "Deze maand en vorige maand",
     thisMonth: "Deze maand tot nu toe", lastMonth: "Vorige maand",
     more: "Meer zon per dag dan vorige maand",
-    less: "Iets minder zon per dag dan vorige maand",
+    less: "Minder zon per dag dan vorige maand",
     same: "Ongeveer evenveel zon als vorige maand",
     loading: "Laden...",
     hSun: "De panelen wekken nu {w} W op. Vandaag tot nu toe {k}.",
@@ -1018,7 +1019,7 @@ export const STRINGS = {
     sun: "Słońce", noSun: "Bez słońca", battery: "Bateria", home: "Dom", grid: "Sieć",
     empty: "Pusta", low: "Słaba", good: "Dobrze", nearlyFull: "Prawie pełna", full: "Pełna",
     noUseYet: "Dom jeszcze dziś niczego nie zużył",
-    charging: "Ładuje się słońcem", discharging: "Zasila dom", resting: "Odpoczywa",
+    charging: "Ładuje się słońcem", chargingGrid: "Ładuje się z sieci", discharging: "Zasila dom", resting: "Odpoczywa",
     adviceTitle: "Porada",
     adviceGo: [
       "Dobra chwila, żeby włączyć pralkę albo zmywarkę",
@@ -1115,7 +1116,7 @@ export const STRINGS = {
     monthTitle: "Ten miesiąc i zeszły miesiąc",
     thisMonth: "W tym miesiącu dotąd", lastMonth: "W zeszłym miesiącu",
     more: "Więcej słońca na dzień niż w zeszłym miesiącu",
-    less: "Trochę mniej słońca na dzień niż w zeszłym miesiącu",
+    less: "Mniej słońca na dzień niż w zeszłym miesiącu",
     same: "Mniej więcej tyle słońca co w zeszłym miesiącu",
     loading: "Ładowanie...",
     hSun: "Panele dają teraz {w} W. Dziś do tej pory {k}.",

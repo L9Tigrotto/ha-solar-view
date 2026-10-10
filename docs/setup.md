@@ -74,7 +74,7 @@ panel_custom:
     module_url: /hacsfiles/ha-solar-view/solar-view.js
     config:
       battery_kwh: 10
-      battery_floor: 10
+      battery_floor: 20
       usual_days: 14
       time_format: 24
       price_buy: 0.30
@@ -86,8 +86,8 @@ panel_custom:
 
 | Option | Meaning | Default |
 |---|---|---|
-| `battery_kwh` | Usable battery size in kWh. Used for "enough until", the hint on the battery bar and the cycle count. | The capacity in the Energy settings. Without either, those three are hidden. |
-| `battery_floor` | Percent at which the inverter stops discharging. | `10` |
+| `battery_kwh` | Battery size in kWh: the whole battery, not only the part above `battery_floor`. Used for "enough until", the hint on the battery bar and the cycle count. | The capacity in the Energy settings. Without either, those three are hidden. |
+| `battery_floor` | Percent at which the inverter stops discharging. "Enough until" ends there, and the battery words count from it: "Empty" at the floor, "Low" up to 15 percent above it. | `20` |
 | `usual_days` | How many past days make the usual day behind "enough until". Fewer adapt faster to a new routine, more give a steadier estimate. At least 3. | `14` |
 | `time_format` | `24` or `12`: the clock for "enough until", for every user. | Each user's Time format in their Home Assistant profile, which by default follows their language. |
 | `price_buy`, `price_sell` | Price per kWh bought and sold: a number, or the id of an entity that holds one. | The prices on the grid connection in the Energy settings. |
@@ -124,17 +124,17 @@ config:
 
 | Pool | When |
 |---|---|
-| `go` | There is spare sun right now. |
+| `go` | There is spare sun right now: more than the house uses, or the battery is nearly full and the rest goes to the grid. |
 | `goFull` | Spare sun, and the battery is nearly or fully charged. |
-| `soon` | Spare sun now, but the forecast says it fades within 3 hours. Needs a solar forecast. |
+| `soon` | Spare sun now, but the forecast says it fades within 3 hours, and the battery is not nearly full. Needs a solar forecast. |
 | `later` | No spare sun now, but the forecast says clearly more within 3 hours. Needs a solar forecast. |
-| `low` | Battery low and no sun. |
-| `empty` | Battery at 0 and no sun. |
-| `wait` | Little sun forecast today, clearly more tomorrow. Needs a solar forecast. |
+| `low` | Battery low (less than 16 percent above `battery_floor`) and no sun. |
+| `empty` | Battery at `battery_floor` and no sun. |
+| `wait` | Little sun forecast today, clearly more tomorrow. Needs a solar forecast that covers tomorrow. |
 | `ok` | Nothing to do, by day. |
 | `okNight` | Nothing to do, by night. |
-| `okFull` | Nothing to do, and the battery is nearly or fully charged. |
-| `okRefill` | Battery low, but the sun is charging it. |
+| `okFull` | Nothing to do, by day, and the battery is nearly or fully charged. |
+| `okRefill` | Battery low, but the sun (not the grid) is charging it. |
 
 With `advice_replace: true`, a pool that has lines of yours shows only those. Keep a line short enough for two rows on a phone.
 
