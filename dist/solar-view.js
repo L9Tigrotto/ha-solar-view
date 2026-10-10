@@ -31,12 +31,13 @@ const ENTITIES = {
   load_energy: ["loadKwh"],
 };
 const ENERGY = ["solarKwh", "batteryKwh", "chargeKwh", "gridImportKwh", "gridExportKwh", "loadKwh"];
+const zero = () => Object.fromEntries(ENERGY.map((k) => [k, 0])); // every energy part at 0, to add into
 const WATTS = { W: 1, kW: 1e3, MW: 1e6 };
 
 // ---- Rules (tune here) ----
 const POOR_SHARE = 0.55;      // a forecast for today under this share of a usual day is a poor day
 const BETTER_TIMES = 1.5;     // tomorrow must beat today by this factor before saying "wait for tomorrow"
-const BATTERY_FLOOR_SOC = 10; // percent where the inverter stops discharging, unless config says battery_floor
+const BATTERY_FLOOR_SOC = 20; // percent where the inverter stops discharging, unless config says battery_floor
 const LASTS_MIN_H = 0.5;      // "enough until" is only shown between these many hours
 const LASTS_MAX_H = 18;
 const USUAL_DAYS = 14;    // "enough until" follows the house's usual use per hour over these many days, unless config says usual_days
@@ -46,10 +47,11 @@ const FADE_MIN_W = 500;   // the sun forecast for this hour must reach this befo
 const FADE_SHARE = 0.4;   // the next 3 hours average under this share of this hour: the sun is fading soon
 const LATER_MIN_W = 500;  // the next 3 hours must average this much forecast sun before "more sun is coming" is said
 const LATER_TIMES = 2;    // and at least this many times this hour's forecast
-const EXPORT_W = 50;      // exporting more than this also means spare energy
+const EXPORT_W = 50;      // sending more than this to the grid shows as a flow, and counts as spare sun when the battery is nearly full
 const IMPORT_W = 50;      // importing more than this counts as "the grid is helping"
-// Battery words by whole percent: 0 empty, 1 to 15 low, 16 to 84 good, 85 to 99 almost full, 100 full.
-const LOW_SOC = 16;       // under this is "low", and the low battery warning can fire
+// Battery words by whole percent, counted from the floor (where the inverter stops discharging):
+// at the floor empty, up to 15 above it low, then good, 85 to 99 almost full, 100 full.
+const LOW_ABOVE_FLOOR = 16; // under this many percent above the floor is "low", and the low battery warning can fire
 const HIGH_SOC = 85;      // from here up it is "almost full"
 const MIN_USE_KWH = 0.05; // under this the house has used nothing yet today, so there is no share to show
 const LOW_SOLAR_W = 100;  // "no real sun" for the low battery warning
@@ -105,35 +107,42 @@ const shiftKey = (key, days) => new Date(Date.parse(key) + days * 864e5).toISOSt
 // A state as a number, null when the entity is missing or has no value.
 const stateNum = (hass, id) => { const v = parseFloat(hass.states[id]?.state); return Number.isFinite(v) ? v : null; };
 
-// "wait": today's forecast is poor against a usual day here (the average of the last 7 days),
-// and tomorrow's is clearly better.
+// "go": spare sun now. Exporting only counts with a battery that is nearly full: a few watts sent
+// out by a house without one would not run a washing machine.
 // "soon": spare sun now, but the forecast says it fades within 3 hours (a cycle would run into it).
+// Not with a nearly full battery, which carries the cycle to its end.
+// "low": the battery word is low or empty (see batteryWord) and there is no real sun.
+// "wait": today's forecast is poor against a usual day here (the average of the days with sun
+// among the last 7), and tomorrow's is clearly better.
 // "later": no spare sun now, but the next 3 hours are forecast to be clearly sunnier.
-function advice(n, forecast, daytime) {
-  if (n.solarW - n.loadW > SURPLUS_W || n.gridExportW > EXPORT_W)
-    return forecast && forecast.fade.now >= FADE_MIN_W && forecast.fade.next < forecast.fade.now * FADE_SHARE ? "soon" : "go";
-  if (n.soc !== null && n.soc < LOW_SOC && n.solarW < LOW_SOLAR_W) return "low";
-  if (daytime && forecast && forecast.today < forecast.usual * POOR_SHARE && forecast.tomorrow >= forecast.today * BETTER_TIMES) return "wait";
+function advice(n, forecast, daytime, word) {
+  const high = isHigh(word);
+  if (n.solarW - n.loadW > SURPLUS_W || (high && n.gridExportW > EXPORT_W))
+    return !high && forecast && forecast.fade.now >= FADE_MIN_W && forecast.fade.next < forecast.fade.now * FADE_SHARE ? "soon" : "go";
+  if (isLow(word) && n.solarW < LOW_SOLAR_W) return "low";
+  if (daytime && forecast && forecast.tomorrow !== null && forecast.usual !== null
+    && forecast.today < forecast.usual * POOR_SHARE && forecast.tomorrow >= forecast.today * BETTER_TIMES) return "wait";
   if (daytime && forecast && forecast.fade.next >= LATER_MIN_W && forecast.fade.next >= forecast.fade.now * LATER_TIMES) return "later";
   return "ok";
 }
 
 // The lines that fit the situation: the advice kind, narrowed by the battery word where a more
 // specific line is true. Specific lines come first, then the general ones, for more variety.
-function advicePool(t, kind, word, charging, daytime) {
-  const high = word === "full" || word === "nearlyFull";
+// `sunCharging`: the battery is filling from the sun, not from the grid.
+function advicePool(t, kind, word, sunCharging, daytime) {
+  const high = isHigh(word);
   const general = daytime ? t.adviceOk : t.adviceOkNight;
+  const fromForecast = { wait: t.adviceWait, soon: t.adviceSoon, later: t.adviceLater }[kind];
+  if (fromForecast) return fromForecast;
   if (kind === "go") return high ? [...t.adviceGoFull, ...t.adviceGo] : t.adviceGo;
   if (kind === "low") return word === "empty" ? t.adviceEmpty : t.adviceLow;
-  if (kind === "wait") return t.adviceWait;
-  if (kind === "soon") return t.adviceSoon;
-  if (kind === "later") return t.adviceLater;
-  if (charging && (word === "low" || word === "empty")) return t.adviceOkRefill;
-  return high ? [...t.adviceOkFull, ...general] : general;
+  if (sunCharging && isLow(word)) return t.adviceOkRefill;
+  // The full battery lines speak of the day ahead.
+  return high && daytime ? [...t.adviceOkFull, ...general] : general;
 }
 
 // The strings of one language with the owner's own advice lines merged in. They come from the
-// panel's `config:` in configuration.yaml (see the example there), so nobody edits this file:
+// panel's `config:` in configuration.yaml (see the example in docs/setup.md), so nobody edits this file:
 //   advice: { it: { ok: ["..."], go: ["..."] }, en: { ... } }   added to the built-in lines
 //   advice_replace: true                                        a pool with own lines uses only those
 // Pool names: go, goFull, soon, later, low, empty, wait, ok, okNight, okFull, okRefill.
@@ -182,10 +191,15 @@ function batteryLastsH(n, sun, batt, plan, at) {
   return 0;
 }
 
-function batteryWord(soc) {
+function batteryWord(soc, floor) {
   const p = Math.round(soc);
-  return p <= 0 ? "empty" : p < LOW_SOC ? "low" : p < HIGH_SOC ? "good" : p < 100 ? "nearlyFull" : "full";
+  return p <= floor ? "empty" : p < floor + LOW_ABOVE_FLOOR ? "low" : p < HIGH_SOC ? "good" : p < 100 ? "nearlyFull" : "full";
 }
+// "" (no state of charge) is neither.
+const isLow = (word) => word === "low" || word === "empty";
+const isHigh = (word) => word === "full" || word === "nearlyFull";
+// The battery is filling mostly from the grid (a cheap night rate, say), not from the sun.
+const gridCharging = (n) => n.batteryChargeW > MIN_FLOW_W && n.solarW < n.batteryChargeW / 2;
 
 // Up to two sources that really carry the house right now, biggest first.
 function sources(n) {
@@ -203,12 +217,13 @@ function ownShare(d) { return d.loadKwh >= MIN_USE_KWH ? clamp01(1 - d.gridImpor
 const savedMoney = (d, price) => (price.buy === null ? null : Math.max(0, d.loadKwh - d.gridImportKwh) * price.buy);
 
 // Sun per day, this month against last. `days` counts the days that have numbers, so a month
-// only partly recorded still compares fairly. No verdict during the first day.
+// only partly recorded still compares fairly. Finished days only: today's sun is still arriving,
+// and counting it would say "less" every morning. No verdict during the first day.
 function monthVerdict(data) {
   const m = data.month, lm = data.lastMonth;
   if (m.days < 1 || !(lm.solarKwh > 0)) return "";
-  const pct = (m.solarKwh / m.days / (lm.solarKwh / lm.days) - 1) * 100;
-  return pct > SAME_PCT ? "more" : pct < -SAME_PCT ? "less" : "same";
+  const change = ((m.solarKwh - data.today.solarKwh) / m.days / (lm.solarKwh / lm.days) - 1) * 100;
+  return change > SAME_PCT ? "more" : change < -SAME_PCT ? "less" : "same";
 }
 
 const smooth = (x) => { const t = clamp01(x); return t * t * (3 - 2 * t); };
@@ -230,17 +245,17 @@ const isAdmin = (hass) => !!hass.user?.is_admin;
 // The entity ids to read, as lists (several solar arrays or batteries are summed): from the
 // Energy settings (`prefs`, the answer of energy/get_prefs, or null), then the owner's `config:`.
 function entitiesFrom(prefs, config = {}) {
-  const sources = (prefs && prefs.energy_sources) || [];
+  const energySources = prefs?.energy_sources ?? [];
   // Older Home Assistant keeps a grid as lists of flows, newer as one import and export pair.
   // An old export flow names its price like an import one, so it is renamed here.
-  const flat = sources.flatMap((s) => [s, ...["flow_from", "flow_to", "power"].flatMap((k) => (s[k] || []).map((x) => (k === "flow_to"
+  const flat = energySources.flatMap((s) => [s, ...["flow_from", "flow_to", "power"].flatMap((k) => (s[k] || []).map((x) => (k === "flow_to"
     ? { type: s.type, stat_energy_to: x.stat_energy_to, entity_energy_price_export: x.entity_energy_price, number_energy_price_export: x.number_energy_price }
     : { ...x, type: s.type })))]);
   const own = config.entities || {};
   const src = {};
   for (const [name, [key, type, field]] of Object.entries(ENTITIES))
     src[key] = own[name] ? [].concat(own[name]) : flat.filter((s) => s.type === type && s[field]).map((s) => s[field]);
-  const batteries = sources.filter((s) => s.type === "battery");
+  const batteries = energySources.filter((s) => s.type === "battery");
   const sized = batteries.length > 0 && batteries.every((b) => b.capacity > 0);
   const price = (mine, entity, number) => mine ?? flat.map((s) => s[entity] ?? s[number]).find((v) => v != null) ?? null;
   return {
@@ -266,7 +281,7 @@ function byDay(res, src, clock) {
   const days = new Map();
   for (const part of ENERGY) for (const id of src[part]) for (const r of res[id] || []) {
     const key = clock(r.start).key;
-    if (!days.has(key)) days.set(key, Object.fromEntries(ENERGY.map((k) => [k, 0])));
+    if (!days.has(key)) days.set(key, zero());
     days.get(key)[part] += Math.max(0, r.change || 0);
   }
   return days;
@@ -283,7 +298,7 @@ function usualDay(res, src, clock) {
   const parts = ENERGY.filter((k) => src[k].length), ids = parts.flatMap((k) => src[k]);
   const hours = new Map();
   for (const part of parts) for (const id of src[part]) for (const r of res[id] || []) {
-    if (!hours.has(r.start)) hours.set(r.start, { rows: 0, ...Object.fromEntries(ENERGY.map((k) => [k, 0])) });
+    if (!hours.has(r.start)) hours.set(r.start, { rows: 0, ...zero() });
     const h = hours.get(r.start);
     h.rows++;
     h[part] += Math.max(0, r.change || 0);
@@ -303,7 +318,7 @@ function usualDay(res, src, clock) {
 
 // Everything that comes from the statistics, as plain numbers: today, yesterday, both months,
 // the week bars and the forecast. `daily` holds day rows, `recent` 5 minute rows that cover today
-// (day rows lag by up to an hour), `hourly` hour rows of the last USUAL_DAYS days, `forecast` the
+// (day rows lag by up to an hour), `hourly` hour rows of the last `usual_days` days, `forecast` the
 // answer of energy/solar_forecast.
 function totals(src, daily, recent, hourly, forecast, clock, now) {
   const at = clock(now), today = at.key;
@@ -312,7 +327,7 @@ function totals(src, daily, recent, hourly, forecast, clock, now) {
   // A statistic without 5 minute rows (one imported from outside) only has its day row.
   days.set(today, byDay(recent, src, clock).get(today) ?? days.get(today));
   const sum = (keys) => {
-    const d = Object.fromEntries(ENERGY.map((k) => [k, 0]));
+    const d = zero();
     let count = 0;
     for (const key of keys) if (days.get(key)) { count++; for (const k of ENERGY) d[k] += days.get(key)[k]; }
     d.loadKwh = houseKwh(d, src);
@@ -345,10 +360,11 @@ function totals(src, daily, recent, hourly, forecast, clock, now) {
   const thisMonth = sum(of(month));
   return {
     today: sum([today]), yesterday: sum([shiftKey(today, -1)]), lastMonth: sum(of(last)), week,
-    // Today counts as the part of it that has passed.
-    month: { ...thisMonth, days: thisMonth.days - (days.get(today) ? 1 : 0) + at.hour / 24 },
-    forecast: today in wh && tomorrow in wh && sunny.length
-      ? { fade, today: wh[today] / 1000, tomorrow: wh[tomorrow] / 1000, usual: sunny.reduce((a, w) => a + w.solarKwh, 0) / sunny.length } : null,
+    // `days` counts the finished days (see monthVerdict).
+    month: { ...thisMonth, days: thisMonth.days - (days.get(today) ? 1 : 0) },
+    // `tomorrow` and `usual` are null when not known: only the "wait" advice needs them.
+    forecast: today in wh ? { fade, today: wh[today] / 1000, tomorrow: tomorrow in wh ? wh[tomorrow] / 1000 : null,
+      usual: sunny.length ? sunny.reduce((a, w) => a + w.solarKwh, 0) / sunny.length : null } : null,
     plan,
     msToMidnight: ((23 - at.hour) * 60 + 60 - at.minute) * 60e3,
   };
@@ -458,10 +474,10 @@ const TIPS = {
   gridHouse: [195, 146, 180],
 };
 
-function flowSvg(n, sky, night, t, label, hints, battery) {
+function flowSvg(n, sky, night, t, label, hints, battery, battColor) {
   const on = {
     sunHouse: Math.min(n.solarW, n.loadW) > MIN_FLOW_W,
-    sunBatt: n.batteryChargeW > MIN_FLOW_W,
+    sunBatt: n.batteryChargeW > MIN_FLOW_W && !gridCharging(n),
     sunGrid: n.gridExportW > EXPORT_W,
     battHouse: n.batteryDischargeW > MIN_FLOW_W,
     gridHouse: n.gridImportW > MIN_FLOW_W,
@@ -494,7 +510,7 @@ function flowSvg(n, sky, night, t, label, hints, battery) {
   ${battery ? node(46, 146, hints.battery, `<g transform="translate(46 146)">
     <rect x="-15" y="-9" width="30" height="18" rx="5" fill="none" stroke="currentColor" stroke-width="2"/>
     <rect class="ink" x="16.5" y="-3.5" width="3" height="7" rx="1.5"/>
-    ${n.soc === null ? "" : `<rect x="-12" y="-6" width="${Math.max(2, 24 * n.soc / 100)}" height="12" rx="2.5" fill="var(${n.soc < LOW_SOC ? "--low" : "--batt"})"/>`}
+    ${n.soc === null ? "" : `<rect x="-12" y="-6" width="${Math.max(2, 24 * n.soc / 100)}" height="12" rx="2.5" fill="var(${battColor})"/>`}
   </g>
   <text class="tl" x="46" y="178" text-anchor="middle">${t.battery}</text>
   <text class="tv" x="46" y="193" text-anchor="middle">${Math.round(battW)} W</text>`) : ""}
@@ -541,16 +557,18 @@ function nowHtml({ data, t, f, sky, loading, day, clock }) {
     : charging ? t.subCharge
     : discharging ? t.subBattery : "";
   const batt = data.batt;
-  const word = n.soc === null ? "" : batteryWord(n.soc);
-  const battColor = word === "low" || word === "empty" ? "--low" : "--batt";
+  const word = n.soc === null ? "" : batteryWord(n.soc, batt ? batt.floor : 0);
+  const battColor = isLow(word) ? "--low" : "--batt";
+  const sunCharging = charging && !gridCharging(n);
   const now = Date.now();
   const lastsH = batt ? batteryLastsH(n, data.sun, batt, data.plan, clock(now)) : 0;
   // Rounded to the half hour: the estimate is rough, and the text stays still between updates.
-  const until = () => new Date(Math.round((now + lastsH * 36e5) / 18e5) * 18e5);
+  const until = lastsH && lastsH !== Infinity ? f.time(new Date(Math.round((now + lastsH * 36e5) / 18e5) * 18e5)) : "";
   const battW = Math.round(n.batteryChargeW || n.batteryDischargeW);
-  const battState = charging ? t.charging
+  const battState = charging ? (sunCharging ? t.charging : t.chargingGrid)
     : lastsH === Infinity ? t.untilSun
-    : lastsH ? say(t.until, { t: f.time(until()) })
+    // One o'clock takes the singular in some languages ("all'1:30", not "alle 1:30"): untilOne, where a language has it.
+    : lastsH ? say((/^0?1\D/.test(until) && t.untilOne) || t.until, { t: until })
     : discharging ? t.discharging : t.resting;
   const hints = {
     sun: say(n.solarW > 0 ? t.hSun : t.hSunOff, { w: Math.round(n.solarW), k: f.kwh(today.solarKwh) }),
@@ -563,13 +581,13 @@ function nowHtml({ data, t, f, sky, loading, day, clock }) {
   const night = data.sun.elevation < SKY_NIGHT_DEG / 2 && n.solarW === 0;
   // Day starts at first light: by then the night lines (the sun has gone to bed) read wrong.
   const daytime = data.sun.elevation > (data.sun.rising ? SKY_NIGHT_DEG : 0);
-  const kind = advice(n, data.forecast, daytime);
+  const kind = advice(n, data.forecast, daytime, word);
+  const lines = advicePool(t, kind, word, sunCharging, daytime);
   // One line per calendar day, so it stays put between redraws and changes tomorrow.
-  const lines = advicePool(t, kind, word, charging, daytime);
   const adviceText = lines[day % lines.length];
   return `
     <header><h1${loading ? ` data-wait="${t.loading}"` : ""}>${sentence}</h1>${sub ? `<p class="sub">${sub}</p>` : ""}</header>
-    <div class="flowbox">${flowSvg(n, sky, night, t, sub ? `${sentence}. ${sub}` : sentence, hints, !!batt)}</div>
+    <div class="flowbox">${flowSvg(n, sky, night, t, sub ? `${sentence}. ${sub}` : sentence, hints, !!batt, battColor)}</div>
     ${n.soc === null ? "" : `<section class="card battery">
       <h2>${t.battery}</h2>
       <div class="batt-top">
@@ -628,10 +646,10 @@ function historyHtml({ data, t, f }) {
         y.gridExportKwh >= SENT_KWH ? ` · ${t.ySent} ${f.kwh(y.gridExportKwh)}` : ""}${
         saved(y) === null ? "" : ` · ${f.money(saved(y))} ${t.ySaved}`}</span>
     </section>
-    ${week ? `<section class="card">
+    <section class="card">
       <h3><span>${t.week}</span> <span class="num">kWh</span></h3>
       <ol class="week">${week}</ol>
-    </section>` : ""}
+    </section>
     <section class="card month">
       <h3>${t.monthTitle}</h3>
       ${row(f, t.thisMonth, m.solarKwh, mTop, "--sun")}
@@ -658,7 +676,7 @@ function detailsHtml({ data, t, f }) {
     <section class="card"><h3>${t.forecast}</h3>${fc ? `<div class="kv">
       ${kv(t.fToday, f.kwh(fc.today))}
       ${kv(t.fSoFar, f.kwh(d.solarKwh))}
-      ${kv(t.fTomorrow, f.kwh(fc.tomorrow))}
+      ${kv(t.fTomorrow, fc.tomorrow === null ? "-" : f.kwh(fc.tomorrow))}
     </div>` : `<p class="note">${t.noForecast}</p>`}</section>
     ${b ? `<section class="card"><h3>${t.battMonth}</h3><div class="kv">
       ${kv(t.roundTrip, share(lm.batteryKwh, lm.chargeKwh))}
@@ -716,18 +734,18 @@ class SolarView extends HTMLElement {
   // Hovering, tapping or focusing anything with data-hint shows its sentence. Delegated, because
   // the pages are redrawn whenever the data changes.
   _wireHints(root) {
-    const hint = this._hint;
-    const hide = () => hint.classList.remove("on");
+    const tip = this._hint;
+    const hide = () => tip.classList.remove("on");
     const show = (e) => {
-      const el = e.target.closest && e.target.closest("[data-hint]");
+      const el = e.target.closest?.("[data-hint]");
       // The skeleton holds placeholder numbers: never put them in a hint.
       if (!el || this._pager.classList.contains("skel")) { hide(); return; }
-      hint.textContent = el.dataset.hint;
+      tip.textContent = el.dataset.hint;
       const box = this.getBoundingClientRect(), r = el.getBoundingClientRect();
-      const left = Math.max(8, Math.min(box.width - hint.offsetWidth - 8, r.left - box.left + r.width / 2 - hint.offsetWidth / 2));
-      const above = r.top - box.top - hint.offsetHeight - 8;
-      hint.style.transform = `translate(${Math.round(left)}px,${Math.round(above >= 8 ? above : r.bottom - box.top + 8)}px)`;
-      hint.classList.add("on");
+      const left = Math.max(8, Math.min(box.width - tip.offsetWidth - 8, r.left - box.left + r.width / 2 - tip.offsetWidth / 2));
+      const above = r.top - box.top - tip.offsetHeight - 8;
+      tip.style.transform = `translate(${Math.round(left)}px,${Math.round(above >= 8 ? above : r.bottom - box.top + 8)}px)`;
+      tip.classList.add("on");
     };
     root.addEventListener("pointerover", show);
     root.addEventListener("focusin", show);
@@ -786,7 +804,7 @@ class SolarView extends HTMLElement {
     this._next = now + REFRESH_MS;
     try {
       // "No prefs": the Energy page was never set up. The owner's config may still name entities.
-      const prefs = await hass.callWS({ type: "energy/get_prefs" }).catch((e) => { if (e && e.code === "not_found") return null; throw e; });
+      const prefs = await hass.callWS({ type: "energy/get_prefs" }).catch((e) => { if (e?.code === "not_found") return null; throw e; });
       const src = entitiesFrom(prefs, this._panel?.config || {});
       const ids = ENERGY.flatMap((k) => src[k]);
       const stat = (period, start) => (ids.length ? hass.callWS({
@@ -819,9 +837,9 @@ class SolarView extends HTMLElement {
     if (!hass) return;
     // The viewer's language when its texts exist ("pt-BR", then "pt"), else English. Numbers and
     // dates follow the viewer's language either way.
-    const locale = String((hass.locale && hass.locale.language) || hass.language || "en");
+    const locale = String(hass.locale?.language || hass.language || "en");
     const lang = [locale, locale.split("-")[0], "en"].find((l) => STRINGS[l]);
-    const dark = !!(hass.themes && hass.themes.darkMode);
+    const dark = !!hass.themes?.darkMode;
     const t = withOwnAdvice(STRINGS[lang], this._panel?.config, lang);
     const $ = (id) => this.shadowRoot.getElementById(id);
     const paint = (prefix, colors) => colors.slice(0, 3).forEach((c, i) => this.style.setProperty(`--${prefix}${i + 1}`, c));

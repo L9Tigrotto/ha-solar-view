@@ -15,6 +15,8 @@
      driven by a fake `hass` object: states, Energy settings, statistics and forecast. ?scenario= ?lang=en|it|es|fr|de|pt|nl|pl ?dark=0|1 ?admin=0 ?extras=0 ?first=1
      ?day=N picks the advice line as if it were day N (0, 1, 2...), instead of today's.
      ?loading=2 starts with 2 seconds of "Home Assistant is still starting"; the button replays it.
+     ?page=today|history|details opens on that page, ?shot=1 hides this tool's controls.
+     ?check=skeleton compares the loading skeleton with the loaded page, ?sweep=1 tries every combination of sensor values.
      The checks are the console.assert calls below: the console must stay free of assertion failures. -->
 <div id="dev"><label>scenario <select></select></label> <button type="button">loading 2s</button></div>
 <solar-view></solar-view>
@@ -34,7 +36,7 @@ const SCENARIOS = {
   full:    { v: [2500, 0, -2100, 100, 40, false], today: [9.4, 6.6, 0.2, 1.1], expect: "go" },
   dawn:    { v: [130, 270, 0, 24, 3, true], today: [0.2, 2.6, 0.1, 0], expect: "ok" },
   dusk:    { v: [30, 620, 0, 60, 1, false], today: [15.2, 12.4, 0.3, 0.1], expect: "ok" },
-  night:   { v: [8, 0, 350, 12, -30, false], today: [15.2, 14.1, 0.9, 0.1], expect: "low" },
+  night:   { v: [8, 0, 350, 26, -30, false], today: [15.2, 14.1, 0.9, 0.1], expect: "low" },
   evening: { v: [0, 350, 0, 60, -20, false], today: [15.2, 12.4, 0.3, 0.1], expect: "ok" }, // the night-time "ok" lines
   // Grey day with a sunny tomorrow: the forecast hint. The same grey day without a forecast stays "ok".
   poor:    { v: [250, 150, 0, 45, 30, false], today: [1.2, 5.0, 0.4, 0], forecast: [5, 16], expect: "wait" },
@@ -251,7 +253,7 @@ for (const text of Object.values(STRINGS).flatMap((t) => Object.values(t)).flatM
   firstLight.states["sun.sun"] = { state: "below_horizon", attributes: { elevation: -3, rising: true } };
   p = await draw(firstLight);
   console.assert(!/\d/.test($(p, ".batt-say p").textContent), "first light: battery end time shown just before sunrise");
-  p = await draw(midday({ [ID.solarW]: val(900), [ID.battW]: val(100), [ID.soc]: val(12),
+  p = await draw(midday({ [ID.solarW]: val(900), [ID.battW]: val(100), [ID.soc]: val(22),
     "sun.sun": { state: "above_horizon", attributes: { elevation: 8, rising: false } } }));
   console.assert(!/\d/.test($(p, ".batt-say p").textContent), "setting sun: battery end time ignores the sun's share");
   p = await draw(fakeHass(SCENARIOS.evening));
@@ -288,6 +290,28 @@ for (const text of Object.values(STRINGS).flatMap((t) => Object.values(t)).flatM
   const en = { language: "en", locale: { language: "en" } };
   p = await draw(fakeHass({ ...SCENARIOS.evening, forecast: null, hourly: { solarKwh: 1.5, gridExportKwh: 1 } }), en);
   console.assert($(p, ".batt-say p").textContent === STRINGS.en.untilSun, "usual day in the panel: the sun taking over not shown");
+
+  // Battery words count from the floor (20 %): at the floor "Empty" and its advice, just above it "Low".
+  const socAt = (scenario, soc) => { const h = fakeHass(SCENARIOS[scenario]); h.states[ID.soc] = val(soc); return draw(h, en); };
+  p = await socAt("night", 20);
+  console.assert($(p, ".batt-word").textContent === STRINGS.en.empty && STRINGS.en.adviceEmpty.includes($(p, ".advice p").textContent), "battery at the floor: not called empty");
+  p = await socAt("night", 30);
+  console.assert($(p, ".batt-word").textContent === STRINGS.en.low && $(p, ".advice").dataset.kind === "low", "battery just above the floor: not called low");
+  // Sun to spare that fades soon is no worry with a nearly full battery, and export alone is no spare sun without one.
+  p = await socAt("fading", 90);
+  console.assert($(p, ".advice").dataset.kind === "go", "full battery: still warned that the sun fades");
+  p = await draw(midday({ [ID.solarW]: val(600), [ID.battW]: val(0), [ID.gridW]: val(-200) }));
+  console.assert($(p, ".advice").dataset.kind !== "go", "200 W sent to the grid read as spare sun");
+  // Charging from the grid at night is not "filling up with sun", and the sun arrow stays off.
+  p = await draw(midday({ [ID.solarW]: val(0), [ID.battW]: val(-1000), [ID.gridW]: val(1300) }), en);
+  console.assert($(p, ".batt-say p").textContent === STRINGS.en.chargingGrid && p.shadowRoot.querySelectorAll(".flow .streak").length === 1, "grid charging: shown as sun");
+  // Month verdict: finished days only, so the same sun per day reads "same" at any hour (today has made nothing yet).
+  {
+    const utcDay = (d) => Date.UTC(2026, 9, d), sunOnly = entitiesFrom({ energy_sources: [{ type: "solar", stat_energy_from: "s" }] });
+    const daily = { s: [...Array.from({ length: 30 }, (_, i) => ({ start: Date.UTC(2026, 8, 1 + i), change: 10 })), { start: utcDay(1), change: 10 }] };
+    const m = totals(sunOnly, daily, { s: [{ start: utcDay(2) + 36e5, change: 0.1 }] }, {}, {}, clockOf("UTC"), utcDay(2) + 8 * 36e5);
+    console.assert(m.month.days === 1 && m.month.solarKwh === 10.1 && m.forecast === null, "month: today counted as a finished day", m.month);
+  }
 
   // 12 or 24 hours: the panel config first, then the viewer's profile.
   const clockText = async (more, config) => $(await draw(fakeHass(SCENARIOS.evening), { language: "en", locale: { language: "en", ...more } }, config), ".batt-say p").textContent;
@@ -421,6 +445,94 @@ async function skeletonCheck(first = false) {
 }
 Object.assign(window, { skeletonCheck, skeletonBoxes: boxes });
 if (q.get("check") === "skeleton" && SCENARIOS[name] && !SCENARIOS[name].offline) skeletonCheck(q.get("first") === "1");
+
+// Sweep (?sweep=1): every combination of the sensor values below goes through the real panel, and
+// what the page then says is read back from its DOM and held against plain rules. The page lists
+// what it saw, what it never saw, and the first combinations that break a rule.
+// The numbers in the rules (16 above the floor, 85 %, 1000 W...) repeat the constants of
+// solar-view.js on purpose, as a second opinion: tune one, tune the other.
+if (q.has("sweep")) {
+  const t = STRINGS.en, en = { language: "en", locale: { language: "en" } };
+  const FLOOR = entitiesFrom(null).batt.floor, LOW = FLOOR + 16, HIGH = 85;
+  const VALUES = {
+    solar: [0, 60, 300, 1500, 4000],
+    batt: [-3000, -1000, 0, 30, 400, 2000], // + discharging
+    grid: [-2000, -200, 0, 30, 400, 3000],  // + importing
+    soc: [...new Set([0, FLOOR - 10, FLOOR, FLOOR + 1, FLOOR + 10, LOW - 1, LOW, 60, HIGH - 1, HIGH, 100])].filter((v) => v >= 0),
+    sky: [[-30, false], [-3, true], [40, false], [1, false]], // night, first light, day, dusk: elevation and rising
+  };
+  // The statistics and the forecast load once per panel, so each kind of forecast gets its own.
+  const FORECASTS = {
+    none: { forecast: null }, flat: {}, fading: { fade: [3000, 400] }, brightening: { fade: [300, 1500] }, poorToday: { forecast: [5, 16] },
+    usualDay: { forecast: null, hourly: { solarKwh: 1.5, gridExportKwh: 1 } }, // sun all day long: it takes over within the hour
+  };
+  const pools = Object.entries(t).filter(([, v]) => Array.isArray(v));
+  const LINES = { [t.charging]: "charging", [t.chargingGrid]: "chargingGrid", [t.untilSun]: "untilSun", [t.discharging]: "discharging", [t.resting]: "resting" };
+  const WORDS = Object.fromEntries(["empty", "low", "good", "nearlyFull", "full"].map((k) => [t[k], k]));
+  const seen = {}, combos = new Map(), failures = [];
+  const note = (field, value) => { seen[field] ??= {}; seen[field][value] = (seen[field][value] || 0) + 1; };
+  let count = 0;
+  for (const [fc, extra] of Object.entries(FORECASTS)) {
+    const scenario = (v) => ({ today: [7.8, 6.1, 0.2, 0], ...extra, v });
+    const p = await draw(fakeHass(scenario([0, 0, 300, 50, 40, false])), { ...en, props: { testDay: 0 } });
+    for (const solar of VALUES.solar) for (const batt of VALUES.batt) for (const grid of VALUES.grid) for (const soc of VALUES.soc) for (const sky of VALUES.sky) {
+      const load = solar + batt + grid;
+      if (load <= 0) continue; // a house cannot use less than nothing
+      p.hass = { ...fakeHass(scenario([solar, batt, grid, soc, ...sky])), ...en };
+      const text = (sel) => $(p, sel)?.textContent ?? "";
+      const head = text("#now h1"), sub = text(".sub"), word = WORDS[text(".batt-word")] ?? "?", says = text(".batt-say p");
+      const line = LINES[says] ?? (/\d/.test(says) ? "until" : "?"), kind = $(p, ".advice").dataset.kind;
+      const pool = pools.find(([, v]) => v.includes(text(".advice p")))?.[0] ?? "?";
+      const charge = Math.max(0, -batt), discharge = Math.max(0, batt), imp = Math.max(0, grid), exp = Math.max(0, -grid);
+      const night = sky[0] === -30, sunUp = sky[0] > 0;
+      const broken = {
+        "NaN, undefined or null on the page": /NaN|undefined|null/.test($(p, "#now").textContent),
+        "advice line from no pool, or an unknown battery word or line": pool === "?" || word === "?" || line === "?",
+        "battery word: not Empty at or under the floor": soc <= FLOOR && word !== "empty",
+        "battery word: not Low just above the floor": soc > FLOOR && soc < LOW && word !== "low",
+        "battery word: wrong above the low band": soc >= LOW && word !== (soc < HIGH ? "good" : soc < 100 ? "nearlyFull" : "full"),
+        "battery line: does not follow the battery power": charge > 20 ? !line.startsWith("charging") : discharge > 20 ? !["until", "untilSun", "discharging"].includes(line) : line !== "resting",
+        "battery line: filling up with sun, with no sun": line === "charging" && solar === 0,
+        "battery line: charging from the grid, with no import": line === "chargingGrid" && imp === 0,
+        "headline: names the grid, with no import": head.includes(t.src.grid) && imp === 0,
+        "headline: names the battery, while it gives nothing": (head.includes(t.src.battery) || head === t.sunBatt) && discharge === 0,
+        "headline: names the sun, with no sun": (head.includes(t.src.sun) || head === t.sunBatt) && solar === 0,
+        "sub-line: grid lending a hand, with no import": sub === t.subGrid && imp === 0,
+        "sub-line: extra sun, with no sun or nothing sent or stored": (sub === t.subExport && exp === 0) || (sub === t.subCharge && (charge === 0 || solar === 0)),
+        "advice go: no spare sun": kind === "go" && !(solar - load > 1000 || (soc >= HIGH && exp > 50)),
+        "advice: 1000 W of spare sun not mentioned": solar - load > 1000 && kind !== "go" && kind !== "soon",
+        "advice soon: battery nearly full": kind === "soon" && soc >= HIGH,
+        "advice low: battery not low, or there is sun": kind === "low" && !(soc < LOW && solar < 100),
+        "advice: battery at the floor, no sun, and no warning": soc <= FLOOR && solar === 0 && kind !== "low",
+        "advice low: empty lines and the floor do not match": kind === "low" && (soc <= FLOOR) !== (pool === "adviceEmpty"),
+        "advice refill: battery not low, or not charging from the sun": pool === "adviceOkRefill" && !(soc < LOW && line === "charging"),
+        "advice: full battery line at night, or go-full without a full battery": (pool === "adviceOkFull" && night) || (pool === "adviceGoFull" && soc < HIGH),
+        "advice: night line with the sun up, or day line at night": (pool === "adviceOkNight" && sunUp) || (pool === "adviceOk" && night),
+        "advice from the forecast, with no forecast": !("fade" in extra || fc === "flat" || fc === "poorToday") && ["soon", "later", "wait"].includes(kind),
+      };
+      count++;
+      for (const [field, value] of Object.entries({ advice: kind, pool, "battery word": word, "battery line": line, headline: head, "sub-line": sub || "(none)" })) note(field, value);
+      const combo = `${kind} | ${pool} | ${word} | ${line}`;
+      combos.set(combo, (combos.get(combo) || 0) + 1);
+      for (const [rule, bad] of Object.entries(broken)) if (bad) failures.push({ rule, forecast: fc, solar, batt, grid, soc, sky: sky.join(" "), head, word, line, kind, pool });
+    }
+    await tick();
+  }
+  const never = [...pools.map(([k]) => k).filter((k) => !seen.pool[k]), ...Object.values(LINES).concat("until").filter((k) => !seen["battery line"][k]),
+    ...Object.values(WORDS).filter((k) => !seen["battery word"][k]), ...["go", "soon", "later", "low", "wait", "ok"].filter((k) => !seen.advice[k])];
+  const byRule = {};
+  for (const f of failures) (byRule[f.rule] ??= []).push(f);
+  const out = [`sweep: ${count} combinations, floor ${FLOOR} %, ${failures.length} rule breaks, never seen: ${never.join(", ") || "nothing"}`, ""];
+  for (const [field, values] of Object.entries(seen)) out.push(field, ...Object.entries(values).sort((a, b) => b[1] - a[1]).map(([v, n]) => `  ${String(n).padStart(6)}  ${v}`), "");
+  out.push("advice | pool | battery word | battery line", ...[...combos].sort((a, b) => b[1] - a[1]).map(([c, n]) => `  ${String(n).padStart(6)}  ${c}`), "");
+  for (const [rule, list] of Object.entries(byRule)) out.push(`BROKEN ${list.length}x: ${rule}`, ...list.slice(0, 5).map((f) => "  " + JSON.stringify({ ...f, rule: undefined })), "");
+  const pre = document.body.appendChild(document.createElement("pre"));
+  pre.style.cssText = "position:fixed;inset:0;z-index:8;margin:0;padding:12px;overflow:auto;background:#fff;color:#000;font:12px/1.4 monospace";
+  pre.textContent = out.join("\n");
+  console.log(out[0]);
+  console.assert(!failures.length && !never.length, `sweep: ${failures.length} rule breaks, never seen: ${never}`);
+  window.sweep = { count, seen, combos: Object.fromEntries(combos), failures, never };
+}
 
 const select = document.querySelector("#dev select");
 select.innerHTML = Object.keys(SCENARIOS).map((k) => `<option${k === name ? " selected" : ""}>${k}</option>`).join("");

@@ -20,7 +20,7 @@ Then open `/preview/`.
 
 | Parameter | Values |
 |---|---|
-| `scenario` | `midday`, `full`, `dawn`, `dusk`, `night`, `evening`, `poor`, `poorNoForecast`, `nobattery`, `nodata`, `offline` |
+| `scenario` | `midday`, `full`, `dawn`, `dusk`, `night`, `evening`, `poor`, `fading`, `brightening`, `poorNoForecast`, `nobattery`, `nodata`, `offline` |
 | `lang` | `en`, `it`, `es`, `fr`, `de`, `pt`, `nl`, `pl` |
 | `dark` | `0` or `1` |
 | `admin` | `0` hides the Info page |
@@ -31,6 +31,7 @@ Then open `/preview/`.
 | `page` | `today`, `history` or `details`: open on that page |
 | `shot` | `1` hides the tool's own controls, for screenshots |
 | `check` | `skeleton` compares the loading skeleton with the loaded page |
+| `sweep` | `1` runs every combination of sensor values through the page, see below |
 
 ## Checks
 
@@ -39,6 +40,8 @@ The checks are `console.assert` calls in the preview page. The browser console m
 Warnings that say "loading the numbers failed Error: check" come from the tool's own failure test and are expected.
 
 The scenarios have no hourly statistics, so "enough until" uses the present draw and the checks give the same result at any time of day. The walk through the usual day is checked on its own, with fixed hours.
+
+`?sweep=1` feeds the real page about 33,000 combinations of solar, battery and grid power, battery charge, sun height and forecast, reads back what the page says, and holds it against plain rules ("filling up with sun" needs sun, a battery at the floor is "Empty", and so on). It takes up to a minute. The page then lists every outcome it saw with a count, anything it never saw, and the first combinations that break a rule. It must end with "0 rule breaks, never seen: nothing". The values and the rules are at the end of `preview/index.html`. Some combinations cannot happen in a real house; they are swept anyway.
 
 `?check=skeleton` must log "0 differ": the loading skeleton has to sit exactly where the loaded page puts things, so nothing jumps when the numbers arrive. Run it after any change to markup, CSS or text length, at phone width.
 
