@@ -1,0 +1,53 @@
+[
+  {
+    "name": "spare sun fills, then is lost",
+    "hours": [{ "t": 1792933200000, "sun": 3, "use": 0.5 }],
+    "soc": 95, "battery": { "kwh": 10, "floor": 20, "maxChargeKw": 2.15, "efficiency": 1 }, "exportMaxKw": 0, "firstShare": 1,
+    "expect": [{ "t": 1792933200000, "made": 1, "fromBatt": 0, "fromGrid": 0, "toGrid": 0, "lost": 2, "soc": 100 }]
+  },
+  {
+    "name": "charge cap",
+    "hours": [{ "t": 1792933200000, "sun": 3, "use": 0.5 }],
+    "soc": 50, "battery": { "kwh": 10, "floor": 20, "maxChargeKw": 2.15, "efficiency": 1 }, "exportMaxKw": 0, "firstShare": 1,
+    "expect": [{ "t": 1792933200000, "made": 2.65, "fromBatt": 0, "fromGrid": 0, "toGrid": 0, "lost": 0.35, "soc": 71.5 }]
+  },
+  {
+    "name": "efficiency before cap",
+    "hours": [{ "t": 1792933200000, "sun": 1, "use": 0 }],
+    "soc": 50, "battery": { "kwh": 10, "floor": 20, "maxChargeKw": 2.15, "efficiency": 0.9 }, "exportMaxKw": 0, "firstShare": 1,
+    "expect": [{ "t": 1792933200000, "made": 1, "fromBatt": 0, "fromGrid": 0, "toGrid": 0, "lost": 0, "soc": 59 }]
+  },
+  {
+    "name": "export limit",
+    "hours": [{ "t": 1792933200000, "sun": 3, "use": 1 }],
+    "soc": 0, "battery": { "kwh": 0, "floor": 20, "maxChargeKw": null, "efficiency": 0.95 }, "exportMaxKw": 1.5, "firstShare": 1,
+    "expect": [{ "t": 1792933200000, "made": 2.5, "fromBatt": 0, "fromGrid": 0, "toGrid": 1.5, "lost": 0.5, "soc": 0 }]
+  },
+  {
+    "name": "shortfall to floor then grid",
+    "hours": [{ "t": 1792933200000, "sun": 0, "use": 0.5 }],
+    "soc": 22, "battery": { "kwh": 10, "floor": 20, "maxChargeKw": 2.15, "efficiency": 1 }, "exportMaxKw": 0, "firstShare": 1,
+    "expect": [{ "t": 1792933200000, "made": 0, "fromBatt": 0.2, "fromGrid": 0.3, "toGrid": 0, "lost": 0, "soc": 20 }]
+  },
+  {
+    "name": "soc under floor",
+    "hours": [{ "t": 1792933200000, "sun": 0, "use": 0.5 }],
+    "soc": 12, "battery": { "kwh": 10, "floor": 20, "maxChargeKw": 2.15, "efficiency": 1 }, "exportMaxKw": 0, "firstShare": 1,
+    "expect": [{ "t": 1792933200000, "made": 0, "fromBatt": 0, "fromGrid": 0.5, "toGrid": 0, "lost": 0, "soc": 20 }]
+  },
+  {
+    "name": "first share",
+    "hours": [{ "t": 1792933200000, "sun": 2, "use": 1 }],
+    "soc": 0, "battery": { "kwh": 0, "floor": 20, "maxChargeKw": null, "efficiency": 0.95 }, "exportMaxKw": 0, "firstShare": 0.5,
+    "expect": [{ "t": 1792933200000, "made": 0.5, "fromBatt": 0, "fromGrid": 0, "toGrid": 0, "lost": 0.5, "soc": 0 }]
+  },
+  {
+    "name": "two hours",
+    "hours": [{ "t": 1792933200000, "sun": 2, "use": 0.5 }, { "t": 1792936800000, "sun": 0, "use": 0.5 }],
+    "soc": 20, "battery": { "kwh": 10, "floor": 20, "maxChargeKw": null, "efficiency": 1 }, "exportMaxKw": 0, "firstShare": 1,
+    "expect": [
+      { "t": 1792933200000, "made": 2, "fromBatt": 0, "fromGrid": 0, "toGrid": 0, "lost": 0, "soc": 35 },
+      { "t": 1792936800000, "made": 0, "fromBatt": 0.5, "fromGrid": 0, "toGrid": 0, "lost": 0, "soc": 30 }
+    ]
+  }
+]
