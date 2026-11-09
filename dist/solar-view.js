@@ -3,8 +3,9 @@
    Served WITHOUT login, under /hacsfiles/ (HACS) or /local/ (copied by hand): never put a secret here.
    /local/ is cached hard: there, bump ?v= in configuration.yaml after every edit of any file. /hacsfiles/ tells the browser not to cache.
 
-   Files: this one (rules, logic, drawing, the element), forecast.js (the day simulation and what follows
-   from the forecast), strings-en.js and one strings-xx.js per language (every text), styles.js (the CSS).
+   Files: this one (rules, logic, drawing, the element), core.js (time, numbers and text helpers shared by all),
+   format.js (numbers, money and dates as written), forecast.js (the day simulation and what follows from the
+   forecast), strings-en.js and one strings-xx.js per language (every text), styles.js (the CSS).
    Sections here: entities, rules, sky, parts, logic, data, drawing, pages, element. */
 
 // ---- Entities ----
@@ -47,8 +48,7 @@ const WATTS = { W: 1, kW: 1e3, MW: 1e6 };
 const POOR_SHARE = 0.55;      // a forecast for today under this share of a usual day is a poor day
 const BETTER_TIMES = 1.5;     // tomorrow must beat today by this factor before saying "wait for tomorrow"
 const BATTERY_FLOOR_SOC = 20; // percent where the inverter stops discharging, unless config says battery_floor
-const LASTS_MIN_H = 0.5;      // "enough until" is only shown between these many hours
-const LASTS_MAX_H = 18;
+const LASTS_MIN_H = 0.5;      // "enough until" is only shown from this many hours up to LASTS_MAX_H
 const USUAL_DAYS = 14;    // the usual day (Energy's dashed lines) averages each hour over these many days, unless config says usual_days
 const USUAL_MIN = 3;      // until every hour of the day has this many days behind it there is no usual day (no dashed lines, no forecast built here)
 const TRIM_MIN = 5;       // an hour of the usual day's sun with this many days or more leaves out its lowest and highest
@@ -64,7 +64,6 @@ const IMPORT_W = 50;      // importing more than this counts as "the grid is hel
 // at the floor empty, up to 15 above it low, then good, 85 to 99 almost full, 100 full.
 const LOW_ABOVE_FLOOR = 16; // under this many percent above the floor is "low", and the low battery warning can fire
 const HIGH_SOC = 85;      // from here up it is "almost full"
-const FULL_SOC = 97;      // from here up the battery is full: with export capped, spare sun is held back (as in forecast.js)
 const MIN_USE_KWH = 0.05; // under this the house has used nothing yet today, so there is no share to show
 const LOW_SOLAR_W = 100;  // "no real sun" for the low battery warning
 const MIN_FLOW_W = 20;    // below this a flow is treated as off
@@ -112,8 +111,9 @@ const SKY = {
   },
 };
 
-// ---- Parts: texts and stylesheet live in their own files ----
-// They must load with this file's own ?v=, or under /local/ the browser keeps stale copies.
+// ---- Parts: helpers, texts and stylesheet live in their own files ----
+// They must load with this file's own ?v=, or under /local/ the browser keeps stale copies. All start here,
+// in one wave: a file's own import of a sibling (forecast.js of core.js) then finds it already loading.
 // Texts: one file per language (strings-it.js), loaded the first time it is on screen. English is always
 // there, under every other language, so a key one lacks reads in English (a half-copied /local/ update).
 const version = new URL(import.meta.url).search;
@@ -136,34 +136,13 @@ const supported = (l) => [l, l.split("-")[0]].find((c) => Object.hasOwn(LANGUAGE
 let guess = "";
 try { guess = localStorage.getItem(LANGUAGE_KEY) ?? ""; } catch (e) { /* no storage */ }
 guess = supported(guess) ?? supported(document.documentElement.lang || navigator.language || "") ?? "en";
-const [, , { CSS }, { findForecast, forecastOf, lookAhead, SOLAR_SPREAD, efficiencyOf, moneySoFar, machineOf, bandOf, bandPrices }] = await Promise.all([
-  english, loadLanguage(guess), import(`./styles.js${version}`), import(`./forecast.js${version}`)]);
+const [, , { CSS }, { findForecast, forecastOf, lookAhead, SOLAR_SPREAD, efficiencyOf, moneySoFar, machineOf, bandOf, bandPrices },
+  { MINUTE, FIVE_MIN, HALF_HOUR, HOUR, DAY, NOON, FULL_SOC, LASTS_MAX_H, clockOf, hourStart, shiftKey, shiftMonth, daysIn, yearKeys,
+    dayHours, num, numberOrEntity, stateNum, sumKnown, clamp01, pct, say, cap, esc, warnOnce }, { formats, hourCycle }] = await Promise.all([
+  english, loadLanguage(guess), import(`./styles.js${version}`), import(`./forecast.js${version}`), import(`./core.js${version}`),
+  import(`./format.js${version}`)]);
 
 // ---- Logic (pure) ----
-const clamp01 = (x) => Math.min(1, Math.max(0, x));
-const pct = (v) => Math.round(v * 100);
-// say("{a} and {b}", { a, b }): placeholders are one letter.
-const say = (text, parts) => text.replace(/\{(\w)\}/g, (_, k) => parts[k]);
-const cap = (text) => text[0].toUpperCase() + text.slice(1);
-// Days are counted in Home Assistant's time zone, not the browser's. clockOf(tz)(ms) gives the
-// calendar day there as "2026-10-02", plus hour and minute.
-function clockOf(tz) {
-  const opts = { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
-  let f;
-  try { f = new Intl.DateTimeFormat("en-CA", { ...opts, timeZone: tz }); } catch (e) { f = new Intl.DateTimeFormat("en-CA", opts); }
-  return (ms) => {
-    const p = Object.fromEntries(f.formatToParts(ms).map((x) => [x.type, x.value]));
-    return { key: `${p.year}-${p.month}-${p.day}`, hour: +p.hour, minute: +p.minute };
-  };
-}
-// A day key moved by whole days. Plain calendar arithmetic, so daylight saving cannot bend it.
-const shiftKey = (key, days) => new Date(Date.parse(key) + days * 864e5).toISOString().slice(0, 10);
-// The months Production and Month balance show: the 12 up to this month (`key`, "2026-10"), oldest first.
-const yearKeys = (key) => { const [y, m] = key.split("-").map(Number); return Array.from({ length: 12 }, (_, i) => { const n = y * 12 + m - 12 + i; return `${Math.floor(n / 12)}-${String((n % 12) + 1).padStart(2, "0")}`; }); };
-// Start of the hour holding ms, from the clock's minute: right in half hour time zones too.
-const hourStart = (ms, clock) => ms - clock(ms).minute * 60e3 - (ms % 60e3);
-// A state as a number, null when the entity is missing or has no value.
-const stateNum = (hass, id) => { const v = parseFloat(hass.states[id]?.state); return Number.isFinite(v) ? v : null; };
 // "0-7" or "23:30-6:30" as [from, to] in hours; null when it is not that.
 const quietHours = (v) => {
   const m = typeof v === "string" && v.trim().match(/^(\d{1,2})(?::(\d\d))?\s*-\s*(\d{1,2})(?::(\d\d))?$/);
@@ -204,7 +183,7 @@ function outlookAdvice(kind, outlook, word, sunCharging, daytime, evening, lasts
 // one) alone decides when it reads; else the years since `batt.since`.
 function wearOf(batt, health, now) {
   if (health !== Infinity) return health < WEAR_HEALTH_PCT ? { kind: "health", p: Math.round(health) } : null;
-  const years = batt.since ? (now - Date.parse(batt.since)) / (365.25 * 864e5) : 0;
+  const years = batt.since ? (now - Date.parse(batt.since)) / (365.25 * DAY) : 0;
   return years >= WEAR_YEARS ? { kind: "age", y: Math.floor(years) } : null;
 }
 
@@ -241,8 +220,6 @@ function withOwnAdvice(strings, config, lang) {
   }
   return t;
 }
-// Text typed by the owner goes into the page as text, never as markup.
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 // Today's mean charge by the hour, from the statistics of every battery's charge sensor, weighted as the live
 // reading (see readData): [[hour start, %], ...], oldest first. The present hour has no row yet. An hour
@@ -263,7 +240,7 @@ function socDay(rows, weight, clock, now, ids = Object.keys(rows || {})) {
 function outlookLastsH(n, batt, until, now) {
   if (n.soc === null || !batt.kwh || n.batteryDischargeW <= MIN_FLOW_W || n.solarW >= n.loadW) return 0;
   if (until === Infinity) return Infinity;
-  const h = ((until ?? now) - now) / 36e5;
+  const h = ((until ?? now) - now) / HOUR;
   return h >= LASTS_MIN_H && h <= LASTS_MAX_H ? h : 0;
 }
 
@@ -289,8 +266,6 @@ function sources(n) {
 // Share of the house use that did not come from the grid. null while nothing has been used
 // (just after midnight), or when either figure is unknown: neither 0 % nor 100 % would be true.
 function ownShare(d) { return Number.isFinite(d.loadKwh) && Number.isFinite(d.gridImportKwh) && d.loadKwh >= MIN_USE_KWH ? clamp01(1 - d.gridImportKwh / d.loadKwh) : null; }
-// The sum of figures, null (unknown) when any of them is.
-const sumKnown = (values) => (values.every(Number.isFinite) ? values.reduce((s, v) => s + v, 0) : null);
 // Energy at a price: 0 kWh costs 0 even without a price; unknown energy or price, null.
 const pricedEnergy = (kwh, rate) => (!Number.isFinite(kwh) ? null : kwh === 0 ? 0 : Number.isFinite(rate) ? kwh * rate : null);
 // Money not spent on the grid. null without a price or with an unknown figure.
@@ -328,14 +303,14 @@ const dawnOf = (a) => { const az = parseFloat(a?.azimuth); return Number.isFinit
 const greyOf = (cloud) => (Number.isFinite(cloud) ? clamp01((cloud - CLOUD_GREY_FROM) / (CLOUD_GREY_FULL - CLOUD_GREY_FROM)) : 0);
 
 // Where the forecast hour holding `now` is in `ahead.hours`, -1 when there is none.
-const hourIndex = (ahead, now) => ahead?.hours.findIndex((h) => h.t <= now && now < h.t + 36e5) ?? -1;
+const hourIndex = (ahead, now) => ahead?.hours.findIndex((h) => h.t <= now && now < h.t + HOUR) ?? -1;
 // That hour, from a fresh sensor only: the forecast the page builds has no cloud, rain or prices.
 const presentHour = (ahead, now) => (ahead?.from === "sensor" ? ahead.hours[hourIndex(ahead, now)] : undefined);
 // The first weather entity, by id. Looked for again only when it goes, or after a minute (one added that
 // sorts first): every id in the house is a long list to go through on each state change.
 let weatherId, weatherAt = 0;
 function weatherOf(hass) {
-  if (!hass.states[weatherId] || Date.now() - weatherAt > 6e4) {
+  if (!hass.states[weatherId] || Date.now() - weatherAt > MINUTE) {
     weatherId = Object.keys(hass.states).filter((k) => k.startsWith("weather.")).sort()[0];
     weatherAt = Date.now();
   }
@@ -350,7 +325,7 @@ function raining(ahead, state, now) {
 }
 // Cloud cover now in %: the sensor's present hour when it is fresh, else the weather entity's
 // `cloud_coverage` (what it sees now, not a forecast; not every weather integration has it).
-const cloudNow = (ahead, coverage, now) => (ahead?.from === "sensor" ? presentHour(ahead, now)?.cloud : Number(coverage ?? NaN));
+const cloudNow = (ahead, coverage, now) => (ahead?.from === "sensor" ? presentHour(ahead, now)?.cloud : num(coverage));
 // Snow now: only the weather entity knows it (the sensor has no snow).
 const snowing = (state) => ["snowy", "snowy-rainy"].includes(state);
 // What covers the sun or moon icon this hour, by the sky's thresholds: "snow", "rain", "overcast" (cloud
@@ -359,7 +334,7 @@ const coverOf = (cloud, rain, snow = false) => (snow ? "snow" : rain ? "rain" : 
 // The moon's phase in 8 steps (0 new, 2 first quarter, 4 full, 6 last quarter), from a known new moon
 // and the mean length of a lunar month.
 const NEW_MOON = Date.UTC(2000, 0, 6, 18, 14), LUNAR_DAYS = 29.530588853;
-const moonPhase = (ms) => Math.round(((((ms - NEW_MOON) / 864e5 / LUNAR_DAYS) % 1) + 1) % 1 * 8) % 8;
+const moonPhase = (ms) => Math.round(((((ms - NEW_MOON) / DAY / LUNAR_DAYS) % 1) + 1) % 1 * 8) % 8;
 
 // ---- Data ----
 // A calendar date written YYYY-MM-DD, kept as that text; null for anything else, or a day that does not
@@ -523,7 +498,7 @@ function usualDay(res, src, clock, machineRows = {}) {
     for (const r of rows) {
       if (!hours.has(r.start)) hours.set(r.start, { ids: new Set(), ...zero() });
       const h = hours.get(r.start);
-      if (r.start > firstStart && !had.has(r.start - 36e5)) h.catchUp = true;
+      if (r.start > firstStart && !had.has(r.start - HOUR)) h.catchUp = true;
       if (!Number.isFinite(r.change)) continue;
       h.ids.add(id);
       h[part] += Math.max(0, r.change || 0);
@@ -573,7 +548,7 @@ function usualDay(res, src, clock, machineRows = {}) {
 // rows of the last `usual_days` days, `forecast` the answer of energy/solar_forecast, `monthly` month rows.
 function totals(src, daily, recent, hourly, forecast, clock, now, monthly = {}, machineHours = {}) {
   const at = clock(now), today = at.key;
-  const month = today.slice(0, 7), last = shiftKey(month + "-01", -1).slice(0, 7);
+  const month = today.slice(0, 7), last = shiftMonth(month, -1);
   const days = byDay(daily, src, clock), recentDays = byDay(recent, src, clock);
   // A statistic without 5 minute rows (one imported from outside) only has its day row.
   const recentToday = recentDays.get(today);
@@ -620,7 +595,7 @@ function totals(src, daily, recent, hourly, forecast, clock, now, monthly = {}, 
   // This month day by day, today last (from its 5 minute rows), each at noon UTC of its day: the page
   // formats these dates in UTC, so every viewer sees the same day. The rest of a day's figures show when
   // its day is picked (see productionCard), its money on Money (see moneyHtml).
-  const dayOf = (key) => ({ date: Date.parse(key) + 432e5, ...sum([key]) });
+  const dayOf = (key) => ({ date: Date.parse(key) + NOON, ...sum([key]) });
   const monthDays = Array.from({ length: +today.slice(8) }, (_, i) => dayOf(`${month}-${String(i + 1).padStart(2, "0")}`));
   // The other 11 months Production shows, day by day, with only what a picked day says (see picked),
   // rounded: the copy this browser remembers stays small.
@@ -658,21 +633,18 @@ function totals(src, daily, recent, hourly, forecast, clock, now, monthly = {}, 
   const usual = src.level === "none" ? null : usualDay(hourly, src, clock, machineHours);
   const tomorrow = shiftKey(today, 1);
   // The sun forecast of this hour, and the average of the next 3.
-  const fcHour = (i) => whHour[hourStart(now + i * 36e5, clock)] || 0;
+  const fcHour = (i) => whHour[hourStart(now + i * HOUR, clock)] || 0;
   const fade = { now: fcHour(0), next: (fcHour(1) + fcHour(2) + fcHour(3)) / 3 };
   // The usual day's kWh by now and in all, over today's real hours: a 23 or 25 hour day has as many.
-  let first = hourStart(now, clock);
-  while (clock(first - 36e5).key === today) first -= 36e5;
+  const hours = dayHours(now, clock);
   const usualBy = (w, k = () => 1) => {
     let by = 0, all = 0;
-    for (let t = first; clock(t).key === today; t += 36e5) { const v = w[clock(t).hour] * k(t); all += v; by += v * clamp01((now - t) / 36e5); }
+    for (const t of hours) { const v = w[clock(t).hour] * k(t); all += v; by += v * clamp01((now - t) / HOUR); }
     return [by / 1000, all / 1000];
   };
   // The usual day's sun on each day after today to the month's end, kWh by date, as the season moves it.
   const usualSunDays = {};
-  let next = first;
-  while (clock(next).key === today) next += 36e5;
-  if (usual) for (let t = next; clock(t).key.startsWith(month); t += 36e5)
+  if (usual) for (let t = hours.at(-1) + HOUR; clock(t).key.startsWith(month); t += HOUR)
     usualSunDays[clock(t).key] = (usualSunDays[clock(t).key] ?? 0) + (usual.solarW[clock(t).hour] * usual.scale(t)) / 1000;
   return {
     today: sum([today]), lastMonth: sum(of(last)), monthDays, pastDays, monthKey: month, // "2026-10": this month
@@ -687,14 +659,14 @@ function totals(src, daily, recent, hourly, forecast, clock, now, monthly = {}, 
     // days with sun among the last 7. Level none predicts nothing: no "soon", "later" or "wait" advice either.
     forecast: src.level !== "none" && today in wh ? { fade, today: wh[today] / 1000, tomorrow: tomorrow in wh && whole(tomorrow) && whole(today) ? wh[tomorrow] / 1000 : null,
       usual: usual ? usualBy(usual.solarW, usual.scale)[1] : sunny.length ? sunny.reduce((a, w) => a + w.solarKwh, 0) / sunny.length : null } : null,
-    msToMidnight: ((23 - at.hour) * 60 + 60 - at.minute) * 60e3,
+    msToMidnight: ((23 - at.hour) * 60 + 60 - at.minute) * MINUTE,
     // For the forecast part only (readData leaves them out): the solar forecast by hour, the usual day,
     // the battery round trip, the inverter's standby (the owner's standby_w, else worked out from a
     // load sensor, else 0).
     todayHours, solarWh, usual,
     // Where today's sun so far ends: the end of the 5 minute rows of the solar sensor that lags most (the
     // sum so far reaches no further). -Infinity while one has none: today's sun then scales nothing.
-    sunUntil: src.solarKwh.length ? Math.min(...src.solarKwh.map((id) => Math.max(...(recent[id] ?? []).map((r) => r.start)))) + 3e5 : null,
+    sunUntil: src.solarKwh.length ? Math.min(...src.solarKwh.map((id) => Math.max(...(recent[id] ?? []).map((r) => r.start)))) + FIVE_MIN : null,
     // The solar forecast's kWh of each whole day after today, by date (Production's days to come, see monthAhead,
     // and the coming days without the sensor), and the usual day's sun in kWh (null without a usual day).
     sunDays: Object.fromEntries(Object.entries(wh).filter(([k]) => k > today && fullDay(k)).map(([k, v]) => [k, v / 1000])),
@@ -717,7 +689,7 @@ function readData(hass, src, stats, lookedAhead = {}) {
   const sun = hass.states[SUN];
   const elevation = parseFloat(sun?.attributes?.elevation); // NaN while sun.sun has no value
   // Text is an entity id, unless it is a number typed as text.
-  const price = (v) => (typeof v !== "string" ? v : v.trim() && !isNaN(v) ? +v : stateNum(hass, v));
+  const price = (v) => numberOrEntity(v, hass);
   // The forecast's inputs stay out: they are not drawn, and the copy this browser remembers stays small.
   const { msToMidnight, todayHours, solarWh, usual, efficiency, standbyW, socDay, fixedMonths, machines, priceRows, gridMonth, sunUntil, ...rest } = stats;
   const round = (v, to) => (Number.isFinite(v) ? Math.round(v * to) / to : null), socAt = new Map(socDay);
@@ -751,7 +723,7 @@ function readData(hass, src, stats, lookedAhead = {}) {
     payback: src.payback,
     lat: hass.config?.latitude ?? null, // payback's seasons
     // The bill's fixed part: its month means (see fixedAt), and its value now.
-    billFixed: { months: fixedMonths ?? {}, now: typeof src.billFixed === "string" ? stateNum(hass, src.billFixed) : src.billFixed },
+    billFixed: { months: fixedMonths ?? {}, now: numberOrEntity(src.billFixed, hass) },
     // Today by the hour, oldest first: [hour start, mean charge %, then in kWh what the battery took in and
     // gave back, the sun made, the house used and the grid gave, and the house's use as the balance (as the
     // forecast counts it)], rounded; null where the statistics have no row.
@@ -788,7 +760,9 @@ function placeholder(hass, src) {
   const solarW = fresh.sun.elevation > 0 ? 1500 : 0;
   // Before the Energy settings answer: a battery, export on, no prices (see _render, which waits for them).
   const battery = !src || src.battW.length > 0 || src.soc.length > 0, soc = !src || src.soc.length ? 50 : null;
-  const now = new Date(Date.now()), midnight = new Date(now).setHours(0, 0, 0, 0), done = Math.floor((now - midnight) / 36e5);
+  // Today in Home Assistant's time zone, as the loaded page counts it, not the browser's.
+  const now = Date.now(), clock = clockOf(hass.config?.time_zone), today = clock(now).key, month = today.slice(0, 7);
+  const hours = dayHours(now, clock).filter((t) => t <= now);
   return {
     ...fresh,
     now: { solarW, loadW: 400, gridImportW: solarW || battery ? 0 : 400, gridExportW: solarW && !battery ? 1100 : 0,
@@ -796,14 +770,14 @@ function placeholder(hass, src) {
     // A month nearly always sends something to the grid, a single day often does not.
     // Whole months on record, so no "numbers for some days" line shows while loading.
     today: day(8, 6), month: day(200, 190, 5), lastMonth: day(400, 390, 10),
-    usualToday: null, monthKey: now.toISOString().slice(0, 7),
+    usualToday: null, monthKey: month,
     // Whole days, not the present moment: a date that moved would redraw the skeleton on every update.
-    monthDays: Array.from({ length: now.getDate() }, (_, i) => ({ ...day(12, 14), date: Date.UTC(now.getFullYear(), now.getMonth(), i + 1, 12) })),
+    monthDays: Array.from({ length: +today.slice(8) }, (_, i) => ({ ...day(12, 14), date: Date.parse(`${month}-${String(i + 1).padStart(2, "0")}`) + NOON })),
     batt: battery ? { kwh: 10, floor: src?.batt.floor ?? BATTERY_FLOOR_SOC } : null, sends: src?.exportMaxKw !== 0, forecast: null,
     price: { buy: src?.price.buy != null ? 0.25 : null, sell: src?.price.sell != null ? 0.08 : null }, payback: src?.payback ?? null,
     // The hours done since midnight and this one so far (its figures show under the charts, with no charge mean
     // until it ends), a day the clocks change too (see battDayCard).
-    battDay: Array.from({ length: done + 1 }, (_, i) => [midnight + i * 36e5, i < done ? 50 : null, 0, 0, 0.5, 0.5, 0]),
+    battDay: hours.map((t, i) => [t, i < hours.length - 1 ? 50 : null, 0, 0, 0.5, 0.5, 0]),
     ahead: null, outlook: null,
   };
 }
@@ -830,65 +804,6 @@ const languagePicker = () => `<fieldset class="language"><legend id="language-ti
 <select name="language" aria-labelledby="language-title"><button type="button"><selectedcontent></selectedcontent></button>${
   Object.entries({ "": "", ...LANGUAGES }).map(([code, name]) => `<option value="${code}"><svg viewBox="0 0 24 16" width="24" height="16" aria-hidden="true" focusable="false">${FLAG[code]}</svg><span>${name}</span></option>`).join("")}</select></fieldset>`;
 const SWITCHES = { showSky: ["sunHeight", "clouds", "rain"] };
-
-// 12 or 24 hour clock: the panel's `time_format`, else the viewer's profile in Home Assistant
-// (Time format: "12", "24", "system" or "language"). undefined leaves it to the language.
-function hourCycle(config, locale) {
-  const pick = String(config?.time_format ?? locale?.time_format ?? "language");
-  if (pick === "system") return /h1[12]/.test(new Intl.DateTimeFormat(undefined, { hour: "numeric" }).resolvedOptions().hourCycle) ? "h12" : "h23";
-  return pick === "12" ? "h12" : pick === "24" ? "h23" : undefined;
-}
-
-// One set of Intl formatters, kept while the language, currency, clock and time zone stay (see _render). Times
-// are in Home Assistant's time zone (`zone`), as the hours they name; dates are calendar days, in UTC (see totals).
-function formats(lang, currency, cycle, zone) {
-  // A decimal point in every language, as the owner asked: "2.8 kW", "0.30 €". A group mark that is a
-  // point too ("1.234" in Italian) becomes a narrow space, so the two never mix.
-  const pointed = (nf) => {
-    const formatToParts = (v) => nf.formatToParts(v).map((p) => (p.type === "decimal" ? { ...p, value: "." } : p.type === "group" && p.value === "." ? { ...p, value: "\u202f" } : p));
-    return { formatToParts, format: (v) => formatToParts(v).map((p) => p.value).join("") };
-  };
-  const number = pointed(new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }));
-  const money = pointed(new Intl.NumberFormat(lang, { style: "currency", currency }));
-  const whole = pointed(new Intl.NumberFormat(lang, { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: 0 })); // payback's sums
-  // The currency sign after the number, whatever the language: "1.77 €".
-  const after = (nf, v) => {
-    const parts = nf.formatToParts(v), sign = parts.filter((p) => p.type === "currency").map((p) => p.value).join("");
-    return `${parts.filter((p) => p.type !== "currency" && (p.type !== "literal" || p.value.trim())).map((p) => p.value).join("")} ${sign}`;
-  };
-  // A zone this browser's Intl does not know (an older WebView): the browser's own, as in clockOf.
-  try { new Intl.DateTimeFormat(lang, { timeZone: zone }); } catch (e) { zone = undefined; }
-  const time = new Intl.DateTimeFormat(lang, { hour: "numeric", minute: "2-digit", hourCycle: cycle, timeZone: zone }); // "alle 2:30", as spoken
-  const hour = new Intl.DateTimeFormat(lang, { hour: "numeric", hourCycle: cycle, timeZone: zone }); // "15", "3 PM": Today by hour's ticks
-  const zoned = new Intl.DateTimeFormat(lang, { hour: "numeric", minute: "2-digit", hourCycle: cycle, timeZone: zone, timeZoneName: "short" }); // the hour the clocks go back, twice
-  const month = new Intl.DateTimeFormat(lang, { month: "short", timeZone: "UTC" }); // "Oct", "ott": under the month columns
-  const monthNarrow = new Intl.DateTimeFormat(lang, { month: "narrow", timeZone: "UTC" }); // "O": under the 12 months on a narrow card
-  const monthYear = new Intl.DateTimeFormat(lang, { month: "long", year: "numeric", timeZone: "UTC" }); // "March 2029": paid back
-  // Payback's time left, with the language's own plurals: "18 months", "4.8 years".
-  const months = pointed(new Intl.NumberFormat(lang, { style: "unit", unit: "month", unitDisplay: "long" }));
-  const years = pointed(new Intl.NumberFormat(lang, { style: "unit", unit: "year", unitDisplay: "long", maximumFractionDigits: 1 }));
-  // Days arrive as noon UTC of the calendar day (see totals).
-  const weekday = new Intl.DateTimeFormat(lang, { weekday: "short", timeZone: "UTC" });
-  const date = new Intl.DateTimeFormat(lang, { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
-  // An unknown figure (null, or anything not a finite number) reads as a dash, never 0 or NaN.
-  const known = (show) => (v) => (Number.isFinite(v) ? show(v) : "—");
-  return {
-    num: known((v) => number.format(v)),
-    kwh: known((v) => `${number.format(v)} kWh`),
-    money: known((v) => after(money, v)),
-    moneyWhole: known((v) => after(whole, v)),
-    time: (d) => time.format(d),
-    zoned: (d) => zoned.format(d),
-    month: (key) => month.format(new Date(`${key}-15T12:00:00Z`)).replace(".", ""),
-    monthNarrow: (key) => monthNarrow.format(new Date(`${key}-15T12:00:00Z`)),
-    monthYear: (key) => monthYear.format(new Date(`${key}-15T12:00:00Z`)),
-    months: (n) => months.format(n),
-    years: (n) => years.format(n),
-    hour: (d) => hour.format(d),
-    weekday: (d) => weekday.format(d).replace(".", ""),
-    date: (d) => date.format(d),
-  };
-}
 
 // ---- Drawing ----
 const PATHS = {
@@ -1185,8 +1100,10 @@ function nowHtml({ data, t, f, sky, loading, day, clock }) {
   const sunCharging = charging && !gridCharging(n);
   const now = Date.now();
   const lastsH = batt && data.outlook ? outlookLastsH(n, batt, data.outlook.lastsUntil, now) : 0;
-  // Rounded to the half hour: the estimate is rough, and the text stays still between updates.
-  const until = lastsH && lastsH !== Infinity ? f.time(new Date(Math.round((now + lastsH * 36e5) / 18e5) * 18e5)) : "";
+  // Rounded to the half hour of Home Assistant's clock (a zone may be 45 minutes off UTC's): the estimate is
+  // rough, and the text stays still between updates.
+  const half = (ms) => { const h = hourStart(ms, clock); return h + Math.round((ms - h) / HALF_HOUR) * HALF_HOUR; };
+  const until = lastsH && lastsH !== Infinity ? f.time(new Date(half(now + lastsH * HOUR))) : "";
   const battW = Math.round(n.batteryChargeW || n.batteryDischargeW);
   const battState = charging ? (sunCharging ? t.charging : t.chargingGrid)
     : lastsH === Infinity ? t.untilSun
@@ -1301,7 +1218,7 @@ function comingDaysCard({ data, t, f, clock }) {
   const label = line ? `<span class="now-label${u < 8 ? " start" : u > 92 ? " end" : ""}" style="--x:${u}%">${t.usualUseMark}</span>` : "";
   const rows = days.map((d, i) => {
     const cover = Number.isFinite(d.cloud) ? coverOf(d.cloud, d.rain >= RAIN_DAY_MM) : null;
-    const date = new Date(Date.parse(d.d) + 432e5), [lo, mid, hi] = d.sun;
+    const date = new Date(Date.parse(d.d) + NOON), [lo, mid, hi] = d.sun;
     const w = cover === null ? "" : `${wxWord(t, cover)}, `;
     const name = say(near(f, lo) === near(f, hi) ? t.hDayAheadMid : t.hDayAhead, { d: f.date(date), w, a: near(f, lo), b: near(f, hi) });
     return `<li ${hint(name, "")} style="--c:${SUN_DOT}"><span>${f.weekday(date)}</span>${wxIcon(cover)}
@@ -1478,13 +1395,9 @@ function battDayCard({ data, t, f, clock, pick }) {
   const hasOutlook = data.outlook?.hoursAhead?.length > 0;
   const b = data.batt, n = data.now, rows = (data.battDay ?? []).map((r) => (hasOutlook && r.length > 7 ? [...r.slice(0, 5), r[7], r[6]] : r));
   // Now to the 5 minutes, so the page is not redrawn every few seconds for a line that barely moves.
-  const H = 36e5, now = Math.floor(Date.now() / 3e5) * 3e5;
-  // The day's real hours, midnight to midnight: 23 the day the clocks go forward, 25 the day they go back.
-  const today = clock(now).key, hours = [];
-  let day0 = hourStart(now, clock);
-  while (clock(day0 - H).key === today) day0 -= H;
-  for (let ms = day0; clock(ms).key === today; ms += H) hours.push(ms);
-  const N = hours.length;
+  const H = HOUR, now = Math.floor(Date.now() / FIVE_MIN) * FIVE_MIN;
+  // The day's real hours, midnight to midnight.
+  const hours = dayHours(now, clock), day0 = hours[0], N = hours.length;
   if (!rows.length && now - day0 < H) return "";
   const x = (ms) => (clamp01((ms - day0) / (N * H)) * 100).toFixed(2), y = (p) => (100 - Math.min(100, Math.max(0, p))).toFixed(2);
   const path = (pts) => pts.map(([ms, p], i) => `${i ? "L" : "M"}${x(ms)} ${y(p)}`).join("");
@@ -1556,7 +1469,7 @@ function battDayCard({ data, t, f, clock, pick }) {
       pc == null ? null : [t.battAvg, `${f.num(pc)}%`, "--batt"],
     ].filter(Boolean);
     // No row 10 minutes into an hour (5 minute rows come every 5): nothing on record for it.
-    return [h, past || (ms + 6e5 < now ? `${h}: ${t.noData}` : coming),
+    return [h, past || (ms + 10 * MINUTE < now ? `${h}: ${t.noData}` : coming),
       figures?.length ? readout(ms <= now && now < ms + H ? `${h} · ${t.soFar}` : h, figures) : ""];
   });
   // The same hours over each chart, each with the hour's sentence as its hint: hovering either shows the
@@ -1588,7 +1501,7 @@ function battDayCard({ data, t, f, clock, pick }) {
         </svg>${kwh.ticks}
         <ol class="hours24" style="--n:${N}"${soc ? ' aria-hidden="true"' : ""}>${cells(!soc, (i) => SERIES.map(([color], k) => (known(hourly[i], k) ? dot(color, hourly[i].v[k] / kwh.max * 100, across(i)) : "")).join(""))}</ol>
       </div>
-      <div class="ticks">${[0, 8, 16].map((h) => hours.findIndex((ms) => clock(ms).hour === h)).filter((i) => i >= 0).map((i) => `<span style="left:${(i / N) * 100}%">${f.hour(new Date(hours[i]))}</span>`).join("")}<span style="right:0">${f.time(new Date(day0 + N * H - 6e4))}</span></div>
+      <div class="ticks">${[0, 8, 16].map((h) => hours.findIndex((ms) => clock(ms).hour === h)).filter((i) => i >= 0).map((i) => `<span style="left:${(i / N) * 100}%">${f.hour(new Date(hours[i]))}</span>`).join("")}<span style="right:0">${f.time(new Date(day0 + N * H - MINUTE))}</span></div>
       ${legend}
       ${rows.length ? "" : `<p class="note">${cap(t.noData)}</p>`}
       <div class="stepped">${steps(t, "Hour", at, said.findLastIndex(([, name]) => name))}<div class="picked" aria-live="polite" aria-atomic="true">${said.map(([h, name, figures], i) => `<div class="day" data-i="${i}"${i === at ? "" : " hidden"}>${figures || (name && name.replace(h, `<b>${h}</b>`))}</div>`).join("")}</div></div>
@@ -1637,7 +1550,7 @@ const ringsAhead = (data) => data.outlook?.hoursAhead?.length > 0;
 function shareBy(d, hoursAhead, now, until) {
   const x = { loadKwh: d.loadKwh, batteryKwh: d.batteryKwh, gridImportKwh: d.gridImportKwh };
   for (const [t, , batt, grid, use] of hoursAhead) {
-    const from = Math.max(t, now), part = clamp01((until - from) / (t + 36e5 - from));
+    const from = Math.max(t, now), part = clamp01((until - from) / (t + HOUR - from));
     x.loadKwh += use * part; x.batteryKwh += batt * part; x.gridImportKwh += grid * part;
   }
   return x;
@@ -1646,7 +1559,7 @@ function shareBy(d, hoursAhead, now, until) {
 // one's order (`order`, part keys), without labels, the share in the middle, when and how much under each.
 // Less than an hour left today: the end of the day alone.
 function aheadRings(data, t, f, order) {
-  const now = Date.now(), rows = data.outlook.hoursAhead, end = rows.at(-1)[0] + 36e5;
+  const now = Date.now(), rows = data.outlook.hoursAhead, end = rows.at(-1)[0] + HOUR;
   const ring = (until, when, text) => {
     const x = shareBy(data.today, rows, now, until), s = splitOf(x, data.batt), share = ownShare(x);
     if (!s.complete || share === null) return "";
@@ -1655,7 +1568,7 @@ function aheadRings(data, t, f, order) {
     const label = say(text, { h: when, p: f.num(pct(share)), a: f.kwh(Math.max(0, x.loadKwh - x.gridImportKwh)), b: f.kwh(x.loadKwh) });
     return `<li><div class="ring-box">${splitRing(parts, label, "")}<div class="ring-mid" aria-hidden="true">${big(pct(share))}</div></div><span>${when} · ${f.kwh(x.loadKwh)}</span></li>`;
   };
-  const list = (now + 36e5 < end ? ring(now + 36e5, f.time(new Date(now + 36e5)), t.hShareBy) : "") + ring(end, t.endOfDay, t.hShareEnd);
+  const list = (now + HOUR < end ? ring(now + HOUR, f.time(new Date(now + HOUR)), t.hShareBy) : "") + ring(end, t.endOfDay, t.hShareEnd);
   return list && `<ul class="rings-ahead">${list}</ul>`;
 }
 
@@ -1734,12 +1647,11 @@ function moneyHtml({ data, t, f, clock, pick }) {
   // A recorded 0 stays 0; an unknown energy figure leaves the money unknown (null), never 0. With export off
   // nothing is earned.
   // ponytail: a month whose cost statistic started part way through counts only that part.
-  const recorded = (v) => (Number.isFinite(v) ? v : null);
   const onRecord = {
-    cost: (x) => recorded(x.costMoney) ?? pricedEnergy(x.gridImportKwh, p.buy),
-    earned: (x) => (!data.sends ? 0 : recorded(x.earnedMoney) ?? pricedEnergy(x.gridExportKwh, p.sell)),
+    cost: (x) => num(x.costMoney) ?? pricedEnergy(x.gridImportKwh, p.buy),
+    earned: (x) => (!data.sends ? 0 : num(x.earnedMoney) ?? pricedEnergy(x.gridExportKwh, p.sell)),
     saved: (x) => (![x.loadKwh, x.gridImportKwh].every(Number.isFinite) ? null
-      : recorded(x.costMoney) !== null && x.gridImportKwh > 0 ? Math.max(0, x.loadKwh - x.gridImportKwh) * x.costMoney / x.gridImportKwh : savedMoney(x, p)),
+      : num(x.costMoney) !== null && x.gridImportKwh > 0 ? Math.max(0, x.loadKwh - x.gridImportKwh) * x.costMoney / x.gridImportKwh : savedMoney(x, p)),
   };
   // The bill's fixed part in a month: that month's mean of its entity, else the nearest month before with one,
   // else the first on record (the month is older than the entity), else its value now; null (unknown) when the
@@ -1764,7 +1676,7 @@ function moneyHtml({ data, t, f, clock, pick }) {
   // Without the sensor's month: this month's net so far plus what the outlook expects to its end (see moneyAhead).
   const coming = moneyAhead(data), soFarNet = m && !m.none ? net(m, key) : null;
   if (!months && coming?.rest != null && soFarNet !== null) end.net = soFarNet + coming.rest;
-  const lastKey = shiftKey(key + "-01", -1).slice(0, 7), sign = f.money(0).split(" ").pop();
+  const lastKey = shiftMonth(key, -1), sign = f.money(0).split(" ").pop();
   // Finished months from the month rows, last month and this one from the day rows (as `lastMonth` and `month`).
   const byMonth = new Map(data.months ?? []).set(lastKey, lm).set(key, m);
   const row = (mk) => { const x = byMonth.get(mk); return x && !x.none ? x : null; };
@@ -1805,12 +1717,10 @@ function moneyHtml({ data, t, f, clock, pick }) {
   // Today's hours of each band, as runs of whole hours in Home Assistant's time zone (a day the clocks change has
   // 23 or 25). A run over midnight is one: F3 from 23:00 to 7:00. [{ band, from, to }] in ms.
   const bandRuns = (type) => {
-    let at = hourStart(now, clock);
-    while (clock(at - 36e5).key === c.key) at -= 36e5;
     const runs = [];
-    for (; clock(at).key === c.key; at += 36e5) {
+    for (const at of dayHours(now, clock)) {
       const b = bandOf(c.key, clock(at).hour, type), last = runs.at(-1);
-      if (last?.band === b) last.to = at + 36e5; else runs.push({ band: b, from: at, to: at + 36e5 });
+      if (last?.band === b) last.to = at + HOUR; else runs.push({ band: b, from: at, to: at + HOUR });
     }
     if (runs.length > 1 && runs[0].band === runs.at(-1).band) runs.at(-1).to = runs.shift().to;
     return runs;
@@ -1840,7 +1750,7 @@ function moneyHtml({ data, t, f, clock, pick }) {
   const ledger = [];
   if (data.payback) {
     const have = new Map(data.months ?? []);
-    for (let mk = [...have.keys(), key].sort()[0]; mk <= key; mk = shiftKey(mk + "-28", 4).slice(0, 7)) {
+    for (let mk = [...have.keys(), key].sort()[0]; mk <= key; mk = shiftMonth(mk, 1)) {
       const x = mk === key ? m : have.get(mk) ?? (mk === lastKey ? lm : null);
       ledger.push({ key: mk, back: x ? back(x, mk) : null, ...(x && {
         sun: x.solarKwh, load: x.loadKwh, out: x.gridExportKwh,
@@ -1942,15 +1852,12 @@ function paybackLeft(owed, past, lastKey, soFar = null, { lat, sell = 0 } = {}) 
   const spread = past.length >= 12 ? 0 : PAYBACK_SPREAD;
   return [walk(1 + spread), walk(1), walk(1 - spread)];
 }
-const shiftMonth = (key, n) => { const [y, m] = key.split("-").map(Number), d = new Date(Date.UTC(y, m - 1 + n, 1)); return d.toISOString().slice(0, 7); };
-// Days in month "YYYY-MM".
-function daysIn(key) { const [y, m] = key.split("-").map(Number); return new Date(Date.UTC(y, m, 0)).getUTCDate(); }
 
 // Clear-sky sunlight on flat ground at the middle of the hour starting at `t` (ms), in W/m2: the sun's height
 // from the date, the hour and the longitude, then Haurwitz's clear sky. The equation of time is left out (a
 // quarter hour at most): the usual day only compares nearby days by it, which shifts them alike.
 function clearSky(t, lat, lon) {
-  const rad = Math.PI / 180, d = new Date(t + 18e5), n = (d - Date.UTC(d.getUTCFullYear(), 0, 1)) / 864e5;
+  const rad = Math.PI / 180, d = new Date(t + HALF_HOUR), n = (d - Date.UTC(d.getUTCFullYear(), 0, 1)) / DAY;
   const decl = 23.45 * rad * Math.sin((2 * Math.PI * (284 + n)) / 365);
   const ha = (d.getUTCHours() + d.getUTCMinutes() / 60 + lon / 15 - 12) * 15 * rad;
   const c = Math.sin(lat * rad) * Math.sin(decl) + Math.cos(lat * rad) * Math.cos(decl) * Math.cos(ha);
@@ -1962,7 +1869,7 @@ function clearSky(t, lat, lon) {
 function monthSun(key, lat) {
 
   const rad = Math.PI / 180, f = lat * rad, [y, m] = key.split("-").map(Number);
-  const first = Math.round((Date.UTC(y, m - 1, 1) - Date.UTC(y, 0, 1)) / 864e5);
+  const first = Math.round((Date.UTC(y, m - 1, 1) - Date.UTC(y, 0, 1)) / DAY);
   let s = 0;
   for (let n = first + 1; n <= first + daysIn(key); n++) {
     const decl = 23.45 * rad * Math.sin((2 * Math.PI * (284 + n)) / 365);
@@ -2377,10 +2284,9 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
       const known = ENERGY.every((part) => Number.isFinite(stats.today[part]));
       // The tariff: each band's price typed (a number or an entity), else learned from the price sensor's
       // hour means and its value now. A band left without one: prices are left out of the advice.
-      const tf = src.tariff, priceOf = (v) => (typeof v === "string" ? stateNum(hass, v) : Number.isFinite(v) ? v : null);
-      const bands = tf && bandPrices(tf.type, Object.fromEntries(Object.entries(tf.prices).map(([k, v]) => [k, priceOf(v)])),
+      const tf = src.tariff, bands = tf && bandPrices(tf.type, Object.fromEntries(Object.entries(tf.prices).map(([k, v]) => [k, numberOrEntity(v, hass)])),
         tf.sensor ? [...stats.priceRows, { start: now, mean: stateNum(hass, tf.sensor) }] : [], clock);
-      if (tf && !bands && !this._tariffWarned) { this._tariffWarned = true; console.warn("solar-view: tariff needs a type (single, two, three) and a price for each of its bands, from prices or sensor"); }
+      if (tf && !bands) warnOnce("tariff needs a type (single, two, three) and a price for each of its bands, from prices or sensor");
       // Kept for the prices card, which shows them at any level, with the share of this month's grid energy
       // bought in each band (null with nothing bought yet).
       // ponytail: from the hour rows, so the hour under way is not in it yet; add todayHours if that ever matters.
@@ -2409,7 +2315,7 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
   async _load() {
     const hass = this._hass, now = Date.now(), run = (this._run = (this._run || 0) + 1), clock = clockOf(hass.config?.time_zone);
     this._next = now + REFRESH_MS;
-    const quarter = Math.floor(now / 36e5) * 36e5 + 9e5, until = quarter > now ? quarter : quarter + 36e5;
+    const quarter = Math.floor(now / HOUR) * HOUR + 15 * MINUTE, until = quarter > now ? quarter : quarter + HOUR;
     try {
       let setup = this._setup && now < this._setup.until ? this._setup : null;
       if (!setup) {
@@ -2439,14 +2345,14 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
       const kept = this._kept?.asked === asked && now < this._kept.until && this._kept.day === clock(now).key ? this._kept : null;
       // 366 days reach the first day of the oldest month Production shows (see yearKeys) from any day.
       // 25 hours cover today, even a long one. Month rows from the first on record: payback, Month balance.
-      const slow = kept?.rows ?? Promise.all([stat("day", now - 366 * 864e5), stat("hour", now - src.usualDays * 864e5, ids),
-        hass.callWS({ type: "energy/solar_forecast" }).catch(() => ({})), stat("month", Date.UTC(2000, 0, 1)), stat("hour", now - 25 * 36e5, src.soc, ["mean"]),
-        stat("month", Date.UTC(2000, 0, 1), fixedId, ["mean"]), stat("hour", now - MACHINE_DAYS * 864e5, machineIds),
-        stat("5minute", now - FIVE_MIN_DAYS * 864e5, machineIds), stat("hour", now - PRICE_DAYS * 864e5, priceId, ["mean"]),
-        stat("hour", now - (+clock(now).key.slice(8) + 1) * 864e5, bandIds)]);
+      const slow = kept?.rows ?? Promise.all([stat("day", now - 366 * DAY), stat("hour", now - src.usualDays * DAY, ids),
+        hass.callWS({ type: "energy/solar_forecast" }).catch(() => ({})), stat("month", Date.UTC(2000, 0, 1)), stat("hour", now - 25 * HOUR, src.soc, ["mean"]),
+        stat("month", Date.UTC(2000, 0, 1), fixedId, ["mean"]), stat("hour", now - MACHINE_DAYS * DAY, machineIds),
+        stat("5minute", now - FIVE_MIN_DAYS * DAY, machineIds), stat("hour", now - PRICE_DAYS * DAY, priceId, ["mean"]),
+        stat("hour", now - (+clock(now).key.slice(8) + 1) * DAY, bandIds)]);
       // 5 minute rows from an hour before midnight (a day the clocks change still fits), asked on every load. In the
       // first hour of a day, 25 hours: totals takes yesterday from them while its day row is missing.
-      const at = clock(now), since = at.hour === 0 ? now - 25 * 36e5 : hourStart(now, clock) - (at.hour + 1) * 36e5;
+      const at = clock(now), since = at.hour === 0 ? now - 25 * HOUR : hourStart(now, clock) - (at.hour + 1) * HOUR;
       const [recent, rows] = await Promise.all([stat("5minute", since), slow]);
       // `hass` and `panel` can each start a load: only the newest may answer, or entities read without
       // the config could land last.
@@ -2468,7 +2374,7 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
     } catch (e) {
       if (run !== this._run) return; // an older load: the newest one keeps its own schedule
       console.warn("solar-view: loading the numbers failed", e);
-      this._next = Date.now() + 60e3; // try again in a minute, not in 5
+      this._next = Date.now() + MINUTE; // try again in a minute, not in 5
     }
   }
 
@@ -2571,7 +2477,7 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
       return;
     }
     const data = loading ? placeholder(hass, src) : readData(hass, src, this._stats, { ahead: this._ahead, outlook: this._outlook, bands: this._bands });
-    const day = this.testDay ?? Math.round(new Date(Date.now()).setHours(0, 0, 0, 0) / 864e5); // testDay: preview harness only (?day=)
+    const day = this.testDay ?? Date.parse(clockOf(hass.config?.time_zone)(Date.now()).key) / DAY; // testDay: preview harness only (?day=)
     const cycle = hourCycle(configOf(this._panel?.config), hass.locale);
     const tz = hass.config?.time_zone, currency = hass.config?.currency || "EUR", fKey = [locale, currency, cycle, tz].join("|");
     const json = JSON.stringify(data), key = loading + fKey + dark + day + JSON.stringify(this._show) + json;
@@ -2581,7 +2487,7 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
     if (loading) this.removeAttribute("ready");
     else {
       // The skeleton's copy needs the shape, not every watt: kept at most once a minute.
-      if (!(Date.now() - this._saved < 6e4)) {
+      if (!(Date.now() - this._saved < MINUTE)) {
         this._saved = Date.now();
         try { localStorage.setItem(LAST_KEY, json); } catch (e) { /* storage is optional */ }
       }
