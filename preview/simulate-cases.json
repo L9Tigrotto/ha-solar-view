@@ -49,5 +49,14 @@
       { "t": 1792933200000, "made": 2, "fromBatt": 0, "fromGrid": 0, "toGrid": 0, "lost": 0, "soc": 35 },
       { "t": 1792936800000, "made": 0, "fromBatt": 0.5, "fromGrid": 0, "toGrid": 0, "lost": 0, "soc": 30 }
     ]
+  },
+  {
+    "name": "discharge cap, present hour by its share",
+    "hours": [{ "t": 1792933200000, "sun": 0, "use": 1 }, { "t": 1792936800000, "sun": 0, "use": 1 }],
+    "soc": 50, "battery": { "kwh": 10, "floor": 20, "maxChargeKw": null, "maxDischargeKw": 0.4, "efficiency": 1 }, "exportMaxKw": null, "firstShare": 0.5,
+    "expect": [
+      { "t": 1792933200000, "made": 0, "fromBatt": 0.2, "fromGrid": 0.3, "toGrid": 0, "lost": 0, "soc": 48 },
+      { "t": 1792936800000, "made": 0, "fromBatt": 0.4, "fromGrid": 0.6, "toGrid": 0, "lost": 0, "soc": 44 }
+    ]
   }
 ]
