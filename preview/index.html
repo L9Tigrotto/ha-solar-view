@@ -160,7 +160,8 @@ const SCENARIOS = {
   brightening: { v: [250, 150, 0, 45, 30, false], today: [1.2, 5.0, 0.4, 0], fade: [300, 1500], expect: "later" },
   poorNoForecast: { v: [250, 150, 0, 45, 30, false], today: [1.2, 5.0, 0.4, 0], forecast: null, expect: "ok" },
   // A winter morning: little sun, an almost empty battery, most of the day so far from the grid (`out`: kWh the battery gave).
-  winter:  { v: [150, 0, 900, 12, 4, true], today: [0.4, 6.0, 5.2, 0], out: 0.3, forecast: null, expect: "ok" },
+  // The grid carries the house, so the low battery warning, not "all perfect".
+  winter:  { v: [150, 0, 900, 12, 4, true], today: [0.4, 6.0, 5.2, 0], out: 0.3, forecast: null, expect: "low" },
   // A house with panels and a grid connection, no battery.
   nobattery: { v: [2500, 0, -2100, 0, 42, false], today: [7.8, 6.1, 1.2, 2.9], battery: false, expect: "go" },
   // The Energy page of Home Assistant was never set up.
@@ -1199,7 +1200,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     const s = small(p), lastHour = Date.now() + H >= p._outlook?.hoursAhead?.at(-1)?.[0] + H;
     return s.length === (lastHour ? 1 : 2) && clean(p) && s.at(-1).getAttribute("aria-label").startsWith(t.hShareEnd.split("{p}")[0])
       && s.every((x, i) => !i || usedBy(x) >= usedBy(s[i - 1])) && [$(p, "#energy .today .rings > div > .ring-box svg"), ...s].every(marked)
-      && has(p, ".best") === !!p._outlook?.best && has(p, "#energy .today .best") === (!!p._outlook?.best && !has(p, "#now section.battery"));
+      && has(p, "#now .best") === !!p._outlook?.best && !has(p, "#energy .best");
   };
   // The mock's sun runs from 10:00 to 15:00, today and tomorrow.
   const days = [0, -1].map((i) => clock(localMidnight(i) + 12 * H).key);
@@ -1487,14 +1488,14 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
       p._drawn = ""; p.hass = { ...p.hass };
       console.assert(JSON.stringify(picked(p)) === '[1,1,"1"]', "days: the picked day lost in a redraw", picked(p));
     }
-    // Production: the latest 12 months January to December, this one pressed and "so far", its total under
-    // them. A past month picked shows all its days, the last picked, none of them today; the days stay.
+    // Production: the 12 months up to this one, oldest first, this one last, pressed and "so far", the year
+    // only on the month before the year changes, its total under them. A past month picked shows all its days, the last picked, none of them today; the days stay.
     const year = (p) => [...energy(p).querySelectorAll(".daily .year button")], k = p._stats.monthKey;
-    console.assert(year(p).map((b) => b.dataset.month.slice(5)).join() === "01,02,03,04,05,06,07,08,09,10,11,12"
+    console.assert(year(p).length === 12 && year(p).at(-1).dataset.month === k && year(p).every((b, i, a) => !i || a[i - 1].dataset.month < b.dataset.month)
       && year(p).every((b) => b.dataset.month <= k && b.dataset.month > `${+k.slice(0, 4) - 1}-${k.slice(5)}`)
       && year(p).filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.dataset.month).join() === k
       && year(p).find((b) => b.dataset.month === k).querySelector("small").textContent === t.soFar
-      && year(p).filter((b) => b.dataset.month.slice(0, 4) !== k.slice(0, 4)).every((b) => b.querySelector("small .wide")?.textContent === b.dataset.month.slice(0, 4))
+      && year(p).every((b, i, a) => (b.querySelector("small .wide")?.textContent ?? null) === (i < 11 && a[i + 1].dataset.month.slice(0, 4) !== b.dataset.month.slice(0, 4) ? b.dataset.month.slice(0, 4) : null))
       && energy(p).querySelector(".daily .year + .stepped .month-total .period")?.textContent === say(t.monthSoFar, { m: formats("en", "EUR", "h12").monthYear(k) })
       && energy(p).querySelector(".daily .month-total dt")?.textContent === t.prodMonths, "production: not the latest 12 months, this one so far with its total", year(p).map((b) => b.dataset.month));
     const back = year(p).find((b) => b.dataset.month < k);
@@ -1512,15 +1513,15 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
   } catch (e) { console.assert(false, "energy: threw", e); }
 }
 
-// Check: the 12 months' keys roll over with the year: January to December, each the latest up to this month.
+// Check: the 12 months' keys roll with this month: the 12 up to it, oldest first.
 {
   const keys = (k) => yearKeys(k).join();
-  console.assert(keys("2027-01") === "2027-01,2026-02,2026-03,2026-04,2026-05,2026-06,2026-07,2026-08,2026-09,2026-10,2026-11,2026-12"
+  console.assert(keys("2027-01") === "2026-02,2026-03,2026-04,2026-05,2026-06,2026-07,2026-08,2026-09,2026-10,2026-11,2026-12,2027-01"
     && keys("2026-12") === "2026-01,2026-02,2026-03,2026-04,2026-05,2026-06,2026-07,2026-08,2026-09,2026-10,2026-11,2026-12"
-    && keys("2026-10").split(",")[10] === "2025-11", "months: not the latest of each, January to December", keys("2027-01"));
+    && keys("2026-10").split(",")[0] === "2025-11", "months: not the 12 up to this month, oldest first", keys("2027-01"));
 }
 
-// Check: the Money page's month balance and prices. The latest 12 months to pick, January to December, this
+// Check: the Money page's month balance and prices. The 12 months up to this one to pick, oldest first, this
 // one pressed; under them the picked month: what the grid cost, what was saved (and earned), the net, below 0
 // in the low colour; for this month the month end from a fresh sensor, none from the statistics. From the
 // sensor's months when fresh, else the statistics at the flat price, the bill's fixed part on the cost and the
@@ -1755,17 +1756,14 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     console.assert(at(c) === start, `steps: ${c.dataset.pick}: › did not go back`, at(c));
   }
   console.assert(!extras || cards.length === 3, "steps: a picker without its ‹ and ›", cards.map((c) => c.dataset.pick)); // ?extras=0: other money cards
-  // Production's months: this month picked, ‹ to the one left of it, › to the one right (last year's December).
+  // Production's months: this month picked, the last bar: ‹ to the one left of it, › has nothing to pick.
   const cur = clockOf(TZ)(Date.now()).key.slice(0, 7), month = (k) => p.shadowRoot.querySelector(`#energy .daily .year [data-month="${k}"]`)?.getAttribute("aria-pressed");
   const keys = [...p.shadowRoot.querySelectorAll("#energy .daily .year [data-month]")].map((b) => b.dataset.month), n = keys.indexOf(cur);
   const mstep = (cls) => p.shadowRoot.querySelector(`#energy .daily .total .step-${cls}`);
   console.assert(mstep("prev")?.dataset.month === keys[n - 1] && mstep("next")?.dataset.month === keys[n + 1] && (keys[n + 1] || mstep("next").getAttribute("aria-disabled") === "true"), "steps: month ‹ › not the months beside this one", keys, n);
-  // In January this month is the first bar: ‹ has nothing to pick.
-  if (n === 0) console.assert(mstep("prev")?.getAttribute("aria-disabled") === "true", "steps: month ‹ not off in January");
-  else {
-    mstep("prev").click();
-    console.assert(month(keys[n - 1]) === "true" && mstep("next")?.dataset.month === cur, "steps: month ‹ did not pick the month before", keys[n - 1]);
-  }
+  console.assert(n === keys.length - 1 && mstep("next")?.getAttribute("aria-disabled") === "true", "steps: this month not the last bar, or month › not off", keys, n);
+  mstep("prev").click();
+  console.assert(month(keys[n - 1]) === "true" && mstep("next")?.dataset.month === cur, "steps: month ‹ did not pick the month before", keys[n - 1]);
 }
 
 // Check: the share ring's lead lines on a winter morning (little sun, a small battery part, most from the grid),
@@ -2601,6 +2599,8 @@ function boxes() {
   const root = panel.shadowRoot, host = panel.getBoundingClientRect(), range = document.createRange(), out = {};
   for (const el of root.querySelectorAll(".page *, footer, footer *")) {
     if (el.closest("defs") || el.matches(".halo, .streak, .lit, .sk")) continue; // not drawn, always moving, or skeleton only
+    // A dot placed by data: the open hour's figures change between the remembered copy and the load.
+    if (el.matches(".hours24 i, .week i")) continue;
     const r = el.getBoundingClientRect();
     if (!r.width && !r.height) continue;
     let left = Infinity, right = -Infinity;
@@ -2731,12 +2731,15 @@ if (q.has("sweep")) {
         "sub-line: grid lending a hand, with no import": sub === t.subGrid && imp === 0,
         "sub-line: panels named, with no sun, or the battery, while it gives nothing": (sub === t.subSun && solar === 0) || (sub === t.subBattery && discharge === 0),
         "sub-line: the battery again, under a headline that names it": sub === t.subBattery && (head.includes(t.src.battery) || head === t.sunBatt),
+        "sub-line: the grid again, under a headline that names it": sub === t.subGrid && head.includes(t.src.grid),
         "sub-line: extra sun, with no sun or nothing sent or stored": (sub === t.subExport && exp === 0) || (sub === t.subCharge && (charge === 0 || solar === 0)),
         "advice go: no spare sun": kind === "go" && !(solar - load > 1000 || (soc >= HIGH && exp > 50)),
-        "advice: 1000 W of spare sun not mentioned": solar - load > 1000 && soc >= HIGH && kind !== "go",
+        "advice: 1000 W of spare sun not mentioned": solar - load > 1000 && soc >= HIGH && kind !== "go" && best === undefined,
         "advice go: battery not nearly full": kind === "go" && soc < HIGH,
         "advice soon: battery nearly full": kind === "soon" && soc >= HIGH,
-        "advice low: battery not low, or there is sun": kind === "low" && !(soc < LOW && solar < 100),
+        "advice low: battery not low, or there is sun and no grid": kind === "low" && !(soc < LOW && (solar < 100 || imp > 50)),
+        "advice: battery low, the grid helping, and no warning": soc < LOW && imp > 50 && kind !== "low",
+        "battery at the floor at night: in the alarm colours": night && soc === FLOOR && (/--low/.test($(p, ".batt-word i")?.getAttribute("style")) || !$(p, ".advice.rest")),
         "advice: battery at the floor, no sun, and no warning": soc <= FLOOR && solar === 0 && kind !== "low",
         "advice low: empty lines and the floor do not match": kind === "low" && (soc <= FLOOR) !== (pool === "adviceEmpty"),
         "advice refill: battery not low, or not charging from the sun": pool === "adviceOkRefill" && !(soc < LOW && line === "charging"),
@@ -2755,6 +2758,7 @@ if (q.has("sweep")) {
         "lasts until: a time while the mid run never reaches the floor": !!o && (o.lastsUntil === Infinity || o.lastsUntil == null) && line === "until",
         "lasts until: not the time the outlook gives": !!o && Number.isFinite(o.lastsUntil) && line === "until" && says !== untilText(o.lastsUntil),
         "best time: not as the outlook says, or outside today and tomorrow, or in the quiet hours": best !== undefined && !(o?.best && fair(o.best[0]) && best === bestText(o.best[0])),
+        "advice: go, soon, later or wait beside a washer line": best !== undefined && ["go", "soon", "later", "wait"].includes(kind),
         "NaN, undefined or null on Energy or Money": /NaN|undefined|null/.test($(p, "#energy").textContent + $(p, "#money").textContent),
       };
       count++;
