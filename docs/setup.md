@@ -8,7 +8,7 @@
 - Optional: a solar forecast linked to the solar panels, for the "wait for tomorrow" advice and ["enough until"](#enough-until).
 - Optional: [HACS](https://hacs.xyz), to install and update in a few clicks. Without it, copy the files by hand.
 
-Developed and tested on Home Assistant 2026.9. Power sensors in the Energy settings are a fairly recent addition. On an older version, name the sensors yourself under [`entities`](#options).
+Developed and tested on Home Assistant 2026.9. Power sensors in the Energy settings are a fairly recent addition. On an older version, name the sensors yourself under [`sensors`](#sensors).
 
 ## Install with HACS
 
@@ -54,10 +54,11 @@ The page asks Home Assistant for today's 5 minute statistics every 5 minutes. Ev
 
 While the battery powers the house and there is a forecast (the forecast sensor, or the solar forecast in the Energy settings with a usual day), the Now page says how long it will last. It does not divide what is left by the present draw: a quiet night at 150 W says nothing about the breakfast hour.
 
-Instead it learns the usual day from the last 14 days of hourly statistics (change the number with [`usual_days`](#options)): how much the house uses, and how much sun there is, in each hour of the day. From now on it goes forward one hour at a time:
+Instead it learns the usual day from the last 14 days of hourly statistics (change the number with [`usual_days`](#options)): how much the house uses, and how much sun there is, in each hour of the day. With 5 days or more behind an hour, its lowest and highest sun are left out, so one odd hour (a recorder catching up) cannot carry it; house use keeps them all, since an oven or a car charged now and then is real energy. The usual day's sun follows the season: each hour of a day to come is scaled by how much sun that hour gets in a clear sky that day, against the usual days (from Home Assistant's location), so in autumn each day expects a little less than the days behind it, and in spring a little more. On one plant in October, this cut the usual day's error on the next day from 21 to 17 percent. The usual runs of each machine with a `sensor` under `machines` stay in house use for every figure, but the washer's line takes them out before it adds each run where it plans it. How much the whole days differed (their 25th and 75th percentile, for sun and for use) makes the forecast's low and high; a day from the Energy settings' solar forecast takes 20 percent either way. From now on it goes forward one hour at a time:
 
-- The rest of the present hour counts by its minutes. At 6:30, half of the 6 o'clock hour is still to come. For that half hour the higher of the present draw and the usual one counts, so an oven switched on right now is not ignored.
-- Every later hour takes what the house usually uses at that hour, minus the sun of that hour. The sun comes from the solar forecast when there is one for that day, otherwise from the usual day.
+- The rest of the present hour counts by its minutes. At 6:30, half of the 6 o'clock hour is still to come. For that half hour the higher of the present draw and the usual one counts, and the lower of the present sun and the expected one, so an oven switched on or a cloud right now is not ignored. Every card that looks ahead (the charge in an hour, the dashed charge line, the washer line) counts the present hour the same way.
+- Every later hour takes what the house usually uses at that hour, minus the sun of that hour. The sun comes from the solar forecast for a day it has any hour of (an hour it leaves out, such as the night, has no sun), otherwise from the usual day. A day the forecast covers only in part, with under three quarters of the hours of its fullest day (the last day of a forecast cut short), counts as not forecast, here and on Production.
+- Today on the usual day goes as the sun went so far: once the usual day would have made 0.5 kWh by now, the rest of today's usual sun is scaled by what the sun really made against that, up to 1.5 times. A grey morning makes a grey afternoon. With export capped and the battery full at some point today, the sun so far was held back, not clouded: it may then only raise the rest of today.
 - If the battery reaches `battery_floor` first, the page shows that time, rounded to the half hour. If the sun covers the house first, it says the battery is enough until the sun takes over. If neither happens within 18 hours, it shows no time.
 
 Without a forecast, or during the first three days after install (not enough history yet), there is no estimate: the battery card only says that the battery powers the house. A guess from the present draw would read as a promise.
@@ -70,16 +71,27 @@ With the forecast sensor (`sensor.solar_view_forecast`), the page also shows whe
 
 No numbers on record (the inverter, the power or the connection was down) never show as zeros: a day, an hour or a month without them keeps its place, empty, and says "no numbers on record".
 
-- **Energy, power origin:** made, used, from the sun, from the battery, from the grid, and sent while export is on. Solid is so far. The faded column with a solid outline is where it should end by tonight, and the thin line with caps across its top runs from a low to a high day. On made and used, two dashed lines show a usual day of the last `usual_days`: what it had made or used by now, and its whole day. With no forecast and no usual day, the card shows a ring of where today's power came from (sun, battery, grid; its "?" has the colour key), the share from the sun and the battery in the middle and what the house used so far in the ring's gap, each source named beside its part, then each source's kWh so far under it (direct solar, battery, grid, and sent when something was).
-- **Energy, today by hour:** today from midnight to 23:59, on two charts with one timeline, each with its own title and unit. On top, with a battery, the charge in % hour by hour so far and where it should go until midnight (dashes); the red dashed line is `battery_floor`. Under it, energy supply and use in kWh: a line each for what the sun made, what the house used and what came from the grid, a point an hour: solid for the hours done, dashed from there on as the forecast expects them. What is still to come is shaded, and a thin line marks now on both charts, named "Now" over the top one. Point at an hour on either chart (or move to it with the arrow keys) to see it on both, with its figures in a hint; click or tap it (or press Enter) to pick it: a dot marks it on each line, and its figures show under the charts (solar, home use, grid, and the battery's average charge; this hour's marked "so far"). An hour still to come says what the forecast expects in a sentence. A finger can drag across to pick; a mouse dragged with its button held picks nothing.
-- **Energy, next hours:** this hour and the 5 after it: the sun likely in each, in kW, with its low to high line, and a cloud or rain from the forecast sensor.
-- **Energy, coming days:** up to 7 days from tomorrow, from the forecast sensor only: the weather and a bar from the low to the high sun of the day in kWh, every day on one scale.
-- **Energy, production:** a bar for each of the last 12 months, always January to December: each the latest of its name, so a month of last year gives way to this year's once it starts. Last year's months carry their year, this one "so far" and is picked at first; point at a month to see its total, click it to pick it. Under the bars the picked month's total, then its days as a line, a dot over each date, under the month's full name. Today, still under way, is a hollow dot; the last day is picked at first; tap, drag along or focus another day (the arrow keys move it) to give it the big dot and see its figures under the chart (solar, home use, grid, the self-supplied share, and export when there was any). A day with no numbers on record is a gap in the line; the days to come stay empty. The page reads a year of day rows for this; Home Assistant keeps all its history.
-- **Best time for the washer:** two hours today or tomorrow when a load of about 1 kWh runs on sun that would otherwise be sent or lost, taking almost nothing from the grid or the battery. Shown only when there is such a time.
-- **Money, payback:** with `system_cost` set, a ring of how much of the system's cost has come back since `install_date`, what came back in its middle and the cost in its gap ("Plant cost"), and about how long is left (only with a forecast or a usual day); once paid back, the month it happened and what came back since. Each coming month counts like the same month last year, or like an average month while there is less than a year on record (then the time left is a range).
-- **Money, daily returns:** a line of what the system brought in each day of this month (saved and earned, without the bill's fixed part), a dot a day, and this month's total so far under it. Today is a hollow dot and picked at first; tap or drag along the line to see a day's returns, grid cost and net. A day nobody can price keeps its place, without a dot; a grid cost nobody can price leaves the net unknown too.
+A sensor added later beside another of the same kind (a second inverter's solar sensor, say) counts as nothing before its first numbers, so the days and months before it keep the first sensor's figures and the usual day goes on. A gap after its first numbers is a day with no numbers on record, as for any sensor.
+
+- **Now, battery warning:** above the advice, a red card when the battery nears its end: state of health under 70 percent (`battery_health`), or else 9.5 years after `battery_install_date`. Nothing shows until then.
+- **Now, coming days:** under the battery card, up to 7 days from tomorrow, from the forecast sensor, else from the solar forecast in the Energy settings as far as it reaches (beside the page's own forecast, without the weather, its range 20% either way): the weather, a bar from 0 to the day's likely sun in kWh with its figure, and a thin line over it from the low to the high, every day on one scale. An upright line marks what the house uses on a usual day (with enough days on record, and not when the sensor forecasts weather alone, without house use), so a bar that passes it is a day the sun can cover the house.
+- **Energy, power origin:** a ring of where today's power came from (sun, battery, grid; its "?" has the colour key), the share from the sun and the battery in the middle and what the house used so far in the ring's gap, each source named beside its part, then each source's kWh so far under it (direct solar, battery, grid, and sent when something was). With a forecast (the sensor, or the usual day when there is no sensor or it stopped writing), two small rings sit beside it (under it on a narrow screen): the same split in an hour and at the end of the day, as the forecast's middle run expects, with the time and the energy used by then under each. In the last hour of the day only the end of the day is left. Without a forecast built from it (no forecast, or a battery of unknown size), the big ring stands alone.
+- **Energy, today by hour:** today from midnight to 23:59, on two charts with one timeline, each with its own title and unit. On top, with a battery, the charge in % hour by hour so far and where it should go until midnight (dashes); the red dashed line is `battery_floor`. Under it, energy supply and use in kWh: a line each for what the sun made, what the house used and what came from the grid, a point an hour: solid for the hours done, dashed from there on as the forecast expects them (with a forecast sensor that predicts the weather alone, without house use, only the sun's line goes on). What is still to come is shaded, and a thin line marks now on both charts, named "Now" over the top one. Point at an hour on either chart (or move to it with the arrow keys) to see it on both, with its figures in a hint; click or tap it (or press Enter) to pick it: a dot marks it on each line, and its figures show under the charts (solar, home use, grid, and the battery's average charge; this hour's marked "so far"). An hour still to come says what the forecast expects in a sentence. A finger can drag across to pick; a mouse dragged with its button held picks nothing.
+- **Energy, production:** a bar for each of the last 12 months, always January to December: each the latest of its name, so a month of last year gives way to this year's once it starts. Last year's months carry their year, this one "so far" and is picked at first; point at a month to see its total, click it to pick it. Under the bars the picked month's total, then its days as a line, a dot over each date, under the month's full name. Today, still under way, is a hollow dot; the last day is picked at first; tap, drag along or focus another day (the arrow keys move it) to give it the big dot and see its figures under the chart (solar, home use, grid, the self-supplied share, and export when there was any). A day with no numbers on record is a gap in the line; without a forecast the days to come stay empty. The page reads a year of day rows for this; Home Assistant keeps all its history.
+  - With the page's own forecast (`level: usual`, or no fresh forecast sensor), this month also looks ahead. Its days to come continue the line as dashes, a faded dot each: tomorrow as the forecast expects it, later days from the solar forecast in the Energy settings as far as it reaches, then the usual day's sun. Tap one to read what it should make and where that comes from. This month's bar gets a faded block on top, up to where the month should end: what the sun made so far, plus the rest of today, plus every day to come. The bar's hint and the total under the bars give that figure as an estimate, beside the total so far. A month with a day of no numbers on record has no month end. Nothing of this shows with `level: none`. With a fresh forecast sensor, the days to come are its own as far as its forecast reaches, then the usual day's when the sensor predicts house use too; with weather alone they stop there, and the month end shows only once they reach the month's last day. Daily returns goes on the same way.
+- **When to start the washer** (or each machine under `machines`): a line at the bottom of the Now page's battery card (without a battery, at the bottom of Power origin), with the reason under it.
+  - **Starts** are now and every whole hour of today and tomorrow. Each is weighed until sunrise the day after tomorrow: that night is tomorrow's night hours again, so a start late tomorrow pays for a night it leaves short. The battery is kept `battery_margin` points above `battery_floor`, so a forecast a little off still leaves it above the floor.
+  - **The earliest free start**: one that takes nothing more from the grid in all that time. The sun covers it, the battery covers it until the sun is back, or the sun refills what it takes. Charge it leaves missing at that last sunrise counts as export given up, not as grid. Today's starts use the forecast's likely run; tomorrow's, further off, must be free on its bad run too.
+  - **Otherwise the start that costs least**: the grid energy it adds at each hour's price, plus the export it forgoes at the sell price (nothing while export is off), plus the battery charge it leaves missing at the end. Tomorrow's starts count the worse of the likely and the bad run. With `tariff` each hour has its band's price, so it says, for example, "Cheaper hours (F3)". Without a price for every hour it keeps grid energy lowest.
+  - **Today before tomorrow:** a start tomorrow is advised only when it saves at least what 0.3 kWh of grid costs (at the mean price) over the best start today.
+  - **No guessed sun tomorrow:** with the page's own forecast and no hour of tomorrow in the Energy settings' solar forecast, tomorrow's sun would be the usual day's, a guess. Tomorrow's bad run then has no sun at all, so a start tomorrow can still win on cheaper hours or the battery, never on that sun.
+  - **Never a start inside `quiet_hours`.** The machine may still run on into them.
+  - **"Wait"** instead of now when the house's draw now plus the machine's peak, less the sun now and the battery (above the kept margin), is over `grid_max_kw`.
+  - Machines are planned in the order listed, each after the ones before, so two never count on the same sun.
+- **Money, payback:** with `system_cost` set, a ring of how much of the system's cost has come back since `install_date`, what came back in its middle and the cost in its gap ("Plant cost"), and about how long is left (only with a forecast or a usual day, not beside a sensor that forecasts weather alone); once paid back, the month it happened and what came back since. Each coming month counts like the same month last year, or, while there is less than a year on record, like a guess from the months so far and the sun at Home Assistant's latitude: summer brings more sun but the house uses less of it, so most of the extra goes out at the selling price (then the time left is a range). The rest of this month counts first: what such a month brings, less what this one brought so far.
+- **Money, daily returns:** a line of what the system brought in each day of this month (saved and earned, without the bill's fixed part), a dot a day, and this month's total so far under it. Today is a hollow dot and picked at first; tap or drag along the line to see a day's returns, grid cost and net. A day nobody can price keeps its place, without a dot; a grid cost nobody can price leaves the net unknown too. With a forecast that has house use (a usual day, or the forecast sensor's), the days still to come this month continue the line as dashes, a faded dot each, as far as the forecast reaches: the usual day's sun and use, the battery carried from day to day, at the Energy settings' price. Tap one to read what it should bring back and what the grid should cost, to 10 cents. Not with weather alone, which has no house use.
 - **Money, electricity prices:** the price now of a kWh bought from the grid (Home ← Grid) and, while export is on, sold to it (Home → Grid): the forecast sensor's present hour when it is fresh, else the Energy settings' price. Its "?" explains both arrows.
-- **Money, month balance:** each of the last 12 months' net benefit as a bar (up from the zero line, or down in red when the grid cost more), with the same months and labels as Production; the zero line sits as low as the months need, so the bars use the card's full height. Point at one to see its net, click it to pick it. Under the bars the picked month, this one at first: what the grid cost to the left of a middle line, what the sun and the battery saved plus what was sold to the right, on one scale, each with its figure, then saved, export (while export is on) and the net benefit (saved plus sold, less the grid cost; below zero in red, with a minus). With `bill_fixed` set, the cost and the net include the bill's fixed part. With the forecast sensor, this month also says where its net should end. A figure nobody can price, or a month with no numbers on record, says so.
+- **Money, month balance:** each of the last 12 months' net benefit as a bar (up from the zero line, or down in red when the grid cost more), with the same months and labels as Production; the zero line sits as low as the months need, so the bars use the card's full height. Point at one to see its net, click it to pick it. Under the bars the picked month, this one at first: what the grid cost to the left of a middle line, what the sun and the battery saved plus what was sold to the right, on one scale, each with its figure, then saved, export (while export is on) and the net benefit (saved plus sold, less the grid cost; below zero in red, with a minus). With `bill_fixed` set, the cost and the net include the bill's fixed part. With the forecast sensor (and its house use: weather alone cannot know the money), this month also says where its net should end; with the page's own forecast it does too, as its net so far plus the rest of today and every day to come. A faded bar behind this month's shows that end, and under the bars, for this month, the grid cost and what was saved and sold each get a faded bar out to where they should end too. A figure nobody can price, or a month with no numbers on record, says so.
 - **Sky:** its colours follow the sun's height: night, dawn or dusk, then a day that keeps a little of the dawn or dusk colours while the sun is low and turns its deepest blue only with a high sun (50 degrees and up), so mornings, afternoons and winter days look warmer than a summer noon. The night mirrors it: a little of the dusk or dawn colours while the sun is just under the horizon, the darkest night only once it is 18 degrees down. Greyer the cloudier the forecast (from 50 percent cloud, fully grey at 90), and a few drops fall when it forecasts rain for this hour. Without a fresh sensor, the cloud is the `cloud_coverage` of a `weather` entity (what it sees now; not every weather integration has it), and rain follows that entity when it says it is raining. Snow falls whenever that entity says `snowy` (snow alone, which also stops the sensor's rain: it counts snow as rain) or `snowy-rainy` (snow and rain). The Rain and snow switch turns off both.
 - With the sensor, "enough until" follows its forecast instead of the usual day.
 
@@ -93,7 +105,9 @@ With sun height off, the sky goes straight from night to day at sunrise, without
 
 ## Options
 
-Everything is optional and goes under `config:` in the same `panel_custom` entry.
+Everything is optional and goes under `config:` in the same `panel_custom` entry. It comes in modules: take the ones you need, fill them in and put them together under `config:`. Each module is a group of its own; the keys inside keep their names. Configs written before the groups, with every key at the top, still work.
+
+To keep it out of `configuration.yaml`, put it in a file of its own:
 
 ```yaml
 panel_custom:
@@ -102,35 +116,144 @@ panel_custom:
     sidebar_title: Solar
     sidebar_icon: mdi:solar-power-variant
     module_url: /hacsfiles/ha-solar-view/solar-view.js
-    config:
-      battery_kwh: 10
-      battery_floor: 20
-      usual_days: 14
-      time_format: 24
-      system_cost: 9000
-      install_date: "2025-03-15"
-      saved_before: 0
-      bill_fixed: sensor.bill_fixed
-      entities:
-        load_power: sensor.inverter_load_power
-        load_energy: sensor.inverter_load_energy
+    config: !include solar_view.yaml
+```
+
+`solar_view.yaml` then holds the modules, starting at the left margin.
+
+### Plant
+
+What the system is and what it cost.
+
+```yaml
+plant:
+  battery_kwh: 10
+  battery_floor: 20
+  battery_max_charge_kw: 2.1
+  battery_max_discharge_kw: 3
+  export_max_kw: 0
+  standby_w: 60
+  grid_max_kw: 3.3
+  system_cost: 9000
+  install_date: "2025-03-15"
+  saved_before: 0
+  battery_install_date: "2025-03-15"
 ```
 
 | Option | Meaning | Default |
 |---|---|---|
-| `battery_kwh` | Battery size in kWh: the whole battery, not only the part above `battery_floor`. Used for "enough until", the hint on the battery bar and the cycle count. | The capacity in the Energy settings. Without either, those three are hidden. |
+| `battery_kwh` | Battery size in kWh: the whole battery, not only the part above `battery_floor`. Used for "enough until" and the hint on the battery bar. | The capacity in the Energy settings. Without either, both are hidden. |
 | `battery_floor` | Percent at which the inverter stops discharging. "Enough until" ends there, and the battery words count from it: "Empty" at the floor, "Low" up to 15 percent above it. | `20` |
-| `usual_days` | How many past days make the usual day behind "enough until". Fewer adapt faster to a new routine, more give a steadier estimate. At least 3. | `14` |
-| `time_format` | `24` or `12`: the clock for "enough until", for every user. | Each user's Time format in their Home Assistant profile, which by default follows their language. |
 | `battery_max_charge_kw` | The most the battery takes in, in kW: the charging current times the charging voltage (40 A x 53.6 V is 2.1). Used by the forecast: spare sun beyond it goes to the grid or is lost. | No limit. |
-| `export_max_kw` | The most the inverter sends to the grid, in kW. `0` on a zero-export inverter. Used by the forecast. | No limit. |
+| `battery_max_discharge_kw` | The most the battery gives out, in kW. Used by the forecast (use beyond it comes from the grid, so the battery lasts longer) and by the washer's "wait" check (the battery helps the meter up to this much). | No limit. |
+| `export_max_kw` | The most the inverter sends to the grid, in kW. `0` on a zero-export inverter: the page then leaves out what is sent, export money and the sell price. Also used by the forecast. With export capped, the sun the page learns from past days is what was made, held back once the battery was full: add a solar forecast in the Energy settings (Forecast.Solar, say), or the page underrates spare sun on days the forecast does not cover. | No limit. |
 | `standby_w` | The inverter's own use in W. Left out of the savings and of the home made share. | Worked out from `load_energy` when it reads at least 1 kWh a day less than what flows in and out, else `0`. A value set here always wins. |
+| `grid_max_kw` | The most the meter gives before it trips, in kW (a 3 kW contract in Italy holds 3.3 for as long as you like). With it, the page says "wait" instead of "now" while the house draws too much. | No check. |
 | `system_cost` | What the panels and battery cost, in your currency. Shows the payback card. | Not set: no payback card. |
 | `install_date` | The day the system started, as `YYYY-MM-DD` (a day that does not exist, such as `2026-02-30`, is ignored). Payback counts from its month, as written, in any time zone. | The first month in the statistics. |
+| `battery_install_date` | The day this battery went in, as `YYYY-MM-DD`. Set it again when the battery is replaced. Without a `battery_health` sensor, a warning shows 9.5 years after it (most warranties end at 10). | `install_date`. Without either, no warning by age. |
 | `saved_before` | What the system saved before Home Assistant recorded it, added to payback. Months between `install_date` and the first month in the statistics count as nothing unless it is set. | `0` |
+
+### Predictions
+
+How far the page looks ahead.
+
+```yaml
+predictions:
+  level: usual
+  usual_days: 14
+```
+
+| Option | Meaning | Default |
+|---|---|---|
+| `level` | How far the page predicts: `none` (no forecast and no usual day: no washer line, no "soon", "later" or "wait" advice, no "enough until", no days to come or month end on Production, no payback time left, and Power origin has only its big ring), `usual` (its own forecast from the Energy settings' solar forecast and the usual day, even with the forecast sensor installed). | The forecast sensor while it is fresh, else the page's own, else none. |
+| `usual_days` | How many past days make the usual day: behind "enough until" and the page's own forecast, the small rings on Power origin, and payback's time left. Ignored with `level: none`: no usual day then. Fewer adapt faster to a new routine, more give a steadier estimate. At least 3. | `14` |
+
+### Machines
+
+The machines the page says when to start (see [When to start the washer](#reading-the-page)). Not used with `level: none`.
+
+```yaml
+machines:
+  battery_margin: 10
+  quiet_hours: "0-7"
+  washer:
+    kwh: 1
+    hours: 2
+    peak_kw: 2
+    sensor: sensor.washer_energy
+  dishwasher:
+    kwh: 1.2
+    hours: 3
+```
+
+| Option | Meaning | Default |
+|---|---|---|
+| `battery_margin` | Percent of the battery kept above `battery_floor` when a start is called free. | `10` |
+| `quiet_hours` | Hours no start is suggested in, as `"0-7"` or `"23:30-6:30"`. Only the start counts. | `"0-7"` |
+| `washer`, `dryer`, `dishwasher` | The machines you can start at any time, planned in the order written. The page names each in the reader's language. Each takes `kwh` (energy of a run), `hours` (length of a run), `peak_kw` (highest draw) and `sensor` (its energy sensor, with long-term statistics); the type alone, with nothing under it, is a run of 1 kWh over 2 hours. With a sensor, the page learns the energy of a run from the last 10 runs in 90 days of hour statistics, and the length and peak from the 5 minute statistics (Home Assistant keeps them about 10 days). Until 3 runs are on record, the typed figures count. A machine with neither is left out. Machines you do not move in time (an oven) need no entry: their draw is already in the house's. | None of the three: a washer of 1 kWh over 2 hours, peak 2 kW. |
+
+### Prices
+
+The bill's fixed part and the contract's time bands. The price per kWh itself comes from the Energy settings (see [Prices and fixed costs](#prices-and-fixed-costs)).
+
+```yaml
+prices:
+  bill_fixed: sensor.bill_fixed
+  tariff:
+    type: three
+    prices:
+      f1: 0.19
+      f2: 0.22
+      f3: 0.19
+```
+
+| Option | Meaning | Default |
+|---|---|---|
 | `bill_fixed` | The id of a sensor holding the fixed part of the electricity bill a month (meter fee, standing charge), in your currency, with `state_class: measurement`. Added whole to every month's cost on Money, and so to the net. Change the sensor's value when the fixed part changes (a new operator, say): each month counts with the average it had that month, so past months stay as they were. Months older than the sensor take its first month's value. A plain number still works, but counts the same for every month. See [Prices and fixed costs](#prices-and-fixed-costs). | `0` |
-| `entities` | Replace what the Energy settings say, or add what they cannot know. One entity id or a list. An empty list switches that part off. | The Energy settings. |
-| `advice`, `advice_replace` | Your own advice lines, see below. | Built-in lines only. |
+| `tariff` | The contract's time bands, for the start times: `type` (`single`, `two` or `three`), and the band prices from `prices`, `sensor` or both. See [Time bands](#time-bands). | Not set: no bands. |
+
+### Display
+
+```yaml
+display:
+  time_format: 24
+```
+
+| Option | Meaning | Default |
+|---|---|---|
+| `time_format` | `24` or `12`: the clock for "enough until", for every user. | Each user's Time format in their Home Assistant profile, which by default follows their language. |
+
+### Sensors
+
+Replace what the Energy settings say, or add what they cannot know (names under [Sensors](#names-under-sensors)). One entity id or a list; an empty list switches that part off. By default, the Energy settings.
+
+```yaml
+sensors:
+  load_power: sensor.inverter_load_power
+  load_energy: sensor.inverter_load_energy
+```
+
+### Advice
+
+Your own advice lines (see [Your own advice lines](#your-own-advice-lines)): `advice` and `advice_replace`, at the top as before.
+
+### Examples
+
+A house with a battery and the page's own forecast:
+
+```yaml
+plant:
+  battery_floor: 20
+predictions:
+  level: usual
+  usual_days: 14
+sensors:
+  load_power: sensor.inverter_load_power
+  load_energy: sensor.inverter_load_energy
+```
+
+The same with no forecast at all: `level: none`, and the washer's line, `machines`, `grid_max_kw` and `battery_max_charge_kw` then do nothing, and `tariff` only fills the Electricity prices card. `export_max_kw: 0` still turns export off on the page.
 
 ## Prices and fixed costs
 
@@ -149,7 +272,25 @@ template:
         state: "{{ states('input_number.bill_fixed') | float(0) }}"
 ```
 
-Names under `entities`:
+### Time bands
+
+Italian contracts price electricity by the time bands ARERA sets for every supplier: F1 Monday to Friday 8 to 19; F2 Monday to Friday 7 to 8 and 19 to 23, and Saturday 7 to 23; F3 the nights from 23 to 7, and all of Sundays and national holidays (Easter Monday included). The page knows these hours; `tariff` says what your contract prices:
+
+```yaml
+tariff:
+  type: three              # single (one price), two (F1 and F23), three (F1, F2, F3)
+  sensor: sensor.price     # optional: the price now, following the band
+  prices:                  # optional: each a number or the id of an entity
+    f1: 0.19
+    f2: 0.22               # for type two, f23 (f2 works too): F2 and F3 together
+    f3: 0.19
+```
+
+Each band takes its price from `prices` when it is there, else from `sensor`: the average of what it read in that band's hours over the last 28 days (it needs `state_class: measurement` for that), and its value now. Every band the type has must get a price one way or the other; if one cannot, the page leaves prices out of the start times and says so in the browser console. The bands set the start times, and the Electricity prices card shows the band now as the buying price, with a box per band: its hours today, the share of this month's grid energy bought in it (from the grid meters' hour rows) and its price. The money figures keep the Energy settings' price.
+
+### Names under sensors
+
+The names under `sensors` (or `entities`, as before):
 
 | Name | What it is |
 |---|---|
@@ -158,10 +299,11 @@ Names under `entities`:
 | `solar_energy`, `battery_out_energy`, `battery_in_energy`, `grid_in_energy`, `grid_out_energy` | Energy sensors that have long-term statistics. |
 | `grid_cost`, `grid_compensation` | What the grid cost and paid in your currency, as sensors with long-term statistics. By default the cost entities of the Energy settings, or the cost sensors Home Assistant makes for a grid with a price. |
 | `load_power`, `load_energy` | House consumption, live and as energy. Not part of the Energy settings. |
+| `battery_health` | Battery state of health in percent, where the inverter or its battery reports one. When it reads, it alone decides the battery warning: below 70 percent. Not part of the Energy settings. |
 
 ### House consumption
 
-Without `load_power` and `load_energy`, the page works house consumption out as solar plus battery plus grid. That counts the inverter's own losses as house use, so it can read somewhat higher than the figure on the inverter's display. If your inverter has its own load sensors, name them.
+Without `load_power` and `load_energy`, the page works house consumption out as solar plus battery plus grid. That counts the inverter's own losses as house use, so it can read somewhat higher than the figure on the inverter's display. If your inverter has its own load sensors, name them. Cards that look ahead (Energy's ring with the small rings beside it, and Today by hour with its dashes) still count house use this way, so far as ahead, so the hours to come add up with the battery and grid meters.
 
 ## Your own advice lines
 
@@ -182,11 +324,11 @@ config:
 |---|---|
 | `go` | There is spare sun right now: 1000 W more than the house uses while the battery is nearly full (or there is no battery), or the battery is nearly full and the rest goes to the grid. Each built-in line names one appliance and shows its icon; your own lines show the washing machine. |
 | `goFull` | Spare sun, and the battery is full (100 percent). These lines come before the `go` ones. |
-| `soon` | Spare sun now, but the forecast says it fades within 3 hours. Only without a battery: a nearly full one carries the cycle. Needs a solar forecast. |
-| `later` | No spare sun now, but the forecast says clearly more within 3 hours. Needs a solar forecast. |
+| `soon` | Spare sun now, but the forecast says it fades within 3 hours. Only without a battery: a nearly full one carries the cycle. Needs a solar forecast, and not with `level: none`. |
+| `later` | No spare sun now, but the forecast says clearly more within 3 hours. Needs a solar forecast, and not with `level: none`. |
 | `low` | Battery low (less than 16 percent above `battery_floor`) and no sun. |
 | `empty` | Battery at `battery_floor` and no sun. |
-| `wait` | Little sun forecast today, clearly more tomorrow. Needs a solar forecast that covers tomorrow. |
+| `wait` | Little sun forecast today, clearly more tomorrow. Needs a solar forecast that covers tomorrow, and not with `level: none`. |
 | `ok` | Nothing to do, by day. |
 | `okNight` | Nothing to do, by night. |
 | `okFull` | Nothing to do, by day, and the battery is nearly or fully charged. |
@@ -215,6 +357,7 @@ Every user sees Now, Energy and Money in the language and time format of their p
 
 - Statistics only reach back to when Home Assistant started recording a sensor, so "last month" is incomplete during the first weeks. To see a system's earlier years, import its history (most inverter apps export a CSV) into the same sensors' long-term statistics, for example with the Import Statistics integration from HACS: every card reads the statistics, so they fill in by themselves. The imported running total must meet the first value Home Assistant recorded, or the day they meet shows a huge spike.
 - Today's totals come from the 5 minute statistics and can lag a few minutes.
+- More panels on the same sensors (a bigger plant, the same inverter) are not noticed: what the page learns from past days lags behind. The usual day (the sun of "enough until", of the page's own forecast, of the month end and of the "wait" advice) catches up over `usual_days` days, and payback counts each coming month like the same month last year, so its time left reads long for a year. Update by hand what the page cannot know: the size of the panels (kWp) in the solar forecast of the Energy settings (Forecast.Solar, for example), and `system_cost`, raised by what the extension cost.
 - "Enough until" knows the usual day, not today's plans: a washing machine started later than usual is only counted once it is running. Weekdays and weekends share one usual day. It assumes the battery alone carries the house.
 - If one of several named sensors has no value, the whole page shows the "not answering" message.
 - A house with neither a battery nor a grid power sensor reads "using energy from the panels" at night, because every flow is zero.
