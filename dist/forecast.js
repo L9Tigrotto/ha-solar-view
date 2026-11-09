@@ -1,6 +1,9 @@
 /* Forecast part of the solar page: the day simulation and the numbers derived from the forecast.
-   Plain functions, no imports, so the preview and the tests in test/ can run them as they are.
+   Plain functions, so the preview and the tests in test/ can run them as they are.
    The simulation cases in preview/simulate-cases.json pin the rules; change both together. */
+
+const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale core.js
+const { HOUR, FIVE_MIN, FULL_SOC, LASTS_MAX_H, hourStart, dayHours, shiftKey, shiftMonth } = await import(`./core.js${v}`);
 
 // ---- Rules (tune here) ----
 const EFFICIENCY = 0.95;   // battery round trip until there are enough days to measure it
@@ -43,16 +46,11 @@ export function simulate(hours, soc, battery, exportMaxKw, firstShare) {
 }
 
 // ---- The forecast shape ----
-const FRESH_MS = 3 * 36e5; // a sensor older than this is not trusted: the page builds its own
+const FRESH_MS = 3 * HOUR; // a sensor older than this is not trusted: the page builds its own
 const SKY_MIN_KWH = 0.5;   // today's usual sun by now before the sun so far scales the rest of today
 const SKY_MAX = 1.5;       // at most this many times the usual sun for the rest of today
 export const SOLAR_SPREAD = 0.2;  // the low and high run of a day from the Energy settings' solar forecast: this much either way
-const HOUR = 36e5;
 
-// A day key moved by whole days (the same as in solar-view.js; this file keeps no imports).
-const shiftKey = (key, days) => new Date(Date.parse(key) + days * 864e5).toISOString().slice(0, 10);
-// Start of the hour holding ms, from the clock's minute: right in half hour time zones too.
-const hourOf = (ms, clock) => ms - clock(ms).minute * 60e3 - (ms % 60e3);
 // [low, mid, high] of one field summed over the hours of day `key` from `from` on; the hour
 // holding `from` counts only its part still ahead.
 const sumOf = (hours, field, clock, key, from) => hours.reduce((s, h) =>
@@ -66,7 +64,7 @@ const sumOf = (hours, field, clock, key, from) => hours.reduce((s, h) =>
 // sunSoFar: kWh the sun made today, by sunUntil (ms, the end of its statistics; now when not known); it
 // scales today's usual sun, see below, never down when `throttled`.
 export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar, sunUntil, throttled = false }) {
-  const today = clock(now).key, start = hourOf(now, clock);
+  const today = clock(now).key, start = hourStart(now, clock);
   const a = sensor?.attributes, written = Date.parse(sensor?.state);
   // Hours in order of t; a t that does not parse or an hour given twice is dropped (the first kept).
   const given = (Array.isArray(a?.hours) ? a.hours : [])
@@ -84,11 +82,9 @@ export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar
     all = given;
     days = a.days.filter((d) => d.d >= today);
   } else {
-    // Back to the first hour of today, then on to the end of tomorrow, or of the month when that is later (the
+    // From the first hour of today on to the end of tomorrow, or of the month when that is later (the
     // money of the days to come, see lookAhead): walking by the hour, so a 23 or 25 hour day needs nothing special.
-    const [y, m] = today.split("-").map(Number), end = [shiftKey(today, 2), new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10)].sort()[1];
-    let first = start;
-    while (clock(first - HOUR).key === today) first -= HOUR;
+    const end = [shiftKey(today, 2), shiftMonth(today.slice(0, 7), 1) + "-01"].sort()[1], first = dayHours(now, clock)[0];
     // A day the solar forecast has any hour of is the forecast's, its missing hours no sun (a forecast
     // leaves out the night); a day it has none of is the usual day's.
     const covered = new Set(Object.keys(solarWh ?? {}).map((t) => clock(+t).key));
@@ -123,7 +119,7 @@ export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar
   // moves it, see usual.scale; prices flat), for the days to come on Production and Daily returns. Not with weather
   // alone: it has no use to go on with.
   if (fresh && withUse && usual && all.length) {
-    const [y, m] = today.split("-").map(Number), monthEnd = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
+    const monthEnd = shiftMonth(today.slice(0, 7), 1) + "-01";
     all = [...all];
     for (let t = all.at(-1).t + HOUR; clock(t).key < monthEnd; t += HOUR) {
       const c = clock(t), sun = (usual.solarW[c.hour] / 1000) * (usual.scale?.(t) ?? 1), use = usual.loadW[c.hour] / 1000;
@@ -137,7 +133,7 @@ export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar
     const sameDay = clock(written).key === today;
     const base = sameDay ? a.left[field] : days.find((d) => d.d === today)?.[field];
     const ahead = sumOf(all, field, clock, today, now);
-    const whole = sumOf(all, field, clock, today, sameDay ? hourOf(written, clock) : -Infinity)[1];
+    const whole = sumOf(all, field, clock, today, sameDay ? hourStart(written, clock) : -Infinity)[1];
     return Array.isArray(base) && whole > 0 ? base.map((v) => (v * ahead[1]) / whole) : ahead;
   };
   const left = Object.fromEntries(["sun", "use"].map((f) => [f, f === "use" && !withUse ? null : fresh ? rebase(f) : sumOf(all, f, clock, today, now)]));
@@ -218,7 +214,6 @@ const RUN_GAP = 3;          // 5 minute rows a run may pause for (a washer soaki
 const RUN_COUNT = 10;       // the last runs averaged
 const RUN_MIN = 3;          // fewer runs on record: the typed figures
 const PEAK_KW = 2;          // a machine's peak draw when nothing better is known (a heating element)
-const FIVE_MIN = 3e5;
 
 // Runs in a machine's energy rows ({ start, change }, in order, `step` ms each): rows of `min` kWh or
 // more, joined over pauses of up to `gap` rows. { from, to, kwh, peak } each, peak the highest row.
@@ -250,9 +245,7 @@ const FREE_KWH = 0.01;     // a start "takes nothing from the grid" up to this (
 const DEFER_KWH = 0.3;     // a start tomorrow must save what this much grid costs (mean buy price) over today's best
 const NIGHT_MAX_H = 12;    // the night after tomorrow is followed for at most this many hours
 const NO_BATTERY = { kwh: 0, floor: 0, maxChargeKw: null, efficiency: 1 };
-const LASTS_MAX_H = 18;    // as on the page: past this "lasts until" says nothing
-const FULL_SOC = 97;       // "fills": the mid run reaches this today, then sends or loses FILLS_MIN_KWH or more
-const FILLS_MIN_KWH = 1;
+const FILLS_MIN_KWH = 1;   // "fills": the mid run reaches FULL_SOC today, then sends or loses this much or more
 const TIE = 1e-9;
 
 // [low, mid, high] over the bad, mid and good runs; null when any run has no value.
@@ -381,9 +374,7 @@ function advise(rows, bad, now, n, battery, settings, firstShare, clock) {
 // charge, hours and money ahead. n is the present reading { soc, loadW, solarW }; battery null is no
 // battery; soFar is today's money so far { saved, cost, earned }. A battery of unknown size hides all of
 // it: every figure would be a guess.
-export function lookAhead(ahead, now, tzClock, n, battery, settings, soFar) {
-  // The same hours go through the clock again and again below (each run, each day): once each.
-  const seen = new Map(), clock = (ms) => seen.get(ms) ?? seen.set(ms, tzClock(ms)).get(ms);
+export function lookAhead(ahead, now, clock, n, battery, settings, soFar) {
   const none = { lastsUntil: null, best: null, inHour: null, fills: false, socAhead: null, hoursAhead: null, restToday: null, daysMoney: null };
   if (battery && !battery.kwh) return none;
   const batt = battery || NO_BATTERY, today = clock(now).key, standby = settings.standbyKwhPerHour;
