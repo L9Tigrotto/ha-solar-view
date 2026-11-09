@@ -191,7 +191,7 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 /* Advice. The tile is the same on both themes: the bright meaning colours with a dark mark. */
 :is(.advice,.wear){display:flex;align-items:center;gap:14px;padding:14px 16px;--tile:#a6e3a1}
 .advice[data-kind="go"]{--tile:#f9e2af}
-.advice[data-kind="low"],.wear{--tile:#f38ba8}
+.advice[data-kind="low"]:not(.rest),.wear{--tile:#f38ba8}
 .advice:is([data-kind="wait"],[data-kind="soon"],[data-kind="later"],[data-kind="short"],[data-kind="fills"]){--tile:#89b4fa}
 :is(.advice,.wear) .tile{flex:none;display:grid;place-items:center;width:44px;height:44px;border-radius:var(--r-m);background:var(--tile);color:#0b1626}
 :is(.advice,.wear) .tile svg{width:26px;height:26px}
@@ -296,6 +296,7 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .best .tile svg{width:24px;height:24px}
 .best p{text-wrap:balance}
 .best small{display:block;margin-top:2px;font-size:var(--t-s);font-weight:400;color:var(--ink-2)}
+.machines .best:first-child{margin-top:0}
 .legend{list-style:none;display:grid;grid-template-columns:repeat(var(--n),minmax(0,1fr));gap:6px 2px;margin:6px 0 0;padding:0;
   font-size:var(--t-s);line-height:1.25;color:var(--ink-2);text-align:center}
 .legend li{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
