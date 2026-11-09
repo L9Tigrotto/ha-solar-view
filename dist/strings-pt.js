@@ -171,7 +171,7 @@ export const STRINGS = {
     whyCheaper: "Horas mais baratas ({a})",
     whyGrid: "A essa hora tira menos da rede",
     colGrid: "Da rede",
-    made: "O sol produziu", used: "A casa usou", taken: "Tirada da rede", sent: "Enviada para a rede",
+    sent: "Enviada para a rede",
     nothing: "nada",
     weekOn: "{d}",
     prevHour: "Hora anterior", nextHour: "Hora seguinte",

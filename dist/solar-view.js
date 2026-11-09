@@ -128,7 +128,7 @@ const english = textsOf("en");
 const loads = {};
 const loadLanguage = (code) => loads[code] ??= Promise.all([english, code === "en" ? {} : textsOf(code)]).then(
   ([en, own]) => { STRINGS[code] = { ...en, ...own }; },
-  (e) => { failedLanguages.add(code); console.warn("solar view: the texts for", code, "did not load", e); });
+  (e) => { failedLanguages.add(code); console.warn("solar-view: the texts for", code, "did not load", e); });
 // The first language is guessed, so its file comes with the others: this device's choice in the gear, else
 // the page's language, which Home Assistant sets to the viewer's. A wrong guess costs one file; _render
 // then loads the right one.
@@ -171,11 +171,11 @@ const quietHours = (v) => {
   return q && q.every((h) => h <= 24) ? q : null;
 };
 
-// "go": spare sun now: sun over the house's use while the battery is nearly full, or there is none (until
-// then the sun is filling the battery), or sending to the grid with a nearly full battery (a few watts
-// sent out by a house without one would not run a washing machine).
+// "go": spare sun now: sun over the house's use while the battery is nearly full, or there is no charge
+// reading (until then the sun is filling the battery), or sending to the grid with a nearly full battery
+// (a few watts sent out by a house without one would not run a washing machine).
 // "soon": spare sun now, but the forecast says it fades within 3 hours (a cycle would run into it).
-// Not with a nearly full battery, which carries the cycle to its end: so only without a battery.
+// Not with a nearly full battery, which carries the cycle to its end: so only without a charge reading.
 // "low": the battery word is low or empty (see batteryWord) and there is no real sun, or the grid helps.
 // "wait": today's forecast is poor against a usual day here (the usual day's sun; without one, the
 // average of the days with sun among the last 7), and tomorrow's is clearly better.
@@ -631,7 +631,7 @@ function totals(src, daily, recent, hourly, forecast, clock, now, monthly = {}, 
       return d.none ? { date: d.date, none: true } : { date: d.date, ...Object.fromEntries(["solarKwh", "loadKwh", "gridImportKwh", "gridExportKwh"].map((p) => [p, r2(d[p])])) };
     })];
   }));
-  // The last 7 full days that have numbers: the standby.
+  // The last 7 full days that have numbers: the standby, and the usual sun without a usual day.
   const full = before.filter((key) => days.has(key)).map((key) => sum([key]));
   // What flows in and out but the load sensor never sees, a day on average.
   const known = full.filter((d) => Number.isFinite(balanceKwh(d)) && Number.isFinite(d.loadKwh));
@@ -653,14 +653,14 @@ function totals(src, daily, recent, hourly, forecast, clock, now, monthly = {}, 
   for (const t of Object.keys(whHour)) { const k = clock(+t).key; hoursOf[k] = (hoursOf[k] || 0) + 1; }
   const most = Math.max(0, ...Object.values(hoursOf)), whole = (k) => hoursOf[k] >= most * PARTIAL_SHARE, fullDay = (k) => k === today || whole(k);
   const solarWh = Object.fromEntries(Object.entries(whHour).filter(([t]) => fullDay(clock(+t).key)));
-  // Level none predicts nothing: no usual day either (no columns on Power origin, no payback time left).
+  // Level none predicts nothing: no usual day either (no page forecast, no use line on the coming days, no
+  // payback time left).
   const usual = src.level === "none" ? null : usualDay(hourly, src, clock, machineHours);
   const tomorrow = shiftKey(today, 1);
   // The sun forecast of this hour, and the average of the next 3.
   const fcHour = (i) => whHour[hourStart(now + i * 36e5, clock)] || 0;
   const fade = { now: fcHour(0), next: (fcHour(1) + fcHour(2) + fcHour(3)) / 3 };
-  // The usual day's sun and house use in kWh, by now and in all (the dashed lines on Made and Used), over
-  // today's real hours: a 23 or 25 hour day has as many.
+  // The usual day's kWh by now and in all, over today's real hours: a 23 or 25 hour day has as many.
   let first = hourStart(now, clock);
   while (clock(first - 36e5).key === today) first -= 36e5;
   const usualBy = (w, k = () => 1) => {
@@ -680,7 +680,7 @@ function totals(src, daily, recent, hourly, forecast, clock, now, monthly = {}, 
     // This month comes from the day rows (as `month`), which the month rows lag.
     months: [...byDay(monthly, src, clock)].map(([key, d]) => [key.slice(0, 7), { ...d, loadKwh: houseKwh(d, src) }])
       .filter(([key]) => key < month).sort((a, b) => (a[0] < b[0] ? -1 : 1)),
-    usualToday: usual && { made: usualBy(usual.solarW, usual.scale), used: usualBy(usual.loadW) },
+    usualToday: usual && { used: usualBy(usual.loadW) },
     month: sum(of(month)),
     // `tomorrow` and `usual` are null when not known: only the "wait" advice needs them.
     // `usual` is the usual day's sun, as the rest of the page counts it; without a usual day, the mean of the
@@ -705,9 +705,9 @@ function totals(src, daily, recent, hourly, forecast, clock, now, monthly = {}, 
 }
 
 // Everything the page shows, as one plain object: live states from `hass`, the rest from
-// `stats` (see totals). `src` says which entities to read (see entitiesFrom). `fc` holds the
-// forecast and what follows from it (see _lookAhead): { ahead, outlook }.
-function readData(hass, src, stats, fc = {}) {
+// `stats` (see totals). `src` says which entities to read (see entitiesFrom). `lookedAhead` holds the
+// forecast and what follows from it (see _lookAhead): { ahead, outlook, bands }.
+function readData(hass, src, stats, lookedAhead = {}) {
   const watts = (ids) => ids.reduce((sum, id) => sum + (stateNum(hass, id) ?? 0) * (WATTS[hass.states[id]?.attributes?.unit_of_measurement] ?? 1), 0);
   const raw = watts(src.solarW);
   const solar = raw < SOLAR_NOISE_W ? 0 : raw;
@@ -721,7 +721,7 @@ function readData(hass, src, stats, fc = {}) {
   // The forecast's inputs stay out: they are not drawn, and the copy this browser remembers stays small.
   const { msToMidnight, todayHours, solarWh, usual, efficiency, standbyW, socDay, fixedMonths, machines, priceRows, gridMonth, sunUntil, ...rest } = stats;
   const round = (v, to) => (Number.isFinite(v) ? Math.round(v * to) / to : null), socAt = new Map(socDay);
-  const now = Date.now(), weather = weatherOf(hass), wx = weather?.state, cloud = cloudNow(fc.ahead, weather?.attributes?.cloud_coverage, now), rain = raining(fc.ahead, wx, now), snow = snowing(wx);
+  const now = Date.now(), weather = weatherOf(hass), wx = weather?.state, cloud = cloudNow(lookedAhead.ahead, weather?.attributes?.cloud_coverage, now), rain = raining(lookedAhead.ahead, wx, now), snow = snowing(wx);
   return {
     now: {
       solarW: solar,
@@ -739,14 +739,15 @@ function readData(hass, src, stats, fc = {}) {
     // The moon as it is seen here: south of the equator it is lit from the other side.
     moon: { phase: moonPhase(now), south: hass.config?.latitude < 0 },
     ...rest,
-    ahead: fc.ahead ?? null, outlook: fc.outlook ?? null,
+    ahead: lookedAhead.ahead ?? null, outlook: lookedAhead.outlook ?? null,
     // The tariff's bands and their prices ({ type, prices: { f1, ... } }), or null.
-    bands: fc.bands ?? null,
+    bands: lookedAhead.bands ?? null,
     // No battery at all: its card, its place in the flow and its rows are left out.
     batt: src.battW.length || src.soc.length ? src.batt : null,
     wear: src.battW.length || src.soc.length
       ? wearOf(src.batt, Math.min(...src.healthPct.map((id) => stateNum(hass, id) ?? Infinity)), now) : null,
-    sends: src.exportMaxKw !== 0, // export is on: Today has a column for what is sent
+    sends: src.exportMaxKw !== 0, // export is on: what is sent, the sell price and what it earned show
+
     payback: src.payback,
     lat: hass.config?.latitude ?? null, // payback's seasons
     // The bill's fixed part: its month means (see fixedAt), and its value now.
@@ -862,7 +863,6 @@ function formats(lang, currency, cycle, zone) {
   const zoned = new Intl.DateTimeFormat(lang, { hour: "numeric", minute: "2-digit", hourCycle: cycle, timeZone: zone, timeZoneName: "short" }); // the hour the clocks go back, twice
   const month = new Intl.DateTimeFormat(lang, { month: "short", timeZone: "UTC" }); // "Oct", "ott": under the month columns
   const monthNarrow = new Intl.DateTimeFormat(lang, { month: "narrow", timeZone: "UTC" }); // "O": under the 12 months on a narrow card
-  const monthLong = new Intl.DateTimeFormat(lang, { month: "long", timeZone: "UTC" }); // "October": the month columns' names
   const monthYear = new Intl.DateTimeFormat(lang, { month: "long", year: "numeric", timeZone: "UTC" }); // "March 2029": paid back
   // Payback's time left, with the language's own plurals: "18 months", "4.8 years".
   const months = pointed(new Intl.NumberFormat(lang, { style: "unit", unit: "month", unitDisplay: "long" }));
@@ -881,7 +881,6 @@ function formats(lang, currency, cycle, zone) {
     zoned: (d) => zoned.format(d),
     month: (key) => month.format(new Date(`${key}-15T12:00:00Z`)).replace(".", ""),
     monthNarrow: (key) => monthNarrow.format(new Date(`${key}-15T12:00:00Z`)),
-    monthLong: (key) => monthLong.format(new Date(`${key}-15T12:00:00Z`)),
     monthYear: (key) => monthYear.format(new Date(`${key}-15T12:00:00Z`)),
     months: (n) => months.format(n),
     years: (n) => years.format(n),
@@ -913,7 +912,7 @@ const TIPS = {
 // 24 x 24 grid; the moon with its phase and craters, the battery with its level, the house and the "fine"
 // tick are this page's own. The sun, house, grid and battery keep their colours.
 // The sky icon: the sun by day, the moon in its phase by night, each behind a cloud when it is partly
-// cloudy; a cloud alone when overcast, with slanted drops when it rains.
+// cloudy; a cloud alone when overcast, with slanted drops when it rains, dots when it snows.
 const SUN_ICON = `<circle class="ray" cx="12" cy="12" r="4" fill="var(--sun)"/><path class="ray" d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>`;
 const CLOUD = `<path class="cloud" d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>`;
 // Lucide's cloud-sun: the sun (or the moon) at 12 12, a small cloud in front of it.
@@ -938,11 +937,11 @@ function skyIcon(night, cover, moon) {
   if (cover === "rain") return ["rain", `<path class="cloud rainy" d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path class="drop" d="M16 14l-2 6m-6-6l-2 6m6-4l-2 6"/>`];
   return [name, night ? moonSvg(moon, 7.5) : SUN_ICON];
 }
-// A line icon on the flow, centred on x y at s times its size; its lines stay about 2.2 wide.
-// Lucide's are on a 24 x 24 grid (centre 12 12); the page's own are centred on 0 0 (shift 0).
 // The house (centred on 0 0) and Lucide's plug, on the flow and at the ends of the prices' arrows.
 const HOUSE = `<path d="M-1.24 -14.99Q0 -16 1.24 -14.99L14.76 -4.01Q16 -3 14.4 -3L12.6 -3Q11 -3 11 -1.4L11 12.4Q11 14 9.4 14L5.6 14Q4 14 4 12.4L4 5.6Q4 4 2.4 4L-2.4 4Q-4 4 -4 5.6L-4 12.4Q-4 14 -5.6 14L-9.4 14Q-11 14 -11 12.4L-11 -1.4Q-11 -3 -12.6 -3L-14.4 -3Q-16 -3 -14.76 -4.01Z"/>`;
 const PLUG = `<path d="M12 22v-5m3-9V2m2 6a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1zM9 8V2"/>`;
+// A line icon on the flow, centred on x y at s times its size; its lines stay about 2.2 wide.
+// Lucide's are on a 24 x 24 grid (centre 12 12); the page's own are centred on 0 0 (shift 0).
 const outline = (x, y, s, cls, body, shift = 12) => `<g class="outline ${cls}" transform="translate(${x - shift * s} ${y - shift * s}) scale(${s})" fill="none" stroke="currentColor" stroke-width="${(2.2 / s).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round">${body}</g>`;
 
 function flowSvg(n, sky, night, t, label, hints, battery, battColor, cover, moon) {
@@ -1009,8 +1008,8 @@ const APPLIANCE = {
 };
 const GO_ORDER = ["washer", "oven", "dishes", "iron", "vacuum", "phone", "dryer", "plug", "washer", "oven", "dishes", "iron", "vacuum", "phone", "dryer", "washer"];
 const GO_ICON = new Map();
-// The help button's "?" in a circle, and the tab bar's icons (24 x 24, drawn with the text colour).
 // The whole-page messages: the inverter not answering (a crossed out wifi), and setting up (the sun).
+// The help button's "?" in a circle, and the tab bar's icons (24 x 24, drawn with the text colour).
 const OFFLINE_ICON = `<path d="M12 20h.01M8.5 16.43a5 5 0 0 1 7 0M5 12.86a10 10 0 0 1 5.17-2.69m8.83 2.69a10 10 0 0 0-2-1.52M2 8.82a15 15 0 0 1 4.18-2.64M22 8.82a15 15 0 0 0-11.29-3.76M2 2l20 20"/>`;
 const SETUP_ICON = `<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>`;
 const HELP_ICON = `<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3m.08 4h.01"/>`;
@@ -1023,10 +1022,10 @@ const TAB_ICON = {
 // ---- Pages: each returns the HTML of one page from c = { data, t, f, sky, loading, day, clock, pick } ----
 const PAGES = ["now", "energy", "money"];
 
-// A hint target: its sentence shows on hover, tap or focus, and is its name for screen readers.
-// `role` is "img" except where the element already has one (list items).
 // The colour of a sun mark, for the dot in its hint.
 const SUN_DOT = "var(--sun-mark,var(--sun))";
+// A hint target: its sentence shows on hover, tap or focus, and is its name for screen readers.
+// `role` is "img" except where the element already has one (list items).
 const hint = (text, role = "img") => `data-hint="${text}" aria-label="${text}" tabindex="0"${role ? ` role="${role}"` : ""}`;
 // A grey bar of about the size of an SVG text, for the skeleton (see .sk): at baseline y, starting at x
 // or centred on it. x may be a percentage, so centring is a shift.
@@ -1066,9 +1065,8 @@ function focusTarget(page, key) {
   if (key.kind === "item") return [...(scope.querySelectorAll(key.row)[key.rowIndex]?.children || [])].find((el) => el.dataset.i === key.index);
   return scope.querySelectorAll("[data-hint]")[key.index] || null;
 }
-// The small drawings in the help dialogs, 30 x 16, in the colour --c: a column so far, a faded column with
-// its outline, a dashed usual day line, a range pill on its track, a piece of a ring (or a bar), a line solid and dashed, a hollow dot, a big dot with its picked label,
-// and the prices' arrows, Grid to Home (left) and Home to Grid (right).
+// The small drawings in the help dialogs, 30 x 16, in the colour --c, one per kind of mark; buy and sell
+// are the prices' arrows, Grid to Home (left) and Home to Grid (right).
 const SW = {
   solid: `<rect x="9" y="1" width="12" height="15" rx="2" stroke="none"/>`,
   ghost: `<rect x="9.75" y="1.75" width="10.5" height="13.5" rx="2" class="faded"/>`,
@@ -1101,8 +1099,9 @@ const READ = {
   table: [[sw("solid", "--batt"), "helpBalMonths"], [sw("ghost", "--batt"), "helpBalEnd"], [sw("arc", "--grid"), "helpBalSplit"], ["", "helpBalNet"]],
   prices: [[sw("buy", "--grid"), "helpPricesBuy"], ["", "helpPricesBands"], [sw("sell", "--sent"), "helpPricesSell"], ["", "helpPricesRates"]],
 };
-// A three-quarter ring, open at the bottom like a car gauge, from 0 at the lower left to 1 at the
-// lower right, solid to `frac` (a fraction of the whole ring; NaN reads as an empty ring).
+// A three-quarter ring, open at the bottom like a car gauge, from 0 at the lower left to 1 at the lower
+// right: ringAt is the point at u, ringArc the arc on to u1. ring() is solid to `frac` (a fraction of the
+// whole ring; NaN reads as an empty ring).
 const ringAt = (u, r) => {
   const a = (135 + 270 * clamp01(u)) * Math.PI / 180;
   return `${(100 + r * Math.cos(a)).toFixed(1)} ${(103 + r * Math.sin(a)).toFixed(1)}`;
@@ -1217,8 +1216,7 @@ function nowHtml({ data, t, f, sky, loading, day, clock }) {
   // One line per calendar day, so it stays put between redraws and changes tomorrow.
   const adviceText = lines[day % lines.length];
   // The battery in an hour, from the outlook's three runs. They start from the floor at the lowest, so
-  // a reading under it moves them by the same amount. Its likely range only from the sensor's forecast:
-  // the page's own has one value.
+  // a reading under it moves them by the same amount. Its likely range only from the sensor's forecast.
   const p = Math.round(n.soc), ahead = n.soc !== null && batt?.kwh && data.outlook?.inHour;
   const hour = ahead && ahead.map((v) => v + n.soc - Math.min(100, Math.max(n.soc, batt.floor)));
   const soon = hour && Math.abs(hour[1] - n.soc) >= SOON_PCT ? hour[1] : null;
@@ -1254,7 +1252,7 @@ const near = (f, v) => f.num(v >= 10 ? Math.round(v) : v);
 const wxWord = (t, cover) => ({ "": t.wxSunny, partly: t.wxPartly, overcast: t.wxCloudy, rain: t.wxRain }[cover]);
 
 // When to start each movable machine (see advise in forecast.js), and why: on the battery card, else (no
-// battery) on a card of its own, named by its type's word.
+// charge reading) on a card of its own, named by its type's word.
 const bestLine = (o, t, f, clock) => (o?.best ?? []).map((b) => {
   const name = esc(t[b.type]);
   const what = b.kind === "wait" ? say(t.adviseWait, { n: name, a: `${f.num(Math.round(b.kw * 10) / 10)} kW` })
@@ -1266,8 +1264,10 @@ const bestLine = (o, t, f, clock) => (o?.best ?? []).map((b) => {
 }).join("");
 
 // ENERGY: today, hour by hour, this month's days.
-// Power origin: the ring of where the power came from, and what the sun made and sent under it. A forecast
-// (the sensor or the usual day) adds two small rings: the same split in an hour and at the end of the day.
+// Power origin: the ring of where the power came from, and what the sun made and sent under it. An outlook
+// (a forecast with house use, no battery of unknown size) adds two small rings: the same split in an hour
+// and at the end of the day.
+
 function todayCard({ data, t, f }) {
   const d = data.today;
   // No numbers on record today (the inverter or the connection down): only that, no zeros.
@@ -1282,12 +1282,12 @@ function todayCard({ data, t, f }) {
     </section>`;
 }
 
-// Up to 7 days from tomorrow, from the sensor, else from the Energy settings' solar forecast beside the page's
-// own forecast (as far as it reaches, SOLAR_SPREAD either way, no weather): the day, its weather (the day's
-// `cloud` by the sky's thresholds, rain from RAIN_DAY_MM; none when the sensor gives no cloud), a bar from 0 to the likely sun
-// with a thin line from low to high over it, and the likely figure. One track from 0 to the highest high (or
-// the usual day's use, when higher), crossed by an upright line at that use, named over the first row as the
-// hour charts name now.
+// Up to 7 days from tomorrow, from the sensor, else from the Energy settings' solar forecast beside the
+// page's own forecast (as far as it reaches, SOLAR_SPREAD either way, no weather): the day, its weather (the
+// day's `cloud` by the sky's thresholds, rain from RAIN_DAY_MM; none when the sensor gives no cloud), a bar
+// from 0 to the likely sun with a thin line from low to high over it, and the likely figure. One track from
+// 0 to the highest high (or the usual day's use, when higher), crossed by an upright line at that use, named
+// over the first row as the hour charts name now.
 function comingDaysCard({ data, t, f, clock }) {
   const a = data.ahead, today = clock(Date.now()).key;
   const days = (a?.from === "sensor" ? a.days : a?.from === "page" ? Object.entries(data.sunDays ?? {}).sort()
@@ -1315,8 +1315,7 @@ function comingDaysCard({ data, t, f, clock }) {
 
 // A line chart's scale up to `top`, on a box 0 to 100 high stretched to its place (see .socline): its top
 // at a round step, the gridlines at each step, and their values beside them (`fmt`), in HTML so they keep
-// their size.
-// Down to `bottom` below 0 when a value is (money: a day that cost more than it brought), else from 0.
+// their size. Down to `bottom` below 0 when a value is (money: a day that cost more than it brought).
 function lineGrid(top, fmt, bottom = 0) {
   const step = STEPS.find((s) => (top - bottom) / s <= 2) ?? STEPS.at(-1), max = Math.ceil(top / step) * step || step;
   const min = Math.floor(bottom / step) * step, span = max - min;
@@ -1391,12 +1390,13 @@ function dayLine(t, f, key, list, v, name, line, at, { live = true, between = ""
 }
 // A month's total between its charts (see readout): `caption` over its figures.
 const monthTotal = (caption, items) => `<div class="month-total">${readout(caption, items)}</div>`;
-// Twelve months as buttons, oldest first (see yearKeys), each with a bar of `v(key)` (null: none
-// on record, no bar) on one scale from 0 up, or with `both` up or down from a zero line by its sign (a
-// value below 0 in the low colour): the line sits as high as the largest value below 0 needs, so the
-// largest above and below together fill the bar. Under each its short name, the year on the last month before the year
-// changes, and "so far" on this month; on a narrow card one letter and two digits ("O", "’25"). Hovering one shows its hint `name(key, v)`; a click picks it (see _wireWeek).
-// `ghost(key)`, when not null, is where a month should end: a faded bar behind its solid one, on the same scale.
+// Twelve months as buttons, oldest first (see yearKeys), each with a bar of `v(key)` (null: none on
+// record, no bar) on one scale from 0 up, or with `both` up or down from a zero line by its sign (a value
+// below 0 in the low colour): the line sits as high as the largest value below 0 needs, so the largest
+// above and below together fill the bar. Under each its short name, the year on the last month before the
+// year changes, and "so far" on this month; on a narrow card one letter and two digits ("O", "’25").
+// Hovering one shows its hint `name(key, v)`; a click picks it (see _wireWeek). `ghost(key)`, when not
+// null, is where a month should end: a faded bar behind its solid one, on the same scale.
 function monthPicker(t, f, cur, at, v, name, color, both = false, ghost = () => null) {
   const keys = yearKeys(cur), vals = keys.map(v), ghosts = keys.map(ghost);
   const up = Math.max(0, ...vals.map((x) => x ?? 0), ...ghosts.map((x) => x ?? 0)), down = both ? Math.max(0, ...vals.map((x) => -(x ?? 0)), ...ghosts.map((x) => -(x ?? 0))) : 0;
@@ -1409,10 +1409,12 @@ function monthPicker(t, f, cur, at, v, name, color, both = false, ghost = () => 
   }).join("")}</ol>`;
 }
 // This month's days still to come and where the month should end. From the page's own forecast: tomorrow
-// from the forecast's days, later days from the Energy settings' solar forecast as far as it reaches, then the
-// usual day's sun. From a fresh sensor: its days' likely sun as far as they reach, then (with its house use) the
-// usual day's; with weather alone the days stop there, and the month's end shows only once they reach it. { days: [{ date, kwh, usual }], end } (end null while a day
-// of the month has no numbers on record), or null without a forecast or a day to come.
+// from the forecast's days, later days from the Energy settings' solar forecast as far as it reaches, then
+// the usual day's sun. From a fresh sensor: its days' likely sun as far as they reach, then (with its house
+// use) the usual day's; with weather alone the days stop there, and the month's end shows only once they
+// reach it. { days: [{ date, kwh, usual }], end } (end null while a day of the month has no numbers on
+// record), or null without a forecast or a day to come.
+
 function monthAhead(data) {
   const a = data.ahead, list = data.monthDays, sensor = a?.from === "sensor";
   if (!list?.length || !(sensor || a?.from === "page" && Number.isFinite(data.usualSun))) return null;
@@ -1420,10 +1422,10 @@ function monthAhead(data) {
   const all = Array.from({ length: n - list.length }, (_, i) => {
     const date = Date.UTC(y, m - 1, list.length + i + 1, 12), key = new Date(date).toISOString().slice(0, 10);
     // Tomorrow's forecast is the solar forecast where it has hours, else the usual day (see forecastOf).
-    const fc = a.days.find((d) => d.d === key)?.sun?.[1] ?? (sensor ? null : data.sunDays?.[key]);
-    if (!sensor) return { date, kwh: fc ?? data.usualSunDays?.[key] ?? data.usualSun, usual: !(key in (data.sunDays ?? {})) };
+    const dayKwh = a.days.find((d) => d.d === key)?.sun?.[1] ?? (sensor ? null : data.sunDays?.[key]);
+    if (!sensor) return { date, kwh: dayKwh ?? data.usualSunDays?.[key] ?? data.usualSun, usual: !(key in (data.sunDays ?? {})) };
     const usual = weatherOnly(data) ? null : data.usualSunDays?.[key];
-    return Number.isFinite(fc) ? { date, kwh: fc, usual: false } : Number.isFinite(usual) && { date, kwh: usual, usual: true };
+    return Number.isFinite(dayKwh) ? { date, kwh: dayKwh, usual: false } : Number.isFinite(usual) && { date, kwh: usual, usual: true };
   });
   const cut = all.indexOf(false), days = cut < 0 ? all : all.slice(0, cut);
   if (sensor && !days.length && list.length < n) return null;
@@ -1467,14 +1469,14 @@ function productionCard({ data, t, f, pick }) {
 // title and unit. Above, with a battery and a charge reading, its mean charge in percent (solid, broken where
 // an hour has no row), where the mid run takes it until midnight (dashes), and the floor (red dashes). Below,
 // a line each for what the sun made, what the house used and what the grid gave, a point an hour; solid for
-// the hours done, dashed from there on, this hour with it, as the outlook's mid run expects them. What is still to come is shaded.
-// One hour is picked (this one at first, see dayLine), a dot on each line, its figures under the charts.
-// Nothing is drawn for an hour without a row; its sentence says so. Hidden in the first hour of a day with
-// no row yet.
+// the hours done, dashed from there on, this hour with it, as the outlook's mid run expects them. What is
+// still to come is shaded. One hour is picked (this one at first, see dayLine), a dot on each line, its
+// figures under the charts. Nothing is drawn for an hour without a row; its sentence says so. Hidden in the
+// first hour of a day with no row yet.
 function battDayCard({ data, t, f, clock, pick }) {
-  // With a forecast the house's use is the balance, so far as ahead (see onBalance).
-  const fc = data.outlook?.hoursAhead?.length > 0;
-  const b = data.batt, n = data.now, rows = (data.battDay ?? []).map((r) => (fc && r.length > 7 ? [...r.slice(0, 5), r[7], r[6]] : r));
+  // With an outlook the house's use is the balance, so far as ahead (see onBalance).
+  const hasOutlook = data.outlook?.hoursAhead?.length > 0;
+  const b = data.batt, n = data.now, rows = (data.battDay ?? []).map((r) => (hasOutlook && r.length > 7 ? [...r.slice(0, 5), r[7], r[6]] : r));
   // Now to the 5 minutes, so the page is not redrawn every few seconds for a line that barely moves.
   const H = 36e5, now = Math.floor(Date.now() / 3e5) * 3e5;
   // The day's real hours, midnight to midnight: 23 the day the clocks go forward, 25 the day they go back.
@@ -1628,7 +1630,7 @@ const onBalance = (data) => ({ ...data, today: { ...data.today, loadKwh: balance
 const weatherOnly = (data) => data.ahead?.from === "sensor" && !data.ahead.left?.use;
 // Payback's time left: while the page predicts anything, as with a forecast or a usual day; not beside weather alone.
 const paybackPredicts = (data) => !weatherOnly(data) && !!(data.outlook || data.usualToday);
-// The small rings come with any forecast that has house use and hours left today (the mid run).
+// The small rings come with an outlook that has hours left today (the mid run).
 const ringsAhead = (data) => data.outlook?.hoursAhead?.length > 0;
 // Today so far plus the outlook's mid run up to `until`, an hour part way through by its share. The first
 // entry of hoursAhead starts at now, and it holds today's hours only.
@@ -1696,7 +1698,7 @@ function shareRing(data, t, f, ahead) {
 // MONEY: payback, this month's days, the prices now, the month balance. "" when no card has anything, and the page then goes.
 // This month's money still to come, from the outlook (see lookAhead): each whole day after today in this month
 // as { date, back, cost } (back: saved, plus earned while export is on), up to the first a price leaves unknown;
-// `rest`, `cost` and `back`: what the rest of the month should add to its net, grid cost and returns once those
+// `rest`, `cost` and `back`: what the rest of the month should add to its net, grid cost and savings once those
 // days reach its last day (else null).
 // null without an outlook that has them (none with weather alone: it has no house use).
 function moneyAhead(data) {
@@ -1754,7 +1756,7 @@ function moneyHtml({ data, t, f, clock, pick }) {
   // Net: what the system brought (saved and earned) less what the grid cost; unknown when any of them is.
   const back = (x, mk) => sumKnown([got("saved", x, mk), got("earned", x, mk)]);
   const net = (x, mk) => { const c = got("cost", x, mk), b = back(x, mk); return c === null || b === null ? null : b - c; };
-  // This month's end, the sensor's (with the month end switch): [low, mid, high], for net its mid alone.
+  // This month's end, the sensor's: [low, mid, high], for net its mid alone.
   const fee = fixedAt(key), v = months?.[key]?.money;
   const r = (j) => (Array.isArray(v?.[j]) && v[j].every(Number.isFinite) && (j !== "cost" || fee !== null) ? v[j].map((y) => y + (j === "cost" ? fee : 0)) : null);
   const end = { saved: r("saved"), earned: r("earned"), cost: r("cost") };
@@ -1774,14 +1776,14 @@ function moneyHtml({ data, t, f, clock, pick }) {
   // them: its grid cost to the left of a middle line, what it saved and earned to the right, on one scale,
   // with their figures, then saved, export and the net as figures (see readout; a net below 0 in the low
   // colour). A figure nobody can price, or unknown, is a dash, without a bar; a month with no numbers on
-  // record says so. For this month, with the sensor, where its net should end. The card goes when no month
-  // has any money known.
+  // record says so. For this month, where its net should end (the sensor's month, else see moneyAhead). The
+  // card goes when no month has any money known.
   const netOf = (mk) => (row(mk) ? net(row(mk), mk) : null);
   const at = yearKeys(key).includes(pick?.balanceMonth) ? pick.balanceMonth : key;
   const named = (mk) => (mk === key ? say(t.monthSoFar, { m: f.monthYear(mk) }) : f.monthYear(mk));
   const x = row(at), cost = x && got("cost", x, at), saved = x && got("saved", x, at), earned = x && got("earned", x, at);
   const brought = x && back(x, at), result = x && net(x, at);
-  // This month's grid cost and returns at its end, a faded bar behind each: the sensor's month, else this month so
+  // This month's grid cost and savings at its end, a faded bar behind each: the sensor's month, else this month so
   // far plus what the outlook expects to its end (see moneyAhead); null when nobody can tell.
   const endCost = at !== key ? null : months ? end.cost?.[1] ?? null : coming?.cost != null && cost !== null ? cost + coming.cost : null;
   const endBack = at !== key ? null : months ? (end.saved ? end.saved[1] + (data.sends ? end.earned?.[1] ?? 0 : 0) : null) : coming?.back != null && brought !== null ? brought + coming.back : null;
@@ -1832,7 +1834,7 @@ function moneyHtml({ data, t, f, clock, pick }) {
     </section>`;
   // What each month brought back (saved and earned) and what its grid cost, for payback: finished months as
   // the month card reads them, this month so far from the statistics (the sensor's figure for it is the month end).
-  // A month whose returns are unknown stays in, as null: payback then cannot say what came back. So does a month
+  // A month whose savings are unknown stays in, as null: payback then cannot say what came back. So does a month
   // missing from the month rows between the first on record and this one (last month from the day rows, which the
   // month rows lag).
   const ledger = [];
@@ -1856,9 +1858,9 @@ function moneyHtml({ data, t, f, clock, pick }) {
     ${rest}${prices}${month}` : "";
 }
 
-// This month day by day (see dayLine): what each day brought back, and the picked day's returns, grid cost
-// and net under the chart (the month's total is on Month balance). A cost nobody can price leaves the net
-// unknown too. `coming`: the days still to come (see moneyAhead), dashed on, each with its sentence, to 10 cents.
+// This month day by day (see dayLine): what each day brought back, and the picked day's savings, grid cost
+// and balance under the chart (the month's total is on Month balance). A cost nobody can price leaves the
+// balance unknown too. `coming`: the days still to come (see moneyAhead), dashed on, each with its sentence, to 10 cents.
 function recentCard(data, list, sign, { t, f, pick }, coming = []) {
   const cents = (v) => f.money(Math.round(v * 10) / 10);
   const ahead = coming.map((d) => {
@@ -1944,8 +1946,6 @@ const shiftMonth = (key, n) => { const [y, m] = key.split("-").map(Number), d = 
 // Days in month "YYYY-MM".
 function daysIn(key) { const [y, m] = key.split("-").map(Number); return new Date(Date.UTC(y, m, 0)).getUTCDate(); }
 
-// Sunlight on flat ground above the air at latitude `lat` over month `key`, summed by day, in no particular
-// unit: only months against each other matter. Clouds and the panels' tilt are left to the scale fitted below.
 // Clear-sky sunlight on flat ground at the middle of the hour starting at `t` (ms), in W/m2: the sun's height
 // from the date, the hour and the longitude, then Haurwitz's clear sky. The equation of time is left out (a
 // quarter hour at most): the usual day only compares nearby days by it, which shifts them alike.
@@ -1957,7 +1957,10 @@ function clearSky(t, lat, lon) {
   return c > 0.01 ? 1098 * c * Math.exp(-0.057 / c) : 0;
 }
 
+// Sunlight on flat ground above the air at latitude `lat` over month `key`, summed by day, in no particular
+// unit: only months against each other matter. Clouds and the panels' tilt are left to the scale fitted below.
 function monthSun(key, lat) {
+
   const rad = Math.PI / 180, f = lat * rad, [y, m] = key.split("-").map(Number);
   const first = Math.round((Date.UTC(y, m - 1, 1) - Date.UTC(y, 0, 1)) / 864e5);
   let s = 0;
@@ -2009,7 +2012,7 @@ function seasonGuess(all, lat, sell) {
 // but leaves the layout alone, so lines overflow their cards. A word in a fixed size on the page, against
 // the same word on a canvas (which the web view leaves alone), gives the factor; an SVG word gives it for
 // chart text, which may differ. The panel then zooms as a whole by it (see the :host rule in styles.js).
-export function textScale() {
+function textScale() {
   const font = "100px sans-serif", word = "Mmmmmmmmmm";
   const box = document.createElement("div");
   box.style.cssText = `position:fixed;left:-9999px;top:0;font:${font};white-space:nowrap;-webkit-text-size-adjust:100%;text-size-adjust:100%`;
@@ -2066,8 +2069,8 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
     this._snow = root.querySelector(".snow");
     this._gear = root.querySelector(".gear");
     this._dialog = root.querySelector("dialog.show");
-    try { this._show = JSON.parse(localStorage.getItem(SHOW_KEY)) ?? {}; } catch (e) { this._show = {}; } // see SHOW_KEY
-    try { const l = localStorage.getItem(LANGUAGE_KEY); this._language = Object.hasOwn(LANGUAGES, l ?? "") ? l : ""; } catch (e) { this._language = ""; } // see LANGUAGE_KEY
+    try { this._show = JSON.parse(localStorage.getItem(SHOW_KEY)) ?? {}; } catch (e) { this._show = {}; }
+    try { const l = localStorage.getItem(LANGUAGE_KEY); this._language = Object.hasOwn(LANGUAGES, l ?? "") ? l : ""; } catch (e) { this._language = ""; }
     this._wireHints(root);
     this._wireTabs(root);
     this._wireShow();
@@ -2365,8 +2368,7 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
       const given = new Map((ahead?.from === "sensor" ? sensor.attributes.hours : []).map((h) => [Date.parse(h.t), h]));
       const priceAt = (field) => (t) => (given.has(t) ? given.get(t)[field] ?? null : price[field]);
       const standby = stats.standbyW / 1000;
-      // Use as the balance, as the forecast counts it (a load sensor already leaves standby out).
-      const soFar = { ...stats.today, loadKwh: balanceKwh(stats.today), ...moneySoFar(stats.todayHours, priceAt("buy"), priceAt("sell"), standby, now) };
+      const soFar = moneySoFar(stats.todayHours, priceAt("buy"), priceAt("sell"), standby, now);
       const battery = batt && { kwh: batt.kwh, floor: batt.floor, maxChargeKw: batt.maxChargeKw, maxDischargeKw: batt.maxDischargeKw, efficiency: stats.efficiency };
       this._ahead = ahead;
       // Without house use (mode Weather) the sensor gives sun and sky only: no outlook, so the page shows
@@ -2661,7 +2663,7 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
       const gone = off[el.closest("dialog").dataset.card] ?? [];
       el.hidden = [...el.querySelectorAll("[data-t]")].some((x) => gone.includes(x.dataset.t));
     });
-    // Pages come back after an error message; Money only with something to show (a price).
+    // Pages come back after an error message; Money only with a card to show.
     PAGES.forEach((p, i) => { $(p).hidden = this._tabs[i].hidden = !html[i]; });
     if (focused) focusTarget($(focusedPage), focused)?.focus({ preventScroll: true });
   }
@@ -2679,8 +2681,11 @@ export { STRINGS, LANGUAGES, loadLanguage, formats, entitiesFrom, clockOf, total
 
 /*
  * Most icons in solar-view.js are taken from Lucide (https://lucide.dev): sun, cloud, cloud-sun,
- * cloud-rain (drops slanted), plug, zap, chart-column, coins, circle-question-mark, washing-machine,
- * triangle-alert and clock. The moon, battery, house and tick are drawn by this project.
+ * cloud-rain (drops slanted), cloud-snow, plug, plug-zap, zap, chart-column, coins,
+ * circle-question-mark, washing-machine, cake, utensils, shirt, sparkle, smartphone-charging, wind,
+ * wifi-off, move-left, move-right, triangle-alert and clock. The moon, battery, house, gear and tick
+ * are drawn by this project.
+
  *
  * ISC License
  *

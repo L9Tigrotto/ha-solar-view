@@ -199,7 +199,7 @@ const configOf = (s) => ({ ...(extras && q.get("payback") !== "0" ? { system_cos
   // A tariff with the bands' typed prices: the PUN of October 2026 (GME), F23 the mean of F2 and F3.
   ...(s?.tariff ? { tariff: { type: s.tariff, prices: { f1: 0.233, f2: s.tariff === "two" ? 0.234 : 0.252, f3: 0.216 } } } : {}),
   ...(s?.batteryAgeDays ? { battery_install_date: new Date(localMidnight(s.batteryAgeDays)).toISOString().slice(0, 10) } : {}),
-  ...(s?.exportOff ? { export_max_kw: 0 } : {}), ...(s?.floor != null ? { battery_floor: s.floor } : {}), ...(q.get("bill") ? { bill_months: +q.get("bill") } : {}), ...(q.get("billstart") ? { bill_start: q.get("billstart") } : {}) });
+  ...(s?.exportOff ? { export_max_kw: 0 } : {}), ...(s?.floor != null ? { battery_floor: s.floor } : {}) });
 const q = new URLSearchParams(location.search);
 const name = q.get("scenario") in SCENARIOS ? q.get("scenario") : "midday";
 // Language, theme and viewer can change from the drawer once the checks have run.
@@ -707,7 +707,7 @@ const TEXTS = Object.fromEntries(await Promise.all(Object.keys(LANGUAGES).map(as
 
 // Check: every scenario must give the expected advice in the real rendered panel.
 // The forecast scenarios also check what the panel worked out: from the sensor when fresh, by the
-// page when stale; ranges for tonight unless the battery size is unknown; nothing in the first days,
+// page when stale; the hours ahead unless the battery size is unknown; nothing in the first days,
 // where there is no usual day to build a forecast from.
 for (const [k, s] of Object.entries(SCENARIOS)) {
   const p = await draw(fakeHass(s), {}, configOf(s));
@@ -724,8 +724,8 @@ for (const [k, s] of Object.entries(SCENARIOS)) {
   }
   const range = (r) => Array.isArray(r) && r.length === 3 && r.every(Number.isFinite) && r[0] <= r[1] && r[1] <= r[2];
   if (s.ahead) console.assert(p._ahead?.from === (s.ahead === "stale" ? "page" : "sensor"), `forecast for ${k}: from ${p._ahead?.from}`, p._ahead);
-  if (s.ahead && s.battKwh !== null) console.assert(["made", "used", "fromBatt", "fromGrid", "sent"].every((f) => range(p._outlook?.tonight?.[f])), `forecast for ${k}: tonight has no ranges`, p._outlook);
-  if (s.battKwh === null) console.assert(p._outlook && p._outlook.tonight === null && p._outlook.best === null, `forecast for ${k}: figures with a battery of unknown size`, p._outlook);
+  if (s.ahead && s.battKwh !== null) console.assert(p._outlook?.hoursAhead?.length && p._outlook.hoursAhead.every((r) => r.every(Number.isFinite)) && p._outlook.restToday && (p._outlook.inHour === null || range(p._outlook.inHour)), `forecast for ${k}: no hours, money or ranges ahead`, p._outlook);
+  if (s.battKwh === null) console.assert(p._outlook && p._outlook.hoursAhead === null && p._outlook.best === null, `forecast for ${k}: figures with a battery of unknown size`, p._outlook);
   if (s.firstDays) console.assert(p._outlook === null && !/\d/.test($(p, ".batt-say p").textContent), `forecast for ${k}: an outlook, or a lasts until without one`, p._outlook);
 }
 
@@ -765,7 +765,7 @@ for (const [k, s] of Object.entries(SCENARIOS)) {
 }
 
 // Check: the forecast counts house use as the energy balance. A load sensor 1.5 kWh a day under it
-// (standby worked out as 62.5 W) gives the same savings and home made share by tonight as no load
+// (standby worked out as 62.5 W) gives the same hours and money ahead as no load
 // sensor with standby_w 62.5. One frozen clock for both panels.
 {
   const LOAD = "sensor.load_energy", sign = { [ID.solarKwh]: 1, [ID.batteryKwh]: 1, [ID.gridImportKwh]: 1, [ID.chargeKwh]: -1, [ID.gridExportKwh]: -1 };
@@ -783,8 +783,8 @@ for (const [k, s] of Object.entries(SCENARIOS)) {
   const withLoad = await draw(h, { callWS }, { entities: { load_energy: LOAD } });
   const withStandby = await draw(h, {}, { standby_w: 62.5 });
   Date.now = now;
-  const pick = (p) => JSON.stringify([p._stats?.standbyW, p._outlook?.tonight?.saved, p._outlook?.tonight?.homeMade].map((v) => JSON.stringify(v, (k, x) => (typeof x === "number" ? Math.round(x * 1e6) / 1e6 : x))));
-  console.assert(withLoad._outlook?.tonight && pick(withLoad) === pick(withStandby), "forecast: a load sensor changes the savings or the home made share", pick(withLoad), pick(withStandby));
+  const pick = (p) => JSON.stringify([p._stats?.standbyW, p._outlook?.hoursAhead, p._outlook?.restToday, p._outlook?.daysMoney].map((v) => JSON.stringify(v, (k, x) => (typeof x === "number" ? Math.round(x * 1e6) / 1e6 : x))));
+  console.assert(withLoad._outlook?.restToday && pick(withLoad) === pick(withStandby), "forecast: a load sensor changes the hours or money ahead", pick(withLoad), pick(withStandby));
 }
 
 // Check: every language has every text, every advice pool has lines (the go lines as many as in en), and no
@@ -837,7 +837,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
   const now = at("2026-10-24T13:30:00+02:00");
   const fresh = sensorOf("2026-10-24T10:40:00+02:00", "2026-10-24", "2026-10-25", { sun: [3, 6, 9], use: [4, 4.6, 5.5] }, days);
   const a = forecastOf({ sensor: fresh, now, clock, solarWh: {}, usual, price });
-  console.assert(a?.from === "sensor" && a.cloud === true, "forecast: fresh sensor not used", a);
+  console.assert(a?.from === "sensor" && a.hours.some((h) => h.cloud != null), "forecast: fresh sensor not used", a);
   // The sensor's 36 hours to the end of tomorrow, then the usual day's to the month's end (it predicts house use).
   console.assert(a.hours[0].t === at("2026-10-24T13:00:00+02:00") && a.hours.length === 11 + 25 + 6 * 24 && a.hours[35].cloud !== null && a.hours[36].cloud === null,
     "forecast: sensor hours not from the present hour, or not on with the usual day", a.hours);
@@ -852,7 +852,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
   const solarWh = { [at("2026-10-24T14:00:00+02:00")]: 2000, [at("2026-10-24T15:00:00+02:00")]: 0 };
   const stale = sensorOf("2026-10-24T09:30:00+02:00", "2026-10-24", "2026-10-25", { sun: [3, 6, 9], use: [4, 4.6, 5.5] }, days);
   const p = forecastOf({ sensor: stale, now, clock, solarWh, usual, price });
-  console.assert(p?.from === "page" && p.cloud === false && p.months === null, "forecast: stale sensor used", p);
+  console.assert(p?.from === "page" && p.hours.every((h) => h.cloud === null) && p.months === null, "forecast: stale sensor used", p);
   console.assert(same(p, forecastOf({ sensor: undefined, now, clock, solarWh, usual, price })), "forecast: missing and stale sensor differ");
   console.assert(same(p.hours.slice(0, 3).map((h) => h.sun), [[0, 0, 0], [1.6, 2, 2.4], [0, 0, 0]]), "forecast: page sun not from solarWh (20 % either way), its day's missing hours none", p.hours);
   console.assert(same(p.hours[0], { t: at("2026-10-24T13:00:00+02:00"), sun: [0, 0, 0], use: [0.4, 0.4, 0.4], cloud: null, rain: null, buy: 0.3, sell: 0.1 }), "forecast: page hour wrong", p.hours[0]);
@@ -962,26 +962,25 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
       .reduce((s, h) => s.map((v, i) => v + h[f][i] * Math.min(1, (h.t + H - from) / H)), [0, 0, 0]);
     const [d0, d1] = keys;
     return { from: "sensor", hours, left: { sun: sum(d0, "sun", now), use: sum(d0, "use", now) },
-      days: [d0, d1].map((d) => ({ d, sun: sum(d, "sun", -Infinity), use: sum(d, "use", -Infinity) })), months: null, cloud: false };
+      days: [d0, d1].map((d) => ({ d, sun: sum(d, "sun", -Infinity), use: sum(d, "use", -Infinity) })), months: null };
   };
   const battery = { kwh: 10, floor: 20, maxChargeKw: null, efficiency: 0.95 };
   const settings = { exportMaxKw: null, standbyKwhPerHour: 0 };
-  const soFar = { solarKwh: 3, loadKwh: 4, batteryKwh: 1, gridImportKwh: 0.5, gridExportKwh: 0.2, saved: 0.9, cost: 0.15, earned: 0.02, paid: 1.05 };
+  const soFar = { saved: 0.9, cost: 0.15, earned: 0.02 };
   const day = (h) => (h >= 10 && h <= 15 ? 2 : 0);
   try {
     // Whiskers: a sunny day with a spread, at 11:00.
     const sunnyAt = at("2026-10-24T11:00:00+02:00");
     const sunny = aheadOf(sunnyAt, (h) => (h >= 8 && h <= 16 ? 1.5 : 0), () => 0.3, 0.3);
     const o = lookAhead(sunny, sunnyAt, clock, { soc: 60, loadW: 300, solarW: 1500 }, battery, settings, soFar);
-    const soFarOf = { made: "solarKwh", used: "loadKwh", fromBatt: "batteryKwh", fromGrid: "gridImportKwh", sent: "gridExportKwh", saved: "saved", cost: "cost", earned: "earned", paid: "paid" };
-    for (const [k, [lo, mid, hi]] of Object.entries(o.tonight))
-      console.assert([lo, mid, hi].every(Number.isFinite) && lo <= mid && mid <= hi && (k === "homeMade" ? hi <= 1 && lo >= 0
-        : mid >= (k === "fromSun" ? soFar.loadKwh - soFar.batteryKwh - soFar.gridImportKwh : soFar[soFarOf[k]])), `lookAhead: ${k} range wrong`, o.tonight[k]);
-    console.assert(o.tonight.made[0] < o.tonight.made[2] && o.tonight.used[0] < o.tonight.used[2], "lookAhead: three runs give no whisker", o.tonight);
+    for (const [k, v] of Object.entries(o.restToday))
+      console.assert(Number.isFinite(v) && v >= 0, `lookAhead: rest of today's ${k} wrong`, o.restToday);
+    console.assert(o.hoursAhead.length && o.hoursAhead.every((r) => r.every(Number.isFinite) && r.slice(1).every((v) => v >= 0)), "lookAhead: hours ahead wrong", o.hoursAhead);
+    console.assert(o.inHour[0] < o.inHour[2], "lookAhead: three runs give no whisker", o.inHour);
     const noBatt = lookAhead(sunny, sunnyAt, clock, { soc: null, loadW: 300, solarW: 1500 }, null, settings, soFar);
-    console.assert(noBatt.tonight.fromBatt === null && Number.isFinite(noBatt.tonight.fromGrid[1]) && noBatt.lastsUntil === null, "lookAhead: no battery still has battery figures", noBatt);
+    console.assert(noBatt.socAhead === null && noBatt.inHour === null && noBatt.hoursAhead.every((r) => r[2] === 0 && Number.isFinite(r[3])) && noBatt.lastsUntil === null, "lookAhead: no battery still has battery figures", noBatt);
     for (const kwh of [null, 0])
-      console.assert(same(lookAhead(sunny, sunnyAt, clock, { soc: 60, loadW: 300, solarW: 1500 }, { ...battery, kwh }, settings, soFar), { tonight: null, lastsUntil: null, best: null, inHour: null, fills: false, socAhead: null, hoursAhead: null, restToday: null, daysMoney: null }), `lookAhead: battery size ${kwh} not hidden`);
+      console.assert(same(lookAhead(sunny, sunnyAt, clock, { soc: 60, loadW: 300, solarW: 1500 }, { ...battery, kwh }, settings, soFar), { lastsUntil: null, best: null, inHour: null, fills: false, socAhead: null, hoursAhead: null, restToday: null, daysMoney: null }), `lookAhead: battery size ${kwh} not hidden`);
 
     // In an hour: at 11:00 sharp the end of the first hour; at 11:30 half way through the second. The
     // range holds the mid and stays within the floor to 100 %; at the floor the battery cannot fall.
@@ -1129,26 +1128,26 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     console.assert(machineOf({ type: "dryer", kwh: null, hours: null, peakKw: null }, [], []) === null, "machines: a machine without a load");
 
     // Money from 12:00, no battery: 4 sun hours (2 kWh) and 8 dark ones, use 0.5, standby 0.1 an hour.
-    // saved 1 + 4 x 0.4 x 0.3 (dark hours 0, not below), cost 2 + 8 x 0.5 x 0.3, earned 4 x 1.5 x 0.1.
-    // paid (the house with no system, standby left out) 3 + 12 x 0.4 x 0.3: in the dark hours the grid
-    // also covers the standby, so paid is under saved plus cost.
+    // Rest of today: saved 4 x 0.4 x 0.3 (dark hours 0, not below), cost 8 x 0.5 x 0.3, earned 4 x 1.5 x 0.1;
+    // made 8, used 6, from the grid 4.
     const noon = at("2026-10-24T12:00:00+02:00");
     const money = (buy, so = {}) => lookAhead(aheadOf(noon, (h) => (h >= 12 && h <= 15 ? 2 : 0), () => 0.5, 0, buy), noon, clock, { soc: null, loadW: 500, solarW: 2000 }, null,
-      { exportMaxKw: null, standbyKwhPerHour: 0.1 }, { solarKwh: 0, loadKwh: 6, batteryKwh: 0, gridImportKwh: 3, gridExportKwh: 0, saved: 1, cost: 2, earned: 0, paid: 3, ...so }).tonight;
-    const m = money(() => 0.3), x3 = (v) => [v, v, v];
-    console.assert(same(Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v && v.map(r3)])),
-      { made: x3(8), used: x3(12), fromBatt: null, fromGrid: x3(7), sent: x3(6), saved: x3(1.48), cost: x3(3.2), earned: x3(0.6), paid: x3(4.44), fromSun: x3(5), homeMade: x3(0.271) }), "money: wrong", m);
+      { exportMaxKw: null, standbyKwhPerHour: 0.1 }, { saved: 1, cost: 2, earned: 0, ...so });
+    const sumOf = (o, i) => r3(o.hoursAhead.reduce((s, r) => s + r[i], 0));
+    const m = money(() => 0.3);
+    console.assert(same(Object.fromEntries(Object.entries(m.restToday).map(([k, v]) => [k, r3(v)])), { saved: 0.48, cost: 1.2, earned: 0.6 })
+      && sumOf(m, 1) === 8 && sumOf(m, 2) === 0 && sumOf(m, 3) === 4 && sumOf(m, 4) === 6, "money: wrong", m.restToday, m.hoursAhead);
     const noBuy = money((h) => (h === 20 ? null : 0.3));
-    console.assert(noBuy.saved === null && noBuy.cost === null && noBuy.paid === null && same(noBuy.made.map(r3), x3(8)), "money: an hour without buy still priced", noBuy);
-    console.assert(money(() => 0.3, { saved: null }).saved === null, "money: saved without a so far value");
+    console.assert(noBuy.restToday.saved === null && noBuy.restToday.cost === null && sumOf(noBuy, 1) === 8, "money: an hour without buy still priced", noBuy);
+    console.assert(money(() => 0.3, { saved: null }).restToday.saved === null, "money: saved without a so far value");
     // From 12:30, no sun, 0.5 an hour: half the present hour plus 11, the present hour scaled once.
-    const half12 = at("2026-10-24T12:30:00+02:00"), zero = { solarKwh: 0, loadKwh: 0, batteryKwh: 0, gridImportKwh: 0, gridExportKwh: 0, saved: 0, cost: 0, earned: 0 };
-    const dark = lookAhead(aheadOf(half12, () => 0, () => 0.5), half12, clock, { soc: null, loadW: 500, solarW: 0 }, null, settings, zero).tonight;
-    console.assert(r3(dark.used[1]) === 5.75 && r3(dark.fromGrid[1]) === 5.75 && r3(dark.cost[1]) === 1.725, "money: present hour scaled twice", dark);
-    // Standby over today's 25 hours on 2026-10-25: (12.5 - 2.5 - 6) / (12.5 - 2.5), not 24 hours (0.406).
-    const dstNoon = at("2026-10-25T12:00:00+01:00");
-    const hm = lookAhead(aheadOf(dstNoon, () => 0, () => 0.5), dstNoon, clock, { soc: null, loadW: 500, solarW: 0 }, null, { exportMaxKw: null, standbyKwhPerHour: 0.1 }, { ...zero, loadKwh: 6.5 }).tonight.homeMade;
-    console.assert(same(hm.map(r3), [0.4, 0.4, 0.4]), "home made: standby not over today's 25 hours", hm);
+    const half12 = at("2026-10-24T12:30:00+02:00"), zero = { saved: 0, cost: 0, earned: 0 };
+    const dark = lookAhead(aheadOf(half12, () => 0, () => 0.5), half12, clock, { soc: null, loadW: 500, solarW: 0 }, null, settings, zero);
+    console.assert(sumOf(dark, 4) === 5.75 && sumOf(dark, 3) === 5.75 && r3(dark.restToday.cost) === 1.725, "money: present hour scaled twice", dark);
+    // Tomorrow's 25 hours on 2026-10-25 all count in its money: cost 25 x 0.5 x 0.3, not 24 hours (3.6).
+    const eve24 = at("2026-10-24T20:00:00+02:00");
+    const dst25 = lookAhead(aheadOf(eve24, () => 0, () => 0.5), eve24, clock, { soc: null, loadW: 500, solarW: 0 }, null, { exportMaxKw: null, standbyKwhPerHour: 0.1 }, zero).daysMoney;
+    console.assert(dst25[0]?.[0] === "2026-10-25" && r3(dst25[0][2]) === 3.75, "days money: not over the 25 hours of 2026-10-25", dst25);
 
     // 25 hour day from 01:00: lasts until on the second 02:00.
     const dst = at("2026-10-25T01:00:00+02:00");
@@ -1165,15 +1164,13 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     [3 * H]: { loadKwh: 0.05, gridImportKwh: 0.05, gridExportKwh: 0 } };
   const buy = (t) => (t === H ? 0.3 : 0.2);
   // saved (1 - 0.1 - 0.2) x 0.3 + (0.5 - 0.1) x 0.2 + 0, cost 0.2 x 0.3 + 0.05 x 0.2, earned 1 x 0.1.
-  // paid (what the house would pay with no system, standby left out) (1 - 0.1) x 0.3 + (0.5 - 0.1) x 0.2 + 0:
-  // in the third hour the grid covers only the standby, which costs but is not the house's.
   const m = moneySoFar(hours, buy, () => 0.1, 0.1, 4 * H);
-  console.assert(r3(m.saved) === 0.29 && r3(m.cost) === 0.07 && r3(m.earned) === 0.1 && r3(m.paid) === 0.35, "money so far: wrong", m);
+  console.assert(r3(m.saved) === 0.29 && r3(m.cost) === 0.07 && r3(m.earned) === 0.1, "money so far: wrong", m);
   const unknown = moneySoFar(hours, (t) => (t === 2 * H ? null : 0.3), () => null, 0.1, 4 * H);
-  console.assert(unknown.saved === null && unknown.cost === null && unknown.earned === null && unknown.paid === null, "money so far: an hour without a price still priced", unknown);
+  console.assert(unknown.saved === null && unknown.cost === null && unknown.earned === null, "money so far: an hour without a price still priced", unknown);
   // Half the present hour gone: half its standby. (0.5 - 0.1) x 1.
   const part = moneySoFar({ [H]: { loadKwh: 0.5, gridImportKwh: 0, gridExportKwh: 0 } }, () => 1, () => 1, 0.2, 1.5 * H);
-  console.assert(r3(part.saved) === 0.4 && r3(part.paid) === 0.4, "money so far: standby of the present hour not by the part passed", part);
+  console.assert(r3(part.saved) === 0.4, "money so far: standby of the present hour not by the part passed", part);
 }
 
 // Check: the Energy page's today card and the Money page's today card. With a forecast (the sensor's, or the
@@ -1246,10 +1243,9 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
   // Export off, battery full: nothing sent, and spare sun is lost, not made. What is made from now on stays
   // within what the house uses, what the battery gives back (and so can take again, before its losses) and what is sent.
   p = await draw(fakeHass(SCENARIOS.exportOffFull), en, configOf(SCENARIOS.exportOffFull));
-  const o = p._outlook?.tonight, d = p._stats?.today;
-  const used = d && d.solarKwh + d.batteryKwh + d.gridImportKwh - d.chargeKwh - d.gridExportKwh;
-  console.assert(o && o.made[1] - d.solarKwh <= o.used[1] - used + (o.fromBatt[1] - d.batteryKwh) / p._stats.efficiency + (o.sent[1] - d.gridExportKwh) + 1e-6
-    && o.sent[1] - d.gridExportKwh === 0 && rings(p) && !readout(p).includes("var(--sent"), "today export off and full: lost sun counted as made, or something sent", o, d);
+  const o = p._outlook, ahead = (i) => (o?.hoursAhead ?? []).reduce((s, r) => s + r[i], 0);
+  console.assert(o?.hoursAhead && ahead(1) <= ahead(4) + ahead(2) / p._stats.efficiency + 1e-6
+    && !(o.restToday.earned > 0) && rings(p) && !readout(p).includes("var(--sent"), "today export off and full: lost sun counted as made, or something sent", o);
 }
 
 // Check: the Now page. In order: header, flow, advice, battery. The battery ring: the percentage alone in
@@ -2278,7 +2274,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   console.assert(soc.length === 1 && soc[0][0] === day + 10 * H && soc[0][1] === 52.5, "battery charge: one battery's mean read as all of them", soc);
   const { moneySoFar } = await import("../dist/forecast.js");
   const m = moneySoFar({ [day]: { loadKwh: 1, gridImportKwh: null, gridExportKwh: 0.5 } }, () => 0.3, () => 0.1, 0, day + H);
-  console.assert(m.saved === null && m.cost === null && m.earned === 0.05 && m.paid === 0.3, "money so far: an unknown import counted as 0", m);
+  console.assert(m.saved === null && m.cost === null && m.earned === 0.05, "money so far: an unknown import counted as 0", m);
 }
 
 // Check: Hour by hour has the day's real hours in Rome: 23 the day the clocks go forward, 25 the day they go

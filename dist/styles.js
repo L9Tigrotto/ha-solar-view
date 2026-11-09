@@ -15,7 +15,7 @@ export const CSS = `
   --card:rgba(255,255,255,.65); --card-line:rgba(255,255,255,.8);
   --track:rgba(14,34,54,.13);
   /* Accents: amber, teal green, rose, plum, blue. They double as the marks on charts and rings (see markOf),
-     3:1 or more on the lightest sky and on white. Sent is the grid colour, faded; returns (the money
+     3:1 or more on the lightest sky and on white. Sent is the grid colour, faded; savings (the money
      page's marks) a teal of their own. */
   --range:#fe640b; --sun:#a3650c; --batt:#277c61; --low:#b64259; --grid:#7956a8; --home:#2f6eae;
   --sent-mark:#8965b3; --return-mark:#277b72;
@@ -250,9 +250,9 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .skel .flow .ln{opacity:.15;stroke-width:2}
 .skel .page{pointer-events:none}
 
-/* ENERGY: the home made share ring when today has nothing to compare with, its text left aligned like
-   every other card; the best time as a highlighted line on the battery card (Power origin without a battery). MONEY: the payback ring, centred,
-   its text left aligned the same way. */
+/* ENERGY: Power origin's share ring, its text left aligned like every other card. NOW: the best time as a
+   highlighted line, on the battery card or, without a charge reading, on a card of its own. MONEY: the
+   payback ring, centred, its text left aligned the same way. */
 .share .ring-mid .big{font-size:calc(44px / var(--zf,1))}
 /* The split ring (see splitRing): a smaller ring, with room above for the top label. Each label sits where
    its line starts: 16 viewBox units (8 % of the width) beside the ring, at the height of the ring's centre,
@@ -301,8 +301,6 @@ h1,h2,h3,p,ol{margin:0;padding:0}
   font-size:var(--t-s);line-height:1.25;color:var(--ink-2);text-align:center}
 .legend li{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
 .legend i{flex:none;width:10px;height:10px;border-radius:50%;background:var(--c)}
-/* Today has six columns: a little smaller and no gap, so its longest single words fit their share at 375 px. */
-.today .legend{gap:6px 0;font-size:var(--t-xs)}
 .card :is(h2,h3):has(.num){display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:0 12px}
 
 /* The weather icons of the coming days. */
@@ -361,9 +359,10 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .stepped :is(.period,.chart-title),.stepped .day:not(:has(.readout)){padding-inline:36px}
 .stepped > .chart-title{text-align:center}
 .stepped.total{--cap-top:12px}
-/* ENERGY: hour by hour (see battDayCard): a chart of the charge, and under it one of each hour's energy, on
-   one timeline, each under its own title and unit. They stretch with the card, their strokes keep their width; 24 hour cells over each take the
-   taps and drags, the top ones the hints, and hold the picked hour's dots. */
+/* ENERGY: Today by hour (see battDayCard): a chart of the charge, and under it one of each hour's energy,
+   on one timeline, each under its own title and unit. They stretch with the card, their strokes keep their
+   width; 24 hour cells over each take the taps and drags, the top ones the hints, and hold the picked hour's dots. */
+
 .battday .legend{margin:8px 0 0}
 .battday .plot{position:relative;height:120px;margin-top:22px}
 .battday .plot.charge{height:72px}
@@ -477,9 +476,9 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .route .end{width:26px;height:26px;stroke-width:1.9}
 .route .end:first-child{stroke-width:2.6} /* the house is on a 34 grid, the plug on 24: lines about 2 px wide */
 /* Lucide's move-left head, fixed in size, on a rounded line that takes the width; its tip on the line's end. */
-.arrow{flex:1;min-width:0;display:flex;align-items:center;color:var(--grid-mark,var(--grid))}
-.arrow svg{width:9px;height:15px;stroke-width:1.33}
-.arrow i{flex:1;height:2px;border-radius:1px;background:currentColor;margin-inline-start:-7.5px}
+.route .arrow{flex:1;min-width:0;display:flex;align-items:center;color:var(--grid-mark,var(--grid))}
+.route .arrow svg{width:9px;height:15px;stroke-width:1.33}
+.route .arrow i{flex:1;height:2px;border-radius:1px;background:currentColor;margin-inline-start:-7.5px}
 .price.out .arrow{color:var(--sent-mark,var(--grid))}
 .price.out .arrow i{margin:0 -7.5px 0 0}
 .band-now{padding:0 6px;border:1px solid var(--grid-mark,var(--grid));border-radius:6px;font-size:var(--t-s);font-weight:400;white-space:nowrap}

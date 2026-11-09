@@ -63,7 +63,8 @@ export const STRINGS = {
       "All filled up! Now make the most of the sun.",
       "Energy left over, all yours to use!",
     ],
-    adviceSoon: [ // spare sun now, the forecast says it fades within 3 hours, and the battery is not nearly full
+    adviceSoon: [ // spare sun now, the forecast says it fades within 3 hours, and no charge reading
+
       "Sun to spare, but less is forecast soon: stick to a short cycle",
       "The sun may fade within hours: only start what finishes quickly",
       "Less sun is forecast soon: best not to start a long cycle now",
@@ -179,9 +180,6 @@ export const STRINGS = {
     whyCheaper: "Cheaper hours ({a})",
     whyGrid: "It takes the least from the grid then",
     colGrid: "From grid",
-    made: "The sun made",
-    used: "The house used",
-    taken: "Taken from the grid",
     sent: "Sent to the grid",
     nothing: "nothing",
     weekOn: "On {d}",
