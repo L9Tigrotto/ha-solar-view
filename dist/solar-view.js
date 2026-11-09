@@ -187,7 +187,7 @@ function advice(n, forecast, daytime, word) {
     return !high && forecast && forecast.fade.now >= FADE_MIN_W && forecast.fade.next < forecast.fade.now * FADE_SHARE ? "soon" : "go";
   if (isLow(word) && n.solarW < LOW_SOLAR_W) return "low";
   if (daytime && forecast && forecast.tomorrow !== null && forecast.usual !== null
-    && forecast.today < forecast.usual * POOR_SHARE && forecast.tomorrow >= forecast.today * BETTER_TIMES) return "wait";
+    && forecast.today < forecast.usual * POOR_SHARE && forecast.tomorrow >= forecast.today * BETTER_TIMES && forecast.tomorrow > forecast.today) return "wait";
   if (daytime && forecast && forecast.fade.next >= LATER_MIN_W && forecast.fade.next >= forecast.fade.now * LATER_TIMES) return "later";
   return "ok";
 }
@@ -720,7 +720,7 @@ function readData(hass, src, stats, fc = {}) {
   // Text is an entity id, unless it is a number typed as text.
   const price = (v) => (typeof v !== "string" ? v : v.trim() && !isNaN(v) ? +v : stateNum(hass, v));
   // The forecast's inputs stay out: they are not drawn, and the copy this browser remembers stays small.
-  const { msToMidnight, todayHours, solarWh, usual, efficiency, standbyW, socDay, fixedMonths, machines, priceRows, ...rest } = stats;
+  const { msToMidnight, todayHours, solarWh, usual, efficiency, standbyW, socDay, fixedMonths, machines, priceRows, gridMonth, sunUntil, ...rest } = stats;
   const round = (v, to) => (Number.isFinite(v) ? Math.round(v * to) / to : null), socAt = new Map(socDay);
   const now = Date.now(), weather = weatherOf(hass), wx = weather?.state, cloud = cloudNow(fc.ahead, weather?.attributes?.cloud_coverage, now), rain = raining(fc.ahead, wx, now), snow = snowing(wx);
   return {
@@ -856,6 +856,8 @@ function formats(lang, currency, cycle, zone) {
     const parts = nf.formatToParts(v), sign = parts.filter((p) => p.type === "currency").map((p) => p.value).join("");
     return `${parts.filter((p) => p.type !== "currency" && (p.type !== "literal" || p.value.trim())).map((p) => p.value).join("")} ${sign}`;
   };
+  // A zone this browser's Intl does not know (an older WebView): the browser's own, as in clockOf.
+  try { new Intl.DateTimeFormat(lang, { timeZone: zone }); } catch (e) { zone = undefined; }
   const time = new Intl.DateTimeFormat(lang, { hour: "numeric", minute: "2-digit", hourCycle: cycle, timeZone: zone }); // "alle 2:30", as spoken
   const hour = new Intl.DateTimeFormat(lang, { hour: "numeric", hourCycle: cycle, timeZone: zone }); // "15", "3 PM": Today by hour's ticks
   const zoned = new Intl.DateTimeFormat(lang, { hour: "numeric", minute: "2-digit", hourCycle: cycle, timeZone: zone, timeZoneName: "short" }); // the hour the clocks go back, twice
@@ -978,7 +980,7 @@ function flowSvg(n, sky, night, t, label, hints, battery, battColor, cover, moon
 </g>
   ${battery ? node(46, 146, hints.battery, `${outline(46, 146, 1, "batt", `<rect x="-15" y="-9" width="30" height="18" rx="5"/>
     <rect class="pole" x="15" y="-3.5" width="3.8" height="7" rx="1.5" fill="currentColor" stroke="none"/>
-    ${n.soc === null ? "" : `<rect class="lvl" x="-12" y="-6" width="${Math.max(2, 24 * n.soc / 100).toFixed(1)}" height="12" rx="2.5" fill="var(${battColor})" stroke="none"/>`}`, 0)}`) : ""}
+    ${n.soc === null ? "" : `<rect class="lvl" x="-12" y="-6" width="${Math.min(24, Math.max(2, 24 * n.soc / 100)).toFixed(1)}" height="12" rx="2.5" fill="var(${battColor})" stroke="none"/>`}`, 0)}`) : ""}
   ${node(170, 146, hints.home, `${outline(170, 146, 1, "house", HOUSE, 0)}`)}
   ${node(294, 146, hints.grid, `${outline(294, 144, 1.5, `plug${gridOff}`, PLUG)}`)}
 </svg><div class="flowtext" aria-hidden="true">${words(183, 86, n.solarW > 0 ? t.sun : t.noSun, n.solarW, false)}${battery ? words(46, 178, t.battery, battW) : ""}${words(170, 178, t.home, n.loadW)}${words(294, 178, t.grid, gridW)}</div></div>`;
@@ -1752,7 +1754,7 @@ function moneyHtml({ data, t, f, clock, pick }) {
   const fee = fixedAt(key), v = months?.[key]?.money;
   const r = (j) => (Array.isArray(v?.[j]) && v[j].every(Number.isFinite) && (j !== "cost" || fee !== null) ? v[j].map((y) => y + (j === "cost" ? fee : 0)) : null);
   const end = { saved: r("saved"), earned: r("earned"), cost: r("cost") };
-  end.net = end.saved && end.cost ? end.saved[1] + (end.earned?.[1] ?? 0) - end.cost[1] : null;
+  end.net = end.saved && end.cost ? end.saved[1] + (data.sends ? end.earned?.[1] ?? 0 : 0) - end.cost[1] : null;
   // Without the sensor's month: this month's net so far plus what the outlook expects to its end (see moneyAhead).
   const coming = moneyAhead(data), soFarNet = m && !m.none ? net(m, key) : null;
   if (!months && coming?.rest != null && soFarNet !== null) end.net = soFarNet + coming.rest;
@@ -1793,7 +1795,7 @@ function moneyHtml({ data, t, f, clock, pick }) {
   // Today's hours of each band, as runs of whole hours in Home Assistant's time zone (a day the clocks change has
   // 23 or 25). A run over midnight is one: F3 from 23:00 to 7:00. [{ band, from, to }] in ms.
   const bandRuns = (type) => {
-    let at = Math.floor(now / 36e5) * 36e5;
+    let at = hourStart(now, clock);
     while (clock(at - 36e5).key === c.key) at -= 36e5;
     const runs = [];
     for (; clock(at).key === c.key; at += 36e5) {
@@ -2013,6 +2015,7 @@ export function textScale() {
   // Small differences are font rounding, not a setting.
   return [page, chart].map((w) => (w / plain > 1.05 ? Math.round((w / plain) * 100) / 100 : 1));
 }
+let zoom; // textScale's answer, measured once per load: it forces a layout of the whole document
 
 // ---- Element ----
 class SolarView extends HTMLElement {
@@ -2073,7 +2076,7 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
       delete this[name];
       this[name] = value;
     }
-    const [zf, zs] = textScale();
+    const [zf, zs] = (zoom ??= textScale());
     this.style.setProperty("--zf", zf);
     this.style.setProperty("--zs", zs);
     // Still nothing from Home Assistant: show the veil's plain day sky, not a blank page. The theme
@@ -2431,7 +2434,10 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
         stat("month", Date.UTC(2000, 0, 1), fixedId, ["mean"]), stat("hour", now - MACHINE_DAYS * 864e5, machineIds),
         stat("5minute", now - FIVE_MIN_DAYS * 864e5, machineIds), stat("hour", now - PRICE_DAYS * 864e5, priceId, ["mean"]),
         stat("hour", now - (+clock(now).key.slice(8) + 1) * 864e5, bandIds)]);
-      const [recent, rows] = await Promise.all([stat("5minute", now - 25 * 36e5), slow]);
+      // 5 minute rows from an hour before midnight (a day the clocks change still fits), asked on every load. In the
+      // first hour of a day, 25 hours: totals takes yesterday from them while its day row is missing.
+      const at = clock(now), since = at.hour === 0 ? now - 25 * 36e5 : hourStart(now, clock) - (at.hour + 1) * 36e5;
+      const [recent, rows] = await Promise.all([stat("5minute", since), slow]);
       // `hass` and `panel` can each start a load: only the newest may answer, or entities read without
       // the config could land last.
       if (run !== this._run) return;
@@ -2465,7 +2471,8 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
     const lang = [locale, locale.split("-")[0], "en"].find((l) => Object.hasOwn(LANGUAGES, l) && !failedLanguages.has(l));
     // Texts not loaded yet: the page stays as it is until they come, so texts and numbers change together.
     if (!STRINGS[lang]) { loadLanguage(lang).then(() => this._render()); return; }
-    this.setAttribute("lang", locale);
+    // Even the same value restyles the whole panel, and this runs on every state change in the house.
+    if (this.getAttribute("lang") !== locale) this.setAttribute("lang", locale);
     const dark = !!hass.themes?.darkMode;
     // The texts, and the labels outside the pages, only again when the language or the config changes:
     // this runs on every state change in the house.
@@ -2581,8 +2588,8 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
     const elevation = shown("sunHeight") ? data.sun.elevation : data.sun.elevation > 0 ? 90 : -90;
     const sky = skyAt(elevation, data.sun.dawn ?? data.sun.rising, dark, shown("clouds") ? data.weather.grey : 0);
     this._paint("sv-sky", sky.colors);
-    // The first sky is set at once (read back, so the browser has it); from then on it glides, see :host([glide]).
-    if (!this.hasAttribute("glide")) { getComputedStyle(this).getPropertyValue("--sv-sky1"); this.setAttribute("glide", ""); }
+    // The first sky is set at once (read back, so the browser has it); from then on it glides, see :host([glide]) .sky.
+    if (!this.hasAttribute("glide")) { getComputedStyle(this.shadowRoot.querySelector(".sky")).getPropertyValue("--sv-sky1"); this.setAttribute("glide", ""); }
     this._rain.hidden = !(data.weather.rain && shown("rain"));
     this._snow.hidden = !(data.weather.snow && shown("rain")); // the rain switch is for snow too
     this.style.setProperty("--glow", sky.colors[3]);
@@ -2652,10 +2659,10 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
   }
 }
 
-// The sky's colours as colours, so they can glide (see :host's transition). Registered for the whole page,
+// The sky's colours as colours, so they can glide (see .sky's transition). Registered for the whole page,
 // as an @property inside a shadow root is ignored, under names nothing else in Home Assistant uses
 // (window.CSS: CSS here is the stylesheet).
-for (const i of [1, 2, 3]) try { window.CSS.registerProperty({ name: `--sv-sky${i}`, syntax: "<color>", inherits: true, initialValue: "transparent" }); } catch (e) { /* registered already, by an older copy of this file */ }
+for (const i of [1, 2, 3]) try { window.CSS.registerProperty({ name: `--sv-sky${i}`, syntax: "<color>", inherits: false, initialValue: "transparent" }); } catch (e) { /* registered already, by an older copy of this file */ }
 
 // A tab left open across an update loads the new version beside the old one: keep the old
 // element until the page is refreshed instead of throwing.

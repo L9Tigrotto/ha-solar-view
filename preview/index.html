@@ -1410,7 +1410,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
       "weather alone: the sensor's days to come, its month end, or the sun ahead on Today by hour wrong", reach, left, later);
     // Coming days beside the page's own forecast: the solar forecast's whole days after today (up to 7), no weather.
     const rows = [...p.shadowRoot.querySelectorAll("#now .coming .days li")], want = Math.min(7, Object.keys(s.sunDays).length);
-    console.assert(want > 0 && rows.length === want && rows.every((li) => !li.querySelector(".wx")?.innerHTML),
+    console.assert(!extras || want > 0 && rows.length === want && rows.every((li) => !li.querySelector(".wx")?.innerHTML), // ?extras=0: no solar forecast
       "coming days, level usual: not the solar forecast's days", rows.length, want);
     // The usual day's sun follows the season by the clear sky at Home Assistant's location: each day to come
     // its own (within half and twice the usual day's); without a longitude, the usual day's as it is.
@@ -1451,7 +1451,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     let p = await draw(fakeHass(SCENARIOS.sunny), en);
     console.assert(order(p) === "today battday daily" && p.shadowRoot.querySelector("#now section.battery + section.coming"), "energy: cards not today, hour by hour, days, or coming days not under the battery on Now", order(p));
     p = await draw(fakeHass(SCENARIOS.stale), en);
-    console.assert($(p, ".coming") && !$(p, ".coming .wx path, .coming .wx circle"), "coming days without the sensor: not the solar forecast's, or with weather");
+    console.assert(!extras || $(p, ".coming") && !$(p, ".coming .wx path, .coming .wx circle"), "coming days without the sensor: not the solar forecast's, or with weather");
 
     // Coming days: 7 rows from tomorrow, each with the icon of its day's cloud and rain.
     p = await draw(fakeHass(SCENARIOS.sunny), en);
@@ -1754,7 +1754,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     tap(c, 1);
     console.assert(at(c) === start, `steps: ${c.dataset.pick}: › did not go back`, at(c));
   }
-  console.assert(cards.length === 2 + (extras ? 1 : 0), "steps: a picker without its ‹ and ›", cards.map((c) => c.dataset.pick));
+  console.assert(!extras || cards.length === 3, "steps: a picker without its ‹ and ›", cards.map((c) => c.dataset.pick)); // ?extras=0: other money cards
   // Production's months: this month picked, ‹ to the one left of it, › to the one right (last year's December).
   const cur = clockOf(TZ)(Date.now()).key.slice(0, 7), month = (k) => p.shadowRoot.querySelector(`#energy .daily .year [data-month="${k}"]`)?.getAttribute("aria-pressed");
   const keys = [...p.shadowRoot.querySelectorAll("#energy .daily .year [data-month]")].map((b) => b.dataset.month), n = keys.indexOf(cur);
@@ -1798,7 +1798,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   attach(p);
   const buttons = [...p.shadowRoot.querySelectorAll(".page .help")];
   const cards = buttons.map((b) => b.dataset.card);
-  console.assert(cards.join(" ") === `battery days share battday daily${extras ? " recent prices table" : ""}`, "help: not one per card", cards);
+  console.assert(!extras || cards.join(" ") === "battery days share battday daily recent prices table", "help: not one per card", cards); // ?extras=0: other money cards
   for (const b of buttons) {
     const read = $(p, `dialog.read[data-card="${b.dataset.card}"]`);
     b.focus(); b.click();

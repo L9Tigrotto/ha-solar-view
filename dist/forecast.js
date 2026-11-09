@@ -73,7 +73,8 @@ export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar
     .map((h) => ({ t: Date.parse(h.t), sun: h.sun, use: h.use, cloud: h.cloud ?? null, rain: h.rain ?? null, buy: h.buy ?? null, sell: h.sell ?? null }))
     .filter((h) => Number.isFinite(h.t)).sort((x, y) => x.t - y.t).filter((h, i, s) => !i || h.t !== s[i - 1].t);
   // The sun is what makes a sensor usable; house use may be switched off (see above).
-  const fresh = now - written < FRESH_MS && Array.isArray(a.days) && Array.isArray(a.left?.sun)
+  // Both ways: a time ahead of this clock would otherwise stay fresh for ever; a small skew still passes.
+  const fresh = Math.abs(now - written) < FRESH_MS && Array.isArray(a.days) && Array.isArray(a.left?.sun)
     && given.length > 0 && given.every((h) => Array.isArray(h.sun));
   const withUse = !fresh || (Array.isArray(a.left?.use) && given.every((h) => Array.isArray(h.use)));
   if (!fresh && !usual) return null;
@@ -162,8 +163,15 @@ export function scenarioHours(ahead, kind, now, clock) {
 }
 
 // The forecast sensor: found by its platform when the owner renamed it, else by its fixed id.
+// The registry's solar_view ids are kept while hass.entities is the same object: Home Assistant replaces it only
+// when the registry changes, and this runs on every state change.
+let registry, ours = [];
 export function findForecast(hass) {
-  const id = Object.keys(hass.entities || {}).find((k) => hass.entities[k]?.platform === "solar_view" && hass.states[k]);
+  if (hass.entities !== registry) {
+    registry = hass.entities;
+    ours = Object.keys(registry || {}).filter((k) => registry[k]?.platform === "solar_view");
+  }
+  const id = ours.find((k) => hass.states[k]);
   return hass.states[id ?? "sensor.solar_view_forecast"];
 }
 

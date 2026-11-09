@@ -61,7 +61,8 @@ export const CSS = `
 :host([dark]) .snow i::before{background:#eef3ff;box-shadow:none}
 .veil{background:linear-gradient(180deg,var(--l1),var(--l2) 55%,var(--l3))}
 :host([ready]) .veil{opacity:0}
-.sky{background:linear-gradient(180deg,var(--sv-sky1),var(--sv-sky2) 55%,var(--sv-sky3))}
+/* The sky colours are set on the host but not inherited (see registerProperty): only .sky takes them, so their glide restyles one element. */
+.sky{--sv-sky1:inherit;--sv-sky2:inherit;--sv-sky3:inherit;background:linear-gradient(180deg,var(--sv-sky1),var(--sv-sky2) 55%,var(--sv-sky3))}
 /* Stars: big and small dots, the small ones fainter. */
 .stars{opacity:var(--stars,0);
   background:
@@ -608,7 +609,7 @@ dialog form > button{display:block;min-height:44px;margin:16px 0 0 auto;padding:
   @keyframes breathe{50%{transform:scale(1.12);opacity:.75}}
   .veil{transition:opacity 1.4s var(--ease)}
   /* The sky glides from one update to the next (a new hour's clouds, the theme), not in a step. */
-  :host([glide]){transition:--sv-sky1 2s var(--ease),--sv-sky2 2s var(--ease),--sv-sky3 2s var(--ease)}
+  :host([glide]) .sky{transition:--sv-sky1 2s var(--ease),--sv-sky2 2s var(--ease),--sv-sky3 2s var(--ease)}
   .skel .page{animation:pulse 1.6s ease-in-out infinite}
   @keyframes pulse{50%{opacity:.55}}
   .pager.fresh .page > *{animation:rise .7s var(--ease) both}
