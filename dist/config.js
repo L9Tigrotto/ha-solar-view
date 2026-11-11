@@ -7,6 +7,9 @@ const { num, warnOnce } = await import(`./core.js${v}`);
 const BATTERY_FLOOR_SOC = 20; // percent where the inverter stops discharging, unless config says battery_floor
 const USUAL_DAYS = 14;    // the usual day (Energy's dashed lines) averages each hour over these many days, unless config says usual_days
 const USUAL_MIN = 3;      // until every hour of the day has this many days behind it there is no usual day (no dashed lines, no forecast built here)
+// usual_days at most: each day is 24 hour rows per energy sensor asked once a day, and past two months the
+// season has moved too far for one hour of the day to stand for today.
+const USUAL_MAX = 60;
 const QUIET_HOURS = "0-7";  // no machine start is suggested in these hours, unless config says quiet_hours
 const BATTERY_MARGIN = 10;  // a suggested start keeps the battery this many points above the floor, unless config says battery_margin
 
@@ -58,10 +61,8 @@ const KEYS = ["battery_kwh", "battery_floor", "battery_max_charge_kw", "battery_
   "export_max_kw", "standby_w", "grid_max_kw", "system_cost", "install_date", "saved_before", "level", "usual_days", "quiet_hours",
   ...MACHINE_TYPES, "bill_fixed", "tariff", "time_format", "advice", "advice_replace", "entities"];
 const TARIFF_TYPES = ["single", "two", "three"];
-// How far the page predicts (docs/audit/06-fix-plan.md, decision 1); no level is auto. Until the step-down
-// (data.js): none predicts nothing; usual_days and usual_days_weather are the page's own forecast even beside
-// the forecast sensor, usual_days without the Energy settings' solar forecast; weather and learned_weather
-// are auto (the sensor while fresh, else the page's own).
+// How far the page predicts (docs/audit/06-fix-plan.md, decision 1); no level is auto. What each level uses,
+// and the step down when its data is missing: modeOf in data.js.
 const LEVELS = ["none", "usual_days", "weather", "usual_days_weather", "learned_weather"];
 const LEVEL_ALIASES = { usual: "usual_days_weather" }; // the names before decision 1
 const isMap = (v) => !!v && typeof v === "object" && !Array.isArray(v);
@@ -183,6 +184,7 @@ function readConfig(prefs, config, costs = {}) {
   // Fewer than USUAL_MIN days could never make a usual day.
   let usualDays = Math.round(figure(c.usual_days, "usual_days", 0, Infinity, USUAL_DAYS));
   if (usualDays < USUAL_MIN) { warnOnce(`usual_days: ${shown(c.usual_days)} is under ${USUAL_MIN}, so ${USUAL_MIN} is used`); usualDays = USUAL_MIN; }
+  if (usualDays > USUAL_MAX) { warnOnce(`usual_days: ${shown(c.usual_days)} is over ${USUAL_MAX}, so ${USUAL_MAX} is used`); usualDays = USUAL_MAX; }
   // Payback: what the system cost (0 or none: no payback card), the day it started (none: the first month
   // on record), and what it saved before Home Assistant recorded.
   const cost = figure(c.system_cost, "system_cost", 0, Infinity), installed = date(c.install_date, "install_date");
@@ -230,4 +232,4 @@ const requiredIds = (ids) => [ids.solarW, ids.battW, ids.gridW, ids.soc].filter(
 // Read while they have a value, else left out: the load sensor (house use is then the balance).
 const optionalIds = (ids) => ids.loadW;
 
-export { BATTERY_FLOOR_SOC, USUAL_MIN, readConfig, requiredIds, optionalIds, quietHours, calendarDate, configOf }; // the last three: for the tests
+export { BATTERY_FLOOR_SOC, USUAL_MIN, USUAL_MAX, readConfig, requiredIds, optionalIds, quietHours, calendarDate, configOf }; // the last three: for the tests

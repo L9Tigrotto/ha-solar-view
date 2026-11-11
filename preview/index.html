@@ -63,9 +63,12 @@
 <solar-view></solar-view>
 <script type="module">
 import { readConfig } from "../dist/config.js";
-import { STRINGS, LANGUAGES, loadLanguage, formats, clockOf, totals, ring, SKY, skyAt, dawnOf, greyOf, moonPhase, paybackLeft, monthSun, seasonGuess, yearKeys, shareRing, paybackCard, socDay, moneyHtml, battDayCard, wearOf } from "../dist/solar-view.js";
+import { STRINGS, LANGUAGES, loadLanguage, formats, clockOf, totals as statsTotals, ring, SKY, skyAt, dawnOf, greyOf, moonPhase, paybackLeft, monthSun, seasonGuess, yearKeys, shareRing, paybackCard, socDay, moneyHtml, battDayCard, wearOf } from "../dist/solar-view.js";
 // The entities and settings in one object, as the panel keeps them (see _load).
 const fromConfig = (...a) => { const { ids, cfg } = readConfig(...a); return { ...ids, ...cfg }; };
+// totals as the checks call it: the entities and settings in one object, then the day, 5 minute and hour rows, the
+// solar forecast, the month rows and the machines' hour rows (see the fetch table in stats.js).
+const totals = (src, days, recent, usual, solarForecast, clock, now, months, machineHours) => statsTotals(src, src, { days, recent, usual, solarForecast, months, machineHours }, clock, now);
 // Failed checks are also listed in window.failed, for tools that cannot read the console.
 const assert = console.assert.bind(console);
 window.failed = [];
@@ -202,7 +205,7 @@ const configOf = (s) => ({ ...(extras && q.get("payback") !== "0" ? { system_cos
   // A tariff with the bands' typed prices: the PUN of October 2026 (GME), F23 the mean of F2 and F3.
   ...(s?.tariff ? { tariff: { type: s.tariff, prices: { f1: 0.233, f2: s.tariff === "two" ? 0.234 : 0.252, f3: 0.216 } } } : {}),
   ...(s?.batteryAgeDays ? { battery_install_date: new Date(localMidnight(s.batteryAgeDays)).toISOString().slice(0, 10) } : {}),
-  ...(s?.exportOff ? { export_max_kw: 0 } : {}), ...(s?.floor != null ? { battery_floor: s.floor } : {}) });
+  ...(s?.exportOff ? { export_max_kw: 0 } : {}), ...(s?.floor != null ? { battery_floor: s.floor } : {}), ...(s?.level ? { level: s.level } : {}) });
 const q = new URLSearchParams(location.search);
 const name = q.get("scenario") in SCENARIOS ? q.get("scenario") : "midday";
 // Language, theme and viewer can change from the drawer once the checks have run.
@@ -399,12 +402,16 @@ panel.narrow = innerWidth < 870;
 // shows. Only what differs from the preset is applied (and kept in the URL), so an untouched preset is
 // exactly the scenario the checks use. The checks themselves always use SCENARIOS as they are.
 const SWITCH_NAMES = ["sunHeight", "clouds", "rain"];
-// The prediction modes: none, usual (the page's own from past days), weather (the sensor's sun, no house
-// use), usualWeather (usual day plus the Energy settings' Solar Forecast), learned (the full sensor).
-// A mode predicts all it can. Bands default to three, even on a preset without a tariff.
-const SENSOR_MODES = ["weather", "learned"];
+// The data on record, named by the level each one is for (see modeOf in data.js): none (no data: no past days'
+// hours, no sensor, no Solar Forecast), usual_days (past days' hours), weather (the sensor's sun, no house use),
+// usual_days_weather (past days' hours plus the Energy settings' Solar Forecast), learned_weather (the full
+// sensor). The panel's own `level` is set apart (auto: what the data allows), so a level whose data is missing
+// can be tried. Bands default to three, even on a preset without a tariff.
+const SENSOR_MODES = ["weather", "learned_weather"];
+const LEVEL_NAMES = ["none", "usual_days", "weather", "usual_days_weather", "learned_weather"];
 const ctlOf = (s) => ({
-  fc: s?.ahead ? (s.noUse ? "weather" : "learned") : s?.hourly ? (s.forecast === null ? "usual" : "usualWeather") : "none",
+  fc: s?.ahead ? (s.noUse ? "weather" : "learned_weather") : s?.hourly ? (s.forecast === null ? "usual_days" : "usual_days_weather") : "none",
+  level: s?.level ?? "auto",
   stale: s?.ahead === "stale",
   // A sensor scenario keeps its sky; otherwise a forecast switched on in the drawer is the real 2017 weather.
   weather: ["sunny", "cloudy", "rain"].includes(s?.ahead) ? s.ahead : s?.weather === "rainy" ? "rain" : s?.weather === "snowy" ? "snow" : "real",
@@ -433,7 +440,7 @@ function current() {
     ahead: sensor ? (stale ? "stale" : ctl.weather) : undefined, sky: ctl.weather, noUse: ctl.fc === "weather" || undefined,
     // Hour rows of past days (the usual day) whenever the page predicts: a house with the sensor has them too.
     hourly: ctl.fc !== "none" ? usualHour(ctl.battery !== "none") : undefined,
-    forecast: ctl.fc === "none" || ctl.fc === "usual" ? null : "bell",
+    forecast: ctl.fc === "none" || ctl.fc === "usual_days" ? null : "bell",
     // Snow is only ever the weather entity's: the sensor knows no snow. Without a fresh sensor the
     // weather entity says the sky now, cloud cover included.
     ...(sensor && !stale ? { weather: ctl.weather === "snow" ? "snowy" : undefined }
@@ -445,6 +452,7 @@ function current() {
   s.tariff = ctl.tariff === "none" ? undefined : ctl.tariff;
   if (ctl.floor !== d.floor) s.floor = ctl.floor;
   s.exportOff = ctl.exportOff;
+  s.level = ctl.level === "auto" ? undefined : ctl.level;
   if (ctl.real) {
     [ctl.solar, ctl.battW, ctl.gridW, ctl.soc] = realLive(Date.now());
     if (ctl.battery === "none") [ctl.battW, ctl.soc] = [0, 0];
@@ -487,12 +495,13 @@ const form = document.querySelector("#dev form");
   form.innerHTML = `
 <fieldset><legend>Scenario</legend><select name="scenario">${opt(Object.keys(SCENARIOS).filter((k) => !DRAWER_SKIPS.includes(k) || k === name).map((k) => [k]))}</select></fieldset>
 <fieldset><legend>Time</legend><input type="date" name="date"> <button type="button" data-do="now">real time</button>${range("minute", "time", 0, 1439, 15)}</fieldset>
-<fieldset class="data"><legend>Forecast</legend>${[["none", "Off", "no forecast: the page works from the live values alone"],
-    ["usual", "Usual day", "the page's own forecast from the last 14 days, hour by hour; no Solar Forecast"],
-    ["weather", "Weather", "the solar_view sensor's sun, cloud and rain; no house use"],
-    ["usualWeather", "Usual day + weather", "the usual day with a Solar Forecast in the Energy settings for the sun"],
-    ["learned", "Learned + weather", "the solar_view sensor: sun, house use and prices"]]
+<fieldset class="data"><legend>Data on record</legend>${[["none", "No data", "no past days' hours, no sensor, no Solar Forecast: the page has only the live values"],
+    ["usual_days", "usual_days", "the last 14 days, hour by hour (a usual day); no Solar Forecast"],
+    ["weather", "weather", "the solar_view sensor's sun, cloud and rain; no house use"],
+    ["usual_days_weather", "usual_days_weather", "a Solar Forecast in the Energy settings for the sun, and a usual day once on record"],
+    ["learned_weather", "learned_weather", "the solar_view sensor: sun, house use and prices (and a usual day)"]]
     .map(([v, l, t]) => `<label title="${t}"><input type="radio" name="fc" value="${v}">${l}</label>`).join("")}
+  <br><label title="the panel config's level: auto (no level key) predicts with what the data allows; a level whose data is missing steps down, with one console warning per step">level <select name="level">${opt([["auto", "auto (no key)"], ...LEVEL_NAMES.map((l) => [l])])}</select></label>
   <br>${check("stale", "sensor 4 h old")}
   <label title="the sky in the sensor's forecast and in the Solar Forecast; with no sensor, cloud and rain are the weather entity's; snow always is">weather <select name="weather">${opt([["real", "real (Konstanz 2017)"], ["sunny", "clear"], ["cloudy", "partly cloudy"], ["overcast"], ["rain"], ["snow"]])}</select></label>
   <label title="the tariff's time bands, with typed prices: the prices card shows the band now and a box per band">bands <select name="tariff">${opt([["none"], ["two", "F1, F23"], ["three", "F1, F2, F3"]])}</select></label></fieldset>
@@ -541,7 +550,7 @@ function save() {
 function status() {
   const o = panel._outlook, ih = o?.inHour, r = (v) => Math.round(v);
   el.status.value = [new Date(Date.now()).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: q.get("clock") === "12" }),
-    `forecast: ${panel._ahead?.from ?? "none"}`, `advice: ${$(panel, ".advice")?.dataset.kind ?? "-"}`,
+    `level: ${panel._mode?.level ?? "-"}`, `forecast: ${panel._ahead?.from ?? "none"}`, `advice: ${$(panel, ".advice")?.dataset.kind ?? "-"}`,
     ih ? `in an hour: ${r(ih[1])} % (${r(ih[0])} to ${r(ih[2])})` : "in an hour: -"].join(" · ");
 }
 form.addEventListener("input", (e) => {
@@ -669,13 +678,13 @@ const TEXTS = Object.fromEntries(await Promise.all(Object.keys(LANGUAGES).map(as
 {
   const flat = await draw(fakeHass(SCENARIOS.sunny), en, { battery_floor: 30, entities: { load_energy: "sensor.x" } });
   const grouped = await draw(fakeHass(SCENARIOS.sunny), en, { plant: { battery_floor: 30 }, sensors: { load_energy: "sensor.x" } });
-  console.assert(flat._src.batt.floor === 30 && grouped._src.batt.floor === 30 && same(grouped._src.loadKwh, ["sensor.x"]), "config: groups not read as the flat keys", grouped._src.batt, grouped._src.loadKwh);
+  console.assert(flat._src.cfg.batt.floor === 30 && grouped._src.cfg.batt.floor === 30 && same(grouped._src.ids.loadKwh, ["sensor.x"]), "config: groups not read as the flat keys", grouped._src.cfg.batt, grouped._src.ids.loadKwh);
   const none = await draw(fakeHass(SCENARIOS.stale), en, { predictions: { level: "none" } }); // stale has hour rows: a usual day
   const usual = await draw(fakeHass(SCENARIOS.sunny), en, { predictions: { level: "usual" } });
   // Machines by type, in the order written; a bare type is a run of 1 kWh over 2 hours; none at all is the washer.
   const mach = await draw(fakeHass(SCENARIOS.sunny), en, { machines: { quiet_hours: "1-6", dryer: { kwh: 2.5, hours: 2 }, dishwasher: null, oven: { kwh: 2 } } });
-  console.assert(same(mach._src.machines.map((m) => [m.type, m.kwh]), [["dryer", 2.5], ["dishwasher", 1]]) && mach._src.quiet[0] === 1 && same(flat._src.machines.map((m) => m.type), ["washer"]),
-    "config: machines not read by type", mach._src.machines, mach._src.quiet);
+  console.assert(same(mach._src.cfg.machines.map((m) => [m.type, m.kwh]), [["dryer", 2.5], ["dishwasher", 1]]) && mach._src.cfg.quiet[0] === 1 && same(flat._src.cfg.machines.map((m) => m.type), ["washer"]),
+    "config: machines not read by type", mach._src.cfg.machines, mach._src.cfg.quiet);
   console.assert(none._ahead === null && none._outlook === null && !$(none, ".best") && none._stats.usual === null && !$(none, ".today .usual") && usual._ahead?.from !== "sensor", "config: level none or usual not kept", none._ahead?.from, !!none._stats.usual, usual._ahead?.from);
   // Check: the help lines follow the level: month end and days to come only where Production draws them, the
   // battery's range only from the sensor, the small rings' line naming where they come from, the weather line
@@ -718,7 +727,11 @@ for (const [k, s] of Object.entries(SCENARIOS)) {
   const kind = $(p, ".advice").dataset.kind;
   // By day "ok" turns "fills" while the battery still fills later today (see outlookAdvice), and how much
   // sun is left depends on the hour the checks run: "fills" passes for "ok" when the panel's outlook fills.
-  const expect = !extras && { wait: "ok", soon: "go", later: "ok" }[s.expect] || (s.expect === "ok" && kind === "fills" && p._outlook?.fills ? "fills" : s.expect);
+  // With the sensor in use its own hours say "later" (B5): passes for "ok" when they do, and no washer line keeps
+  // to the house (a battery of unknown size has none). The mock's sun is a bell from 10:00 to 15:00.
+  const fc = p._looked.forecast, sensorLater = !!s.ahead && s.ahead !== "stale" && !p._outlook?.best && fc && fc.fade.next >= 500 && fc.fade.next >= 2 * fc.fade.now;
+  const expect = !extras && { wait: "ok", soon: "go", later: "ok" }[s.expect] || (s.expect === "ok" && kind === "fills" && p._outlook?.fills ? "fills"
+    : s.expect === "ok" && kind === "later" && sensorLater ? "later" : s.expect);
   console.assert(kind === expect, `advice for ${k}: got ${kind}, expected ${expect}`);
   // Level none: no advice from the solar forecast either ("wait", "soon" and "later" fall back).
   if (["wait", "soon", "later"].includes(s.expect)) {
@@ -848,14 +861,15 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
   console.assert(same(a.left.sun.map(r3), [1.25, 2.5, 3.75]), "forecast: left.sun not rebased to now", a.left);
   // Use 0.4 an hour: 4.2 of the 5.6 from 10:00 to midnight is left.
   console.assert(same(a.left.use.map(r3), [3, 3.45, 4.125]), "forecast: left.use not rebased to now", a.left);
-  console.assert(same(a.days, days) && a.months === null, "forecast: days or months not copied", a);
+  // The sensor's months are a fact, read apart from the forecast (sensorOf in forecast.js, used at every level).
+  console.assert(same(a.days, days) && a.months === undefined, "forecast: days not copied, or months in the forecast", a);
 
   // Stale (4 h old) or missing: built by the page from solarWh for a day it has any hour of (its missing
   // hours no sun), the usual day for a day it has none of, and the prices.
   const solarWh = { [at("2026-10-24T14:00:00+02:00")]: 2000, [at("2026-10-24T15:00:00+02:00")]: 0 };
   const stale = sensorOf("2026-10-24T09:30:00+02:00", "2026-10-24", "2026-10-25", { sun: [3, 6, 9], use: [4, 4.6, 5.5] }, days);
   const p = forecastOf({ sensor: stale, now, clock, solarWh, usual, price });
-  console.assert(p?.from === "page" && p.hours.every((h) => h.cloud === null) && p.months === null, "forecast: stale sensor used", p);
+  console.assert(p?.from === "page" && p.hours.every((h) => h.cloud === null) && p.months === undefined, "forecast: stale sensor used", p);
   console.assert(same(p, forecastOf({ sensor: undefined, now, clock, solarWh, usual, price })), "forecast: missing and stale sensor differ");
   console.assert(same(p.hours.slice(0, 3).map((h) => h.sun), [[0, 0, 0], [1.6, 2, 2.4], [0, 0, 0]]), "forecast: page sun not from solarWh (20 % either way), its day's missing hours none", p.hours);
   console.assert(same(p.hours[0], { t: at("2026-10-24T13:00:00+02:00"), sun: [0, 0, 0], use: [0.4, 0.4, 0.4], cloud: null, rain: null, buy: 0.3, sell: 0.1 }), "forecast: page hour wrong", p.hours[0]);
@@ -1169,8 +1183,10 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
   // saved (1 - 0.1 - 0.2) x 0.3 + (0.5 - 0.1) x 0.2 + 0, cost 0.2 x 0.3 + 0.05 x 0.2, earned 1 x 0.1.
   const m = moneySoFar(hours, buy, () => 0.1, 0.1, 4 * H);
   console.assert(r3(m.saved) === 0.29 && r3(m.cost) === 0.07 && r3(m.earned) === 0.1, "money so far: wrong", m);
+  // An hour without a price leaves what it needs a price for unknown; the 0 kWh it bought costs 0, as the Money
+  // page prices a day (pricedEnergy).
   const unknown = moneySoFar(hours, (t) => (t === 2 * H ? null : 0.3), () => null, 0.1, 4 * H);
-  console.assert(unknown.saved === null && unknown.cost === null && unknown.earned === null, "money so far: an hour without a price still priced", unknown);
+  console.assert(unknown.saved === null && r3(unknown.cost) === 0.075 && unknown.earned === null, "money so far: an hour without a price still priced", unknown);
   // Half the present hour gone: half its standby. (0.5 - 0.1) x 1.
   const part = moneySoFar({ [H]: { loadKwh: 0.5, gridImportKwh: 0, gridExportKwh: 0 } }, () => 1, () => 1, 0.2, 1.5 * H);
   console.assert(r3(part.saved) === 0.4, "money so far: standby of the present hour not by the part passed", part);
@@ -1694,7 +1710,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
   // Hours since midnight and in all today: not the clock's hour on a day the clocks change.
   const m0 = localMidnight(), m1 = new Date(m0).setDate(new Date(m0).getDate() + 1);
   const past = Math.floor((Date.now() - m0) / 36e5), floor = card(p)?.querySelector(".floor");
-  console.assert(card(p)?.querySelector(".past") && card(p).querySelector(".ahead") && +floor?.getAttribute("y1") === 100 - p._src.batt.floor && card(p).querySelector(".socline .series")
+  console.assert(card(p)?.querySelector(".past") && card(p).querySelector(".ahead") && +floor?.getAttribute("y1") === 100 - p._src.cfg.batt.floor && card(p).querySelector(".socline .series")
     && hints(p).length === Math.round((m1 - m0) / 36e5) && hints(p).slice(0, past).every((h) => /^At .*, the panels made .* the house used .* the grid gave .* and the battery was at \d+%\.$/.test(h)
       || (q.get("gap") === "1" && h.endsWith(STRINGS.en.noData))) // ?gap=1: 1:00 and 2:00 have no rows
     && / the panels made /.test(hints(p)[past]) && !/ battery /.test(hints(p)[past]) && hints(p).slice(past + 1).every((h) => /^At .*, the panels should make .* the grid give .* and the battery be at about \d+%\.$/.test(h))
@@ -2523,8 +2539,9 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   at(late.getTime() + 3 * 60e3); p.hass = { ...p.hass }; await tick();
   console.assert(calls === 2, `reload: ${calls} loads across midnight, expected 2`);
   // Opening the page sets hass and panel one after the other: one load. A load within the hour asks only
-  // today's 5 minute rows; a quarter past the next hour (Home Assistant's new hour rows) asks the rest again.
-  const asks = [], t0 = Math.floor(now() / 36e5) * 36e5 + 20 * 60e3;
+  // today's 5 minute rows; a quarter past the next hour (Home Assistant's new hour rows) the Energy settings and
+  // the hour rows again, but not the day and month rows, which wait for the next day (see the fetch table).
+  const asks = [], t0 = localMidnight() + 10 * 36e5 + 20 * 60e3;
   at(t0); h = midday();
   p = document.createElement("solar-view");
   p.hass = { ...h, callWS: (m) => { asks.push(m.period ?? m.type); return h.callWS(m); } }; p.panel = { config: {} };
@@ -2533,7 +2550,9 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   asks.length = 0; at(t0 + 6 * 60e3); p.hass = { ...p.hass }; await tick();
   console.assert(asks.join() === "5minute", `cache: a load within the hour asked ${asks}`);
   asks.length = 0; at(t0 + 60 * 60e3); p.hass = { ...p.hass }; await tick();
-  console.assert(["energy/get_prefs", "day", "month", "5minute"].every((a) => asks.includes(a)), `cache: a load the next hour asked only ${asks}`);
+  console.assert(["energy/get_prefs", "hour", "5minute"].every((a) => asks.includes(a)) && !asks.includes("day") && !asks.includes("month"), `cache: a load the next hour asked ${asks}`);
+  asks.length = 0; at(t0 + 24 * 36e5); p.hass = { ...p.hass }; await tick();
+  console.assert(["day", "month", "5minute"].every((a) => asks.includes(a)), `cache: a load the next day asked only ${asks}`);
   Date.now = now;
   await tick();
 }

@@ -3,7 +3,7 @@
    The simulation cases in preview/simulate-cases.json pin the rules; change both together. */
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale core.js
-const { HOUR, FIVE_MIN, FULL_SOC, LASTS_MAX_H, hourStart, dayHours, shiftKey, shiftMonth } = await import(`./core.js${v}`);
+const { HOUR, FIVE_MIN, FULL_SOC, LASTS_MAX_H, hourStart, dayHours, shiftKey, shiftMonth, sumKnown, pricedEnergy } = await import(`./core.js${v}`);
 
 // ---- Rules (tune here) ----
 const EFFICIENCY = 0.95;   // battery round trip until there are enough days to measure it
@@ -56,31 +56,41 @@ export const SOLAR_SPREAD = 0.2;  // the low and high run of a day from the Ener
 const sumOf = (hours, field, clock, key, from) => hours.reduce((s, h) =>
   h.t + HOUR <= from || clock(h.t).key !== key ? s : s.map((v, i) => v + h[field][i] * Math.min(1, (h.t + HOUR - from) / HOUR)), [0, 0, 0]);
 
-// The sensor as it is when fresh, else what the page can build from the solar forecast (solarWh,
-// hour start in ms to Wh) and the usual day; null without a usual day. Hours start at the present
-// hour, `left` is the rest of today from now.
-// A fresh sensor without house use (mode Weather: `use` null in hours, left or days) is still the
-// forecast for sun, cloud and rain; its `left.use` is then null, and nothing that needs use is worked out.
-// sunSoFar: kWh the sun made today, by sunUntil (ms, the end of its statistics; now when not known); it
-// scales today's usual sun, see below, never down when `throttled`.
-export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar, sunUntil, throttled = false }) {
-  const today = clock(now).key, start = hourStart(now, clock);
+// The forecast sensor (sensor.solar_view_forecast) when it can be trusted, else null: written less than FRESH_MS
+// ago (either way: a time ahead of this clock would otherwise stay fresh for ever; a small skew still passes),
+// `days` a list of dated entries, `left.sun` and every hour's sun given. Its hours parsed, in order of t; a t
+// that does not parse, an hour given twice (the first kept) or an entry that is no hour at all is dropped.
+// withUse: house use too (the sensor's mode Weather leaves it out).
+export function sensorOf(sensor, now) {
   const a = sensor?.attributes, written = Date.parse(sensor?.state);
-  // Hours in order of t; a t that does not parse or an hour given twice is dropped (the first kept).
-  const given = (Array.isArray(a?.hours) ? a.hours : [])
+  const hours = (Array.isArray(a?.hours) ? a.hours : []).filter((h) => h && typeof h === "object")
     .map((h) => ({ t: Date.parse(h.t), sun: h.sun, use: h.use, cloud: h.cloud ?? null, rain: h.rain ?? null, buy: h.buy ?? null, sell: h.sell ?? null }))
     .filter((h) => Number.isFinite(h.t)).sort((x, y) => x.t - y.t).filter((h, i, s) => !i || h.t !== s[i - 1].t);
-  // The sun is what makes a sensor usable; house use may be switched off (see above).
-  // Both ways: a time ahead of this clock would otherwise stay fresh for ever; a small skew still passes.
-  const fresh = Math.abs(now - written) < FRESH_MS && Array.isArray(a.days) && Array.isArray(a.left?.sun)
-    && given.length > 0 && given.every((h) => Array.isArray(h.sun));
-  const withUse = !fresh || (Array.isArray(a.left?.use) && given.every((h) => Array.isArray(h.use)));
+  const fresh = Math.abs(now - written) < FRESH_MS && Array.isArray(a?.days) && a.days.every((d) => d && typeof d.d === "string")
+    && Array.isArray(a.left?.sun) && hours.length > 0 && hours.every((h) => Array.isArray(h.sun));
+  return fresh ? { written, hours, days: a.days, left: a.left, months: a.months ?? null,
+    withUse: Array.isArray(a.left?.use) && hours.every((h) => Array.isArray(h.use)) } : null;
+}
+
+// The sensor as it is when fresh (see sensorOf), else what the page can build from the solar forecast (solarWh,
+// hour start in ms to Wh) and the usual day; null without a usual day. Hours start at the present
+// hour, `left` is the rest of today from now.
+// A fresh sensor without house use (mode Weather: `use` null in hours, left or days), or one read for its sun
+// alone (`sunOnly`, level weather), is still the forecast for sun, cloud and rain; its `left.use` is then null,
+// and nothing that needs use is worked out.
+// sunSoFar: kWh the sun made today, by sunUntil (ms, the end of its statistics; now when not known); it
+// scales today's usual sun, see below, never down when `throttled`.
+export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar, sunUntil, throttled = false, sunOnly = false }) {
+  const today = clock(now).key, start = hourStart(now, clock);
+  const a = sensorOf(sensor, now), fresh = !!a, written = a?.written;
+  const withUse = !fresh || (a.withUse && !sunOnly);
+  const given = fresh && !withUse ? a.hours.map((h) => ({ ...h, use: null })) : a?.hours;
   if (!fresh && !usual) return null;
   // guessed: no solar forecast for tomorrow, so tomorrow's sun is the usual day's.
   let all, days, guessed = false;
   if (fresh) {
     all = given;
-    days = a.days.filter((d) => d.d >= today);
+    days = a.days.filter((d) => d.d >= today).map((d) => (withUse ? d : { ...d, use: null }));
   } else {
     // From the first hour of today on to the end of tomorrow, or of the month when that is later (the
     // money of the days to come, see lookAhead): walking by the hour, so a 23 or 25 hour day needs nothing special.
@@ -138,7 +148,7 @@ export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar
   };
   const left = Object.fromEntries(["sun", "use"].map((f) => [f, f === "use" && !withUse ? null : fresh ? rebase(f) : sumOf(all, f, clock, today, now)]));
   const hours = all.filter((h) => h.t >= start);
-  return { from: fresh ? "sensor" : "page", hours, left, days, months: (fresh && a.months) || null, tomorrowSun: !guessed,
+  return { from: fresh ? "sensor" : "page", hours, left, days, tomorrowSun: !guessed,
     // The machines' usual runs inside house use, W by clock hour (usual.machineW): the advice takes them out.
     machineW: usual?.machineW ?? null };
 }
@@ -456,16 +466,17 @@ export function lookAhead(ahead, now, clock, n, battery, settings, soFar) {
 // Today so far in money, hour by hour: `todayHours` is { hour start ms: { loadKwh, gridImportKwh,
 // gridExportKwh } } with loadKwh the energy balance, buyAt(t) and sellAt(t) the price of that hour.
 // Standby is left out of the savings, as in lookAhead, for the part of each hour already passed by
-// `now`. A field is null when its price, or an energy figure it needs, is unknown for any hour.
+// `now`. Each hour priced as the Money page prices a day (pricedEnergy): a known 0 kWh is 0 even without a
+// price; a field is null when an hour it needs has an unknown figure, or kWh and no price.
 export function moneySoFar(todayHours, buyAt, sellAt, standbyKwhPerHour, now) {
   let saved = 0, cost = 0, earned = 0;
-  const ok = (...v) => v.every(Number.isFinite);
+  const add = (sum, kwh, rate) => sumKnown([sum, pricedEnergy(kwh, rate)]);
   for (const [key, h] of Object.entries(todayHours)) {
-    const t = +key, buy = buyAt(t), sell = sellAt(t), standby = (standbyKwhPerHour * (Math.min(now, t + HOUR) - t)) / HOUR;
+    const t = +key, buy = buyAt(t), standby = (standbyKwhPerHour * (Math.min(now, t + HOUR) - t)) / HOUR;
     const { loadKwh: use, gridImportKwh: imp, gridExportKwh: exp } = h;
-    saved = buy == null || saved == null || !ok(use, imp) ? null : saved + Math.max(0, use - standby - imp) * buy;
-    cost = buy == null || cost == null || !ok(imp) ? null : cost + imp * buy;
-    earned = sell == null || earned == null || !ok(exp) ? null : earned + exp * sell;
+    saved = add(saved, Number.isFinite(use) && Number.isFinite(imp) ? Math.max(0, use - standby - imp) : null, buy);
+    cost = add(cost, imp, buy);
+    earned = add(earned, exp, sellAt(t));
   }
   return { saved, cost, earned };
 }
