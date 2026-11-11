@@ -37,7 +37,7 @@ export function simulate(hours, soc, battery, exportMaxKw, firstShare) {
       toGrid = Math.min(spare - charge, exportMaxKw == null ? Infinity : exportMaxKw * share);
       lost = spare - charge - toGrid;
     } else {
-      fromBatt = Math.min(use - sun, stored - floorKwh, maxDischargeKw == null ? Infinity : maxDischargeKw * share);
+      fromBatt = Math.max(0, Math.min(use - sun, stored - floorKwh, maxDischargeKw == null ? Infinity : maxDischargeKw * share)); // 0 when the charge is under the floor
       stored -= fromBatt;
       fromGrid = use - sun - fromBatt;
     }

@@ -62,7 +62,10 @@
 <dialog id="dev" onclick="const r = this.getBoundingClientRect(); if (event.target === this && !(event.clientX >= r.left && event.clientX <= r.right && event.clientY >= r.top && event.clientY <= r.bottom)) this.close()"><h2>preview <button type="button" aria-label="close" onclick="dev.close()">×</button></h2><form></form></dialog>
 <solar-view></solar-view>
 <script type="module">
-import { STRINGS, LANGUAGES, loadLanguage, formats, entitiesFrom, clockOf, totals, ring, SKY, skyAt, dawnOf, greyOf, moonPhase, paybackLeft, monthSun, seasonGuess, yearKeys, shareRing, paybackCard, socDay, moneyHtml, battDayCard, wearOf } from "../dist/solar-view.js";
+import { readConfig } from "../dist/config.js";
+import { STRINGS, LANGUAGES, loadLanguage, formats, clockOf, totals, ring, SKY, skyAt, dawnOf, greyOf, moonPhase, paybackLeft, monthSun, seasonGuess, yearKeys, shareRing, paybackCard, socDay, moneyHtml, battDayCard, wearOf } from "../dist/solar-view.js";
+// The entities and settings in one object, as the panel keeps them (see _load).
+const fromConfig = (...a) => { const { ids, cfg } = readConfig(...a); return { ...ids, ...cfg }; };
 // Failed checks are also listed in window.failed, for tools that cannot read the console.
 const assert = console.assert.bind(console);
 window.failed = [];
@@ -2054,7 +2057,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
 // Check: reading the Energy settings, the owner's config, units, time zone, language and currency.
 {
   // Older grid shape (lists of flows), two batteries of different size, an entity named in config.
-  const src = entitiesFrom({ energy_sources: [
+  const src = fromConfig({ energy_sources: [
     { type: "grid", flow_from: [{ stat_energy_from: "in1", number_energy_price: 0.25 }, { stat_energy_from: "in2" }], flow_to: [{ stat_energy_to: "out1" }], power: [{ stat_rate: "gw" }] },
     { type: "battery", stat_energy_from: "bo1", stat_energy_to: "bi1", stat_soc: "soc1", capacity: 5 },
     { type: "battery", stat_energy_from: "bo2", stat_energy_to: "bi2", stat_soc: "soc2", capacity: 15 },
@@ -2063,27 +2066,27 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   console.assert(JSON.stringify([src.gridImportKwh, src.gridExportKwh, src.gridW, src.solarW, src.loadW, src.batteryKwh, src.solarKwh])
     === JSON.stringify([["in1", "in2"], ["out1"], ["gw"], ["sp"], ["lp"], ["bo1", "bo2"], []]), "entities: wrong lists", src);
   console.assert(src.batt.kwh === 20 && src.batt.floor === 20 && src.price.buy === 0.25 && src.price.sell === null, "entities: wrong battery or prices", src);
-  console.assert(entitiesFrom(null).solarW.length === 0 && entitiesFrom(null, { battery_kwh: 7 }).batt.kwh === 7, "entities: no Energy settings");
+  console.assert(fromConfig(null).solarW.length === 0 && fromConfig(null, { battery_kwh: 7 }).batt.kwh === 7, "entities: no Energy settings");
   // Battery wear: a health sensor alone decides; else the battery's age, from its own date before the system's.
-  const b = entitiesFrom(null, { install_date: "2020-01-01", battery_install_date: "2025-01-01" }).batt;
-  console.assert(b.since === "2025-01-01" && entitiesFrom(null, { install_date: "2020-01-01" }).batt.since === "2020-01-01", "wear: battery date not read", b);
+  const b = fromConfig(null, { install_date: "2020-01-01", battery_install_date: "2025-01-01" }).batt;
+  console.assert(b.since === "2025-01-01" && fromConfig(null, { install_date: "2020-01-01" }).batt.since === "2020-01-01", "wear: battery date not read", b);
   console.assert(JSON.stringify(wearOf(b, 65.4, Date.parse("2026-01-01"))) === '{"kind":"health","p":65}' && wearOf(b, 80, Date.parse("2040-01-01")) === null, "wear: health sensor not deciding alone");
   console.assert(wearOf(b, Infinity, Date.parse("2034-06-01")) === null && wearOf(b, Infinity, Date.parse("2034-08-01"))?.y === 9, "wear: age warning not at 9.5 years");
   // The older grid shape keeps the selling price on the export flow, under the same name as the buying price.
-  const old = entitiesFrom({ energy_sources: [{ type: "grid", flow_from: [{ stat_energy_from: "in1" }], flow_to: [{ stat_energy_to: "out1", number_energy_price: 0.1 }] }] });
+  const old = fromConfig({ energy_sources: [{ type: "grid", flow_from: [{ stat_energy_from: "in1" }], flow_to: [{ stat_energy_to: "out1", number_energy_price: 0.1 }] }] });
   console.assert(old.price.buy === null && old.price.sell === 0.1 && old.gridExportKwh[0] === "out1", "entities: old export price read as the buying price", old);
-  // The forecast settings: numbers of 0 or more only, else no limit and standby not set (see totals).
-  const set = entitiesFrom(null, { battery_max_charge_kw: 2.1, export_max_kw: 0, standby_w: 100 });
-  const unset = entitiesFrom(null, { battery_max_charge_kw: "2", export_max_kw: -1, standby_w: "x" });
-  console.assert(set.batt.maxChargeKw === 2.1 && set.exportMaxKw === 0 && set.standbyW === 100 && unset.batt.maxChargeKw === null && unset.exportMaxKw === null && unset.standbyW === null
-    && entitiesFrom(null, { standby_w: -5, battery_max_charge_kw: -2 }).standbyW === null && entitiesFrom(null, { battery_max_charge_kw: -2 }).batt.maxChargeKw === null,
+  // The forecast settings: numbers of 0 or more (text that is one too), else no limit and standby not set (see totals).
+  const set = fromConfig(null, { battery_max_charge_kw: 2.1, export_max_kw: 0, standby_w: 100 });
+  const unset = fromConfig(null, { battery_max_charge_kw: "2", export_max_kw: -1, standby_w: "x" });
+  console.assert(set.batt.maxChargeKw === 2.1 && set.exportMaxKw === 0 && set.standbyW === 100 && unset.batt.maxChargeKw === 2 && unset.exportMaxKw === null && unset.standbyW === null
+    && fromConfig(null, { standby_w: -5, battery_max_charge_kw: -2 }).standbyW === null && fromConfig(null, { battery_max_charge_kw: -2 }).batt.maxChargeKw === null,
     "entities: forecast settings not read, or a negative taken", set, unset);
 
   // Days are Home Assistant's days: 11:30 UTC is already tomorrow in Auckland. One row each side of
   // that midnight: rows land on 1 and 30 September (twice), 1 October (yesterday) and today.
   const clock = clockOf("Pacific/Auckland"), now = Date.UTC(2026, 9, 1, 11, 30); // 2 October 00:30 there
   console.assert(clock(now).key === "2026-10-02" && clock(now).hour === 0, "clock: wrong day for the time zone");
-  const one = entitiesFrom({ energy_sources: [{ type: "solar", stat_energy_from: "s" }] });
+  const one = fromConfig({ energy_sources: [{ type: "solar", stat_energy_from: "s" }] });
   const sums = totals(one, { s: [{ start: Date.UTC(2026, 7, 31, 12), change: 9 }, { start: Date.UTC(2026, 8, 29, 12), change: 4 }, { start: Date.UTC(2026, 8, 30, 10), change: 5 }, { start: Date.UTC(2026, 8, 30, 12), change: 3 }] },
     { s: [{ start: now - 30 * 60e3, change: 0.5 }, { start: now - 35 * 60e3, change: 2 }] }, {}, {}, clock, now);
   // September has only 2 of its 30 days on record: its total is unknown, not the 2 days as the month.
@@ -2097,7 +2100,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
     const utc = clockOf("UTC"), today = Date.UTC(2026, 9, 6), H = 36e5;
     const prefs = { energy_sources: [{ type: "solar", stat_energy_from: "s" }, { type: "battery", stat_energy_from: "bo", stat_energy_to: "bi" },
       { type: "grid", stat_energy_from: "gi", stat_energy_to: "go" }] };
-    const all = entitiesFrom(prefs, { entities: { load_energy: "l" } }), owned = entitiesFrom(prefs, { entities: { load_energy: "l" }, standby_w: 50 });
+    const all = fromConfig(prefs, { entities: { load_energy: "l" } }), owned = fromConfig(prefs, { entities: { load_energy: "l" }, standby_w: 50 });
     const day = (kwh) => ({ s: 10, bo: 3, bi: 3.3, gi: 2, go: 1, l: kwh });
     const daily = (l) => Object.fromEntries(Object.keys(day(l)).map((id) => [id, Array.from({ length: 7 }, (_, i) => ({ start: today - (7 - i) * 864e5, change: day(l)[id] }))]));
     // Every meter has a row every 5 minutes, most of them 0, as Home Assistant records them.
@@ -2116,7 +2119,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   // them (4.5) with the run inside it (0.5 apart), and the days spread from their 25th to their 75th
   // percentile over the mean (2.25 and 4.75 over 4.5).
   {
-    const utc = clockOf("UTC"), H = 36e5, day0 = Date.UTC(2026, 9, 1), sunOnly = entitiesFrom({ energy_sources: [{ type: "solar", stat_energy_from: "s" }] });
+    const utc = clockOf("UTC"), H = 36e5, day0 = Date.UTC(2026, 9, 1), sunOnly = fromConfig({ energy_sources: [{ type: "solar", stat_energy_from: "s" }] });
     const s = Array.from({ length: 6 * 24 }, (_, i) => ({ start: day0 + i * H, change: i % 24 === 12 ? [1, 2, 3, 4, 5, 12][Math.floor(i / 24)] : 0 }));
     const runs = { m: Array.from({ length: 6 }, (_, d) => ({ start: day0 + d * 864e5 + 12 * H, change: 0.5 })) };
     const u = totals(sunOnly, {}, {}, { s }, {}, utc, day0 + 6 * 864e5 + 9 * H, {}, runs).usual;
@@ -2132,7 +2135,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
     const ind = totals(sunOnly, {}, {}, { s: half }, {}, kolkata, day0 + 6 * 864e5 + 9 * H).usual;
     console.assert(ind?.solarW[11] === 500 && ind.solarW[12] === 500 && ind.solarW[10] === 0, "usual day: a half hour zone not split", ind?.solarW.slice(9, 14));
     // Where today's sun so far ends: the solar sensor that lags most; none while one has no row.
-    const two = entitiesFrom({ energy_sources: [{ type: "solar", stat_energy_from: "s1" }, { type: "solar", stat_energy_from: "s2" }] });
+    const two = fromConfig({ energy_sources: [{ type: "solar", stat_energy_from: "s1" }, { type: "solar", stat_energy_from: "s2" }] });
     const at9 = (m) => ({ start: day0 + 9 * H + m * 6e4, change: 0.1 });
     console.assert(totals(two, {}, { s1: [at9(20)], s2: [at9(5)] }, {}, {}, utc, day0 + 9.5 * H).sunUntil === day0 + 9 * H + 10 * 6e4
       && totals(two, {}, { s1: [at9(20)] }, {}, {}, utc, day0 + 9.5 * H).sunUntil === -Infinity, "totals: sun so far not ended by the sensor that lags most");
@@ -2141,7 +2144,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   {
     const rome = clockOf("Europe/Rome"), wh_hours = {};
     for (const [d, n] of [["2026-10-20", 10], ["2026-10-21", 10], ["2026-10-22", 4]]) for (let h = 0; h < n; h++) wh_hours[`${d}T${String(8 + h).padStart(2, "0")}:00:00+02:00`] = 500;
-    const st = totals(entitiesFrom({ energy_sources: [{ type: "solar", stat_energy_from: "s" }] }), {}, {}, {}, { fc: { wh_hours } }, rome, Date.parse("2026-10-20T09:00:00+02:00"));
+    const st = totals(fromConfig({ energy_sources: [{ type: "solar", stat_energy_from: "s" }] }), {}, {}, {}, { fc: { wh_hours } }, rome, Date.parse("2026-10-20T09:00:00+02:00"));
     console.assert("2026-10-21" in st.sunDays && !("2026-10-22" in st.sunDays) && !Object.keys(st.solarWh).some((t) => rome(+t).key === "2026-10-22") && st.forecast.tomorrow === 5,
       "forecast: a day covered in part counted as forecast", st.sunDays);
   }
@@ -2178,7 +2181,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
 {
   const utc = clockOf("UTC"), day = Date.UTC(2026, 10, 2), H = 36e5, now = day + 9.5 * H, at = [day + 9 * H, day + 9 * H + 3e5];
   const prefs = { energy_sources: [{ type: "solar", stat_energy_from: "s1" }, { type: "solar", stat_energy_from: "s2" }, { type: "grid", stat_energy_from: "gi", stat_energy_to: "go" }] };
-  const house = entitiesFrom(prefs, { entities: { load_energy: "l" } }), plain = entitiesFrom(prefs);
+  const house = fromConfig(prefs, { entities: { load_energy: "l" } }), plain = fromConfig(prefs);
   const rows = (...v) => v.map((change, i) => ({ start: at[i], change }));
   const run = (src, change = {}) => { const r = { s1: rows(4, 1), s2: rows(3, 2), gi: rows(1, 1), go: rows(0, 0), l: rows(5, 4), ...change }; return totals(src, r, r, {}, {}, utc, now); };
   const hourOf = (st) => st.todayHours[at[0]];
@@ -2231,7 +2234,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
 // copy holds it, UTC midnight in ms); a day that does not exist counts from the first month on record. A
 // month with unknown returns leaves the total unknown.
 {
-  const t = STRINGS.en, f = formats("en", "EUR"), since = (d) => entitiesFrom(null, { system_cost: 100, install_date: d }).payback.since;
+  const t = STRINGS.en, f = formats("en", "EUR"), since = (d) => fromConfig(null, { system_cost: 100, install_date: d }).payback.since;
   console.assert(since("2026-11-01") === "2026-11-01" && [since("2026-02-30"), since("2026-11-1"), since("1 Nov 2026"), since(20261101)].every((s) => s === null), "payback: install date not read as a calendar day");
   const got = (pb, all) => paybackCard(all, { cost: 100, before: 0, ...pb }, { t, f }, false).match(/class="amount">([^<]*)</)?.[1];
   for (const [d, before, month] of [["2026-11-01", "2026-10", "2026-11"], ["2027-01-01", "2026-12", "2027-01"]]) {
@@ -2264,7 +2267,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
 // money so far is unknown where its energy is.
 {
   const utc = clockOf("UTC"), day = Date.UTC(2026, 10, 5), H = 36e5, row = (start, change) => [{ start, change }];
-  const src = entitiesFrom({ energy_sources: [{ type: "solar", stat_energy_from: "s" }, { type: "grid", stat_energy_from: "gi", stat_energy_to: "go", stat_cost: "c", stat_compensation: "k" }] });
+  const src = fromConfig({ energy_sources: [{ type: "solar", stat_energy_from: "s" }, { type: "grid", stat_energy_from: "gi", stat_energy_to: "go", stat_cost: "c", stat_compensation: "k" }] });
   const now = totals(src, {}, { s: row(day + 9 * H, 10), gi: row(day + 9 * H, 3), go: row(day + 9 * H, 2), c: row(day + 9 * H, -0.6), k: row(day + 9 * H, -0.2) }, {}, {}, utc, day + 12 * H);
   console.assert(now.today.costMoney === -0.6 && now.today.earnedMoney === -0.2 && now.today.solarKwh === 10, "totals: negative money read as 0", now.today);
   const y = day - 3e5, both = (a, b) => [{ start: y, change: a }, { start: day, change: b }];
@@ -2387,7 +2390,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   p = await eveningAt21();
   console.assert(/\d/.test($(p, ".batt-say p").textContent), "evening: no battery end time");
 
-  const solarOnly = entitiesFrom({ energy_sources: [{ type: "solar", stat_energy_from: "s" }] });
+  const solarOnly = fromConfig({ energy_sources: [{ type: "solar", stat_energy_from: "s" }] });
   // The Solar Forecast by the hour start: at 02:30 on the night the clocks go back, the hour after is the
   // second 02:00, its own hour (summed with the first it would read as no fade at all).
   {
@@ -2432,7 +2435,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   console.assert($(p, ".batt-say p").textContent === STRINGS.en.chargingGrid && p.shadowRoot.querySelectorAll(".flow .streak").length === 1, "grid charging: shown as sun");
   // This month's days: each from its day row, today from its 5 minute rows; a day with no rows is none.
   {
-    const utcDay = (d) => Date.UTC(2026, 9, d), sunOnly = entitiesFrom({ energy_sources: [{ type: "solar", stat_energy_from: "s" }] });
+    const utcDay = (d) => Date.UTC(2026, 9, d), sunOnly = fromConfig({ energy_sources: [{ type: "solar", stat_energy_from: "s" }] });
     const daily = { s: [...Array.from({ length: 30 }, (_, i) => ({ start: Date.UTC(2026, 8, 1 + i), change: 10 })), { start: utcDay(1), change: 10 }] };
     const m = totals(sunOnly, daily, { s: [{ start: utcDay(2) + 36e5, change: 0.1 }] }, {}, {}, clockOf("UTC"), utcDay(2) + 8 * 36e5);
     const empty = totals(sunOnly, { s: daily.s.slice(0, 30) }, { s: [{ start: utcDay(2) + 36e5, change: 0.1 }] }, {}, {}, clockOf("UTC"), utcDay(2) + 8 * 36e5);
@@ -2652,7 +2655,7 @@ if (q.get("check") === "skeleton" && current() && !current().offline) skeletonCh
 // solar-view.js on purpose, as a second opinion: tune one, tune the other.
 if (q.has("sweep")) {
   const t = STRINGS.en;
-  const FLOOR = entitiesFrom(null).batt.floor, LOW = FLOOR + 16, HIGH = 85;
+  const FLOOR = fromConfig(null).batt.floor, LOW = FLOOR + 16, HIGH = 85;
   const VALUES = {
     solar: [0, 60, 300, 1500, 4000],
     batt: [-3000, -1000, 0, 30, 400, 2000], // + discharging

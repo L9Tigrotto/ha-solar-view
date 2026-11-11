@@ -4,41 +4,14 @@
    /local/ is cached hard: there, bump ?v= in configuration.yaml after every edit of any file. /hacsfiles/ tells the browser not to cache.
 
    Files: this one (rules, logic, drawing, the element), core.js (time, numbers and text helpers shared by all),
-   format.js (numbers, money and dates as written), forecast.js (the day simulation and what follows from the
+   format.js (numbers, money and dates as written), config.js (the panel config and the entities to read), forecast.js (the day simulation and what follows from the
    forecast), strings-en.js and one strings-xx.js per language (every text), styles.js (the CSS).
    Sections here: entities, rules, sky, parts, logic, data, drawing, pages, element. */
 
-// ---- Entities ----
-// Which sensors to read comes from Home Assistant's own Energy settings, so any brand set up
-// there works. Each list can be replaced in the panel's `config:` (see entitiesFrom):
-//   entities: { solar_power: sensor.x, battery_soc: [sensor.a, sensor.b], ... }
+// ---- Entities (which ones: config.js) ----
 const SUN = "sun.sun";
 // The charts and lists the arrow keys move along, each one Tab stop (see _rove).
 const ROVE = ":is(ul.days,ol.week,ol.year,ol.hours24,svg.cols)";
-// config name: [name in here, source type and key in the Energy settings]. Power in W or kW,
-// energy in any unit the statistics know. Battery power is positive when discharging, grid
-// power when importing.
-const ENTITIES = {
-  solar_power: ["solarW", "solar", "stat_rate"],
-  battery_power: ["battW", "battery", "stat_rate"],
-  grid_power: ["gridW", "grid", "stat_rate"],
-  battery_soc: ["soc", "battery", "stat_soc"],
-  solar_energy: ["solarKwh", "solar", "stat_energy_from"],
-  battery_out_energy: ["batteryKwh", "battery", "stat_energy_from"],
-  battery_in_energy: ["chargeKwh", "battery", "stat_energy_to"],
-  grid_in_energy: ["gridImportKwh", "grid", "stat_energy_from"],
-  grid_out_energy: ["gridExportKwh", "grid", "stat_energy_to"],
-  // Not in the Energy settings. Without them house use is what flows in minus what flows out,
-  // which counts the inverter's own losses as house use.
-  load_power: ["loadW"],
-  load_energy: ["loadKwh"],
-  // The battery's state of health in %, where the inverter or BMS reports it (see wearOf).
-  battery_health: ["healthPct"],
-  // Money, in the currency: what the grid cost and paid, as Home Assistant counts it for the Energy page
-  // (its own cost sensors when the Energy settings name none, see entitiesFrom).
-  grid_cost: ["costMoney", "grid", "stat_cost"],
-  grid_compensation: ["earnedMoney", "grid", "stat_compensation"],
-};
 const ENERGY = ["solarKwh", "batteryKwh", "chargeKwh", "gridImportKwh", "gridExportKwh", "loadKwh"];
 const PARTS = [...ENERGY, "costMoney", "earnedMoney"]; // everything summed from the statistics
 const zero = () => Object.fromEntries(PARTS.map((k) => [k, 0])); // every part at 0, to add into
@@ -47,10 +20,7 @@ const WATTS = { W: 1, kW: 1e3, MW: 1e6 };
 // ---- Rules (tune here) ----
 const POOR_SHARE = 0.55;      // a forecast for today under this share of a usual day is a poor day
 const BETTER_TIMES = 1.5;     // tomorrow must beat today by this factor before saying "wait for tomorrow"
-const BATTERY_FLOOR_SOC = 20; // percent where the inverter stops discharging, unless config says battery_floor
 const LASTS_MIN_H = 0.5;      // "enough until" is only shown from this many hours up to LASTS_MAX_H
-const USUAL_DAYS = 14;    // the usual day (Energy's dashed lines) averages each hour over these many days, unless config says usual_days
-const USUAL_MIN = 3;      // until every hour of the day has this many days behind it there is no usual day (no dashed lines, no forecast built here)
 const TRIM_MIN = 5;       // an hour of the usual day's sun with this many days or more leaves out its lowest and highest
 const PARTIAL_SHARE = 0.75; // a solar forecast day with fewer hours than this share of its fullest day's counts as not forecast
 const SURPLUS_W = 1000;   // solar minus house use above this: good moment for big appliances
@@ -74,8 +44,6 @@ const PAYBACK_MAX_MONTHS = 600; // the payback walk gives up here (50 years)
 const STANDBY_MIN_KWH = 1; // a load sensor this much a day under the energy balance: the gap is the inverter's standby
 const SOON_PCT = 1;       // the battery in an hour shows when it moves this many points or more, its likely range when that spans as much
 const REFRESH_MS = 5 * 60 * 1000; // totals come from the statistics, which move every 5 minutes
-const QUIET_HOURS = "0-7";  // no machine start is suggested in these hours, unless config says quiet_hours
-const BATTERY_MARGIN = 10;  // a suggested start keeps the battery this many points above the floor, unless config says battery_margin
 // Battery wear (see wearOf): a warning below this state of health, or this many years after the battery
 // was installed (most warranties end at 10).
 const WEAR_HEALTH_PCT = 70;
@@ -138,18 +106,12 @@ try { guess = localStorage.getItem(LANGUAGE_KEY) ?? ""; } catch (e) { /* no stor
 guess = supported(guess) ?? supported(document.documentElement.lang || navigator.language || "") ?? "en";
 const [, , { CSS }, { findForecast, forecastOf, lookAhead, SOLAR_SPREAD, efficiencyOf, moneySoFar, machineOf, bandOf, bandPrices },
   { MINUTE, FIVE_MIN, HALF_HOUR, HOUR, DAY, NOON, FULL_SOC, LASTS_MAX_H, clockOf, hourStart, shiftKey, shiftMonth, daysIn, yearKeys,
-    dayHours, num, numberOrEntity, stateNum, sumKnown, clamp01, pct, say, cap, esc, warnOnce }, { formats, hourCycle }] = await Promise.all([
+    dayHours, num, numberOrEntity, stateNum, sumKnown, clamp01, pct, say, cap, esc, warnOnce }, { formats, hourCycle },
+  { BATTERY_FLOOR_SOC, USUAL_MIN, readConfig, requiredIds, optionalIds }] = await Promise.all([
   english, loadLanguage(guess), import(`./styles.js${version}`), import(`./forecast.js${version}`), import(`./core.js${version}`),
-  import(`./format.js${version}`)]);
+  import(`./format.js${version}`), import(`./config.js${version}`)]);
 
 // ---- Logic (pure) ----
-// "0-7" or "23:30-6:30" as [from, to] in hours; null when it is not that.
-const quietHours = (v) => {
-  const m = typeof v === "string" && v.trim().match(/^(\d{1,2})(?::(\d\d))?\s*-\s*(\d{1,2})(?::(\d\d))?$/);
-  const q = m && [+m[1] + (+m[2] || 0) / 60, +m[3] + (+m[4] || 0) / 60];
-  return q && q.every((h) => h <= 24) ? q : null;
-};
-
 // "go": spare sun now: sun over the house's use while the battery is nearly full, or there is no charge
 // reading (until then the sun is filling the battery), or sending to the grid with a nearly full battery
 // (a few watts sent out by a house without one would not run a washing machine).
@@ -208,15 +170,16 @@ function advicePool(t, kind, word, sunCharging, daytime) {
 //   advice: { it: { ok: ["..."], go: ["..."] }, en: { ... } }   added to the built-in lines
 //   advice_replace: true                                        a pool with own lines uses only those
 // Pool names: go, goFull, soon, later, low, empty, wait, ok, okNight, okFull, okRefill, short, okLasts, fills.
-function withOwnAdvice(strings, config, lang) {
-  const own = config?.advice?.[lang];
+function withOwnAdvice(strings, cfg, lang) {
+  const own = cfg.advice?.[lang];
   if (!own) return strings;
   const t = { ...strings };
   for (const [name, lines] of Object.entries(own)) {
     const key = "advice" + name[0].toUpperCase() + name.slice(1);
     // An empty YAML entry arrives as null.
     const clean = [].concat(lines).filter((s) => s != null).map(String).filter((s) => s.trim());
-    if (Array.isArray(strings[key]) && clean.length) t[key] = config.advice_replace ? clean : [...strings[key], ...clean];
+    if (!Array.isArray(strings[key])) warnOnce(`advice.${lang}.${name}: no such pool (see Your own advice lines in docs/setup.md)`);
+    else if (clean.length) t[key] = cfg.adviceReplace ? clean : [...strings[key], ...clean];
   }
   return t;
 }
@@ -337,91 +300,6 @@ const NEW_MOON = Date.UTC(2000, 0, 6, 18, 14), LUNAR_DAYS = 29.530588853;
 const moonPhase = (ms) => Math.round(((((ms - NEW_MOON) / DAY / LUNAR_DAYS) % 1) + 1) % 1 * 8) % 8;
 
 // ---- Data ----
-// A calendar date written YYYY-MM-DD, kept as that text; null for anything else, or a day that does not
-// exist (2026-02-30 is not read as 2 March).
-function calendarDate(value) {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const ms = Date.parse(value);
-  return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === value ? value : null;
-}
-// The panel's config, grouped (plant, predictions, machines, prices, display, and sensors for entities) or flat as
-// before: a group's keys are read as if they stood at the top, and win over the same key there.
-const CONFIG_GROUPS = ["plant", "predictions", "machines", "prices", "display"];
-// The machines the page can say when to start, each named by its type's word in the language.
-const MACHINE_TYPES = ["washer", "dryer", "dishwasher"];
-const configOf = (c) => {
-  const own = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
-  return Object.assign({}, own(c), ...CONFIG_GROUPS.map((g) => own(c?.[g])), c?.sensors ? { entities: own(c.sensors) } : {});
-};
-// The entity ids to read, as lists (several solar arrays or batteries are summed): from the
-// Energy settings (`prefs`, the answer of energy/get_prefs, or null), then the owner's `config:`.
-// `costs` (energy/info's cost_sensors) names the cost sensor Home Assistant made for each grid
-// statistic with a price, where the settings name no cost statistic of their own.
-function entitiesFrom(prefs, config = {}, costs = {}) {
-  const energySources = prefs?.energy_sources ?? [];
-  // Older Home Assistant keeps a grid as lists of flows, newer as one import and export pair.
-  // An old export flow names its price like an import one, so it is renamed here.
-  const flat = energySources.flatMap((s) => [s, ...["flow_from", "flow_to", "power"].flatMap((k) => (s[k] || []).map((x) => (k === "flow_to"
-    ? { type: s.type, stat_energy_to: x.stat_energy_to, stat_compensation: x.stat_compensation, entity_energy_price_export: x.entity_energy_price, number_energy_price_export: x.number_energy_price }
-    : { ...x, type: s.type })))])
-    .map((s) => ({ ...s, stat_cost: s.stat_cost ?? costs?.[s.stat_energy_from], stat_compensation: s.stat_compensation ?? costs?.[s.stat_energy_to] }));
-  const own = config.entities || {};
-  const src = {};
-  for (const [name, [key, type, field]] of Object.entries(ENTITIES))
-    src[key] = own[name] ? [].concat(own[name]) : flat.filter((s) => s.type === type && s[field]).map((s) => s[field]);
-  const batteries = energySources.filter((s) => s.type === "battery");
-  const sized = batteries.length > 0 && batteries.every((b) => b.capacity > 0);
-  const price = (entity, number) => flat.map((s) => s[entity] ?? s[number]).find((v) => v != null) ?? null;
-  const num = (v, otherwise) => (Number.isFinite(v) && v >= 0 ? v : otherwise); // anything but a number of 0 or more is ignored
-  return {
-    ...src,
-    // State of charge of several batteries: weighted by size when every size is known.
-    socWeight: Object.fromEntries(batteries.map((b) => [b.stat_soc, sized ? b.capacity : 1])),
-    batt: {
-      kwh: config.battery_kwh ?? (sized ? batteries.reduce((sum, b) => sum + b.capacity, 0) : null),
-      floor: config.battery_floor ?? BATTERY_FLOOR_SOC,
-      maxChargeKw: num(config.battery_max_charge_kw, null), // null: no limit
-      maxDischargeKw: num(config.battery_max_discharge_kw, null), // null: no limit
-      // For the wear warning: the day this battery went in (a replaced one has its own).
-      since: calendarDate(config.battery_install_date) ?? calendarDate(config.install_date),
-    },
-    // For the forecast: null is no export limit (0 on zero-export inverters); the inverter's own use
-    // in W, null when not set (then worked out in totals).
-    exportMaxKw: num(config.export_max_kw, null),
-    standbyW: num(config.standby_w, null),
-    // How far the page predicts: "none" (no forecast at all), "usual" (its own, from the Energy settings'
-    // solar forecast and the usual day, even beside the forecast sensor); else the sensor when it is fresh.
-    level: ["none", "usual"].includes(config.level) ? config.level : null,
-    // The machines the page says when to start, by type (the language's word names each), in the order
-    // written: typed figures, and a sensor whose runs replace them (see machineOf). None: a washer of 1 kWh over 2 hours.
-    machines: (MACHINE_TYPES.some((k) => k in config) ? Object.keys(config).filter((k) => MACHINE_TYPES.includes(k)) : ["washer"])
-      .map((type) => [type, config[type] ?? { kwh: 1, hours: 2 }]).filter(([, a]) => a && typeof a === "object")
-      .map(([type, a]) => ({ type, kwh: num(a.kwh, null) || null, hours: num(a.hours, null) || null,
-        peakKw: num(a.peak_kw, null), sensor: typeof a.sensor === "string" ? a.sensor : null })),
-    // Hours no start is suggested in, "0-7" or "23:30-6:30"; anything else is the default.
-    quiet: quietHours(config.quiet_hours) ?? quietHours(QUIET_HOURS),
-    gridMaxKw: num(config.grid_max_kw, null),
-    marginPct: num(config.battery_margin, BATTERY_MARGIN),
-    // The contract's bands and their prices: each a number or an entity, else learned from `sensor`.
-    tariff: config.tariff && typeof config.tariff === "object" ? { type: config.tariff.type, sensor: typeof config.tariff.sensor === "string" ? config.tariff.sensor : null,
-      prices: config.tariff.prices && typeof config.tariff.prices === "object" ? config.tariff.prices : {} } : null,
-    // Fewer than USUAL_MIN days could never make a usual day.
-    usualDays: Math.max(USUAL_MIN, Math.round(Number(config.usual_days)) || USUAL_DAYS),
-    // Payback: what the system cost, the day it started, and what it saved before Home Assistant recorded.
-    // No cost, no payback card; a date that is not a real YYYY-MM-DD day counts from the first month on record.
-    payback: num(config.system_cost, 0) > 0
-      ? { cost: config.system_cost, since: calendarDate(config.install_date), before: num(config.saved_before, 0) } : null,
-    // The bill's fixed part, a month (a meter fee, say): added to every month's cost on Money. The id of an
-    // entity holding it, so each month keeps what it was then (see fixedAt); a number counts for every month.
-    billFixed: typeof config.bill_fixed === "string" ? config.bill_fixed : num(config.bill_fixed, 0),
-    // The Energy settings' prices: a number, or the id of an entity holding one, so Home Assistant keeps
-    // their history in the cost statistics.
-    price: { buy: price("entity_energy_price", "number_energy_price"),
-      sell: price("entity_energy_price_export", "number_energy_price_export") },
-  };
-}
-// The live sensors the Now page cannot do without.
-const coreIds = (src) => [...src.solarW, ...src.battW, ...src.gridW, ...src.soc, ...src.loadW];
 
 // Statistics rows summed into buckets (`keyOf` gives a row's bucket): Map of key to { solarKwh, ... }.
 // A part is known only when every meter it sums has a valid row for every energy interval of the bucket;
@@ -615,7 +493,8 @@ function totals(src, daily, recent, hourly, forecast, clock, now, monthly = {}, 
   // Each value goes to the hour its time falls in, as the Energy dashboard draws it, keyed by that hour's
   // start: the repeated hour of the night the clocks go back is two hours, not one.
   const wh = {}, whHour = {};
-  for (const f of Object.values(forecast || {})) for (const [time, v] of Object.entries(f.wh_hours || {})) {
+  // Level usual_days leaves the Energy settings' solar forecast out: its sun is the usual day's.
+  for (const f of Object.values(src.level === "usual_days" ? {} : forecast || {})) for (const [time, v] of Object.entries(f.wh_hours || {})) {
     const t = Date.parse(time), c = clock(t), hour = hourStart(t, clock);
     wh[c.key] = (wh[c.key] || 0) + v;
     whHour[hour] = (whHour[hour] || 0) + v;
@@ -677,7 +556,7 @@ function totals(src, daily, recent, hourly, forecast, clock, now, monthly = {}, 
 }
 
 // Everything the page shows, as one plain object: live states from `hass`, the rest from
-// `stats` (see totals). `src` says which entities to read (see entitiesFrom). `lookedAhead` holds the
+// `stats` (see totals). `src` says which entities to read (see readConfig). `lookedAhead` holds the
 // forecast and what follows from it (see _lookAhead): { ahead, outlook, bands }.
 function readData(hass, src, stats, lookedAhead = {}) {
   const watts = (ids) => ids.reduce((sum, id) => sum + (stateNum(hass, id) ?? 0) * (WATTS[hass.states[id]?.attributes?.unit_of_measurement] ?? 1), 0);
@@ -697,7 +576,7 @@ function readData(hass, src, stats, lookedAhead = {}) {
   return {
     now: {
       solarW: solar,
-      loadW: src.loadW.length ? watts(src.loadW) : Math.max(0, solar + batt + grid),
+      loadW: src.loadW.some((id) => stateNum(hass, id) !== null) ? watts(src.loadW) : Math.max(0, solar + batt + grid),
       gridImportW: Math.max(0, grid), gridExportW: Math.max(0, -grid),
       batteryChargeW: Math.max(0, -batt), batteryDischargeW: Math.max(0, batt),
       // null: there is a battery, but nothing tells how full it is.
@@ -1941,7 +1820,7 @@ class SolarView extends HTMLElement {
     super();
     this._drawn = "";  // key of what is on screen, to skip identical redraws
     this._html = [];   // each page's markup on screen, to write only the pages that changed
-    this._src = undefined;   // which entities to read (entitiesFrom), once the Energy settings answered
+    this._src = undefined;   // which entities to read and the settings (readConfig), once the Energy settings answered
     this._stats = undefined; // totals from the statistics (totals)
     this._next = 0;          // when to load both again
     this._ahead = this._outlook = null; // the forecast and what follows from it (_lookAhead)
@@ -2270,7 +2149,7 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
       const usual = stats.usual && { solarW: stats.usual.solarW, loadW: stats.usual.balanceW, spread: stats.usual.spread, machineW: stats.usual.machineW, scale: stats.usual.scale };
       // Export capped and the battery full at some point today: the sun so far was held back (see forecastOf).
       const throttled = src.exportMaxKw != null && ((stats.socDay ?? []).some(([, p]) => p >= FULL_SOC) || n.soc >= FULL_SOC);
-      const ahead = src.level === "none" ? null : forecastOf({ sensor: src.level === "usual" ? null : sensor, now, clock, solarWh: stats.solarWh, usual, price, sunSoFar: stats.today.solarKwh, sunUntil: stats.sunUntil, throttled });
+      const ahead = src.level === "none" ? null : forecastOf({ sensor: ["usual_days", "usual_days_weather"].includes(src.level) ? null : sensor, now, clock, solarWh: stats.solarWh, usual, price, sunSoFar: stats.today.solarKwh, sunUntil: stats.sunUntil, throttled });
       // Hours already past are priced by the sensor's own hours when it is fresh, else at the flat price.
       const given = new Map((ahead?.from === "sensor" ? sensor.attributes.hours : []).map((h) => [Date.parse(h.t), h]));
       const priceAt = (field) => (t) => (given.has(t) ? given.get(t)[field] ?? null : price[field]);
@@ -2325,8 +2204,9 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
         // Not set up: asked again on the next load, so the page follows the owner setting it up.
         setup = { prefs, info, until: prefs ? until : 0 };
       }
-      const src = entitiesFrom(setup.prefs, configOf(this._panel?.config), setup.info?.cost_sensors);
-      src.geo = [hass.config?.latitude, hass.config?.longitude]; // the usual day's seasons (see usualDay)
+      const read = readConfig(setup.prefs, this._panel?.config, setup.info?.cost_sensors);
+      // One object for the functions here, until data.js takes ids and settings apart. geo: the usual day's seasons (see usualDay).
+      const src = { ...read.ids, ...read.cfg, geo: [hass.config?.latitude, hass.config?.longitude] };
       // The skeleton takes its shape from the settings while the statistics load (see placeholder).
       if (!this._src && run === this._run) { this._src = src; this._render(); }
       const ids = ENERGY.flatMap((k) => src[k]), all = PARTS.flatMap((k) => src[k]);
@@ -2395,7 +2275,8 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
     if (this._lang !== lang || this._tConfig !== this._panel?.config) {
       this._lang = lang;
       this._tConfig = this._panel?.config;
-      this._t = withOwnAdvice(STRINGS[lang], this._panel?.config, lang);
+      this._cfg = readConfig(null, this._panel?.config).cfg; // what the page needs before the Energy settings answer
+      this._t = withOwnAdvice(STRINGS[lang], this._cfg, lang);
       STRINGS[lang].adviceGo.forEach((l, i) => GO_ICON.set(l, APPLIANCE[GO_ORDER[i]]));
       const t = this._t;
       this._pager.setAttribute("aria-label", t.pages);
@@ -2415,13 +2296,15 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
 
     // Three ways to have nothing to show. Still loading: the Energy settings or the statistics
     // have not answered, or Home Assistant is starting and the sensors are not there yet.
-    // Not set up: no solar power sensor, or a sensor that does not exist. Offline: the sensors
-    // exist but have no value. Drawing zeros instead would read as "battery empty".
-    const src = this._src, core = src ? coreIds(src) : [];
-    const missing = core.filter((id) => !hass.states[id]);
+    // Not set up: no solar power sensor, or a required sensor that does not exist. Offline: every sensor
+    // of a required kind exists but has no value. Drawing zeros instead would read as "battery empty".
+    // An optional sensor never blanks the page (see requiredIds).
+    const src = this._src, kinds = src ? requiredIds(src) : [];
+    const missing = kinds.flat().filter((id) => !hass.states[id]);
     const started = !hass.config || hass.config.state === "RUNNING";
     const setup = !!src && (!src.solarW.length || (missing.length > 0 && started));
-    const silent = core.some((id) => stateNum(hass, id) === null);
+    const silent = kinds.some((kind) => kind.every((id) => stateNum(hass, id) === null));
+    if (src && started) for (const id of optionalIds(src)) if (!hass.states[id]) warnOnce(`${id} does not exist, so house use is worked out from the flows`);
     // While Home Assistant starts, sensors without a value are still loading, not offline.
     const loading = !setup && (!src || !this._stats || missing.length > 0 || (silent && !started));
     const offline = !loading && !setup && silent;
@@ -2478,7 +2361,7 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
     }
     const data = loading ? placeholder(hass, src) : readData(hass, src, this._stats, { ahead: this._ahead, outlook: this._outlook, bands: this._bands });
     const day = this.testDay ?? Date.parse(clockOf(hass.config?.time_zone)(Date.now()).key) / DAY; // testDay: preview harness only (?day=)
-    const cycle = hourCycle(configOf(this._panel?.config), hass.locale);
+    const cycle = hourCycle(this._cfg.timeFormat, hass.locale);
     const tz = hass.config?.time_zone, currency = hass.config?.currency || "EUR", fKey = [locale, currency, cycle, tz].join("|");
     const json = JSON.stringify(data), key = loading + fKey + dark + day + JSON.stringify(this._show) + json;
     if (key === this._drawn) return; // same data again: leave the DOM (and its motion) alone
@@ -2583,7 +2466,7 @@ for (const i of [1, 2, 3]) try { window.CSS.registerProperty({ name: `--sv-sky${
 // A tab left open across an update loads the new version beside the old one: keep the old
 // element until the page is refreshed instead of throwing.
 if (!customElements.get("solar-view")) customElements.define("solar-view", SolarView);
-export { STRINGS, LANGUAGES, loadLanguage, formats, entitiesFrom, clockOf, totals, ring, SKY, skyAt, dawnOf, greyOf, moonPhase, paybackLeft, monthSun, seasonGuess, yearKeys, shareRing, paybackCard, socDay, moneyHtml, battDayCard, wearOf }; // for the checks in the preview harness
+export { STRINGS, LANGUAGES, loadLanguage, formats, clockOf, totals, ring, SKY, skyAt, dawnOf, greyOf, moonPhase, paybackLeft, monthSun, seasonGuess, yearKeys, shareRing, paybackCard, socDay, moneyHtml, battDayCard, wearOf }; // for the checks in the preview harness
 
 /*
  * Most icons in solar-view.js are taken from Lucide (https://lucide.dev): sun, cloud, cloud-sun,

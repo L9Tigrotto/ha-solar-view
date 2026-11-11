@@ -1,10 +1,12 @@
 /* Numbers, money, times and dates as the page writes them, in the language on screen. No imports. */
 
-// 12 or 24 hour clock: the panel's `time_format`, else the viewer's profile in Home Assistant
+// 12 or 24 hour clock: the panel's `time_format` (readConfig's timeFormat), else the viewer's profile in Home Assistant
 // (Time format: "12", "24", "system" or "language"). undefined leaves it to the language.
-export function hourCycle(config, locale) {
-  const pick = String(config?.time_format ?? locale?.time_format ?? "language");
-  if (pick === "system") return /h1[12]/.test(new Intl.DateTimeFormat(undefined, { hour: "numeric" }).resolvedOptions().hourCycle) ? "h12" : "h23";
+// The device's own clock is asked once: it builds an Intl.DateTimeFormat, and hourCycle runs on every render.
+let systemCycle;
+export function hourCycle(timeFormat, locale) {
+  const pick = String(timeFormat ?? locale?.time_format ?? "language");
+  if (pick === "system") return (systemCycle ??= /h1[12]/.test(new Intl.DateTimeFormat(undefined, { hour: "numeric" }).resolvedOptions().hourCycle) ? "h12" : "h23");
   return pick === "12" ? "h12" : pick === "24" ? "h23" : undefined;
 }
 
