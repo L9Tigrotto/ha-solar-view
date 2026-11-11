@@ -69,6 +69,9 @@ export const stateNum = (hass, id) => { const v = parseFloat(hass.states[id]?.st
 export const numberOrEntity = (v, hass) => num(v) ?? (typeof v === "string" ? stateNum(hass, v) : null);
 // The sum of figures, null (unknown) when any of them is.
 export const sumKnown = (values) => (values.every(Number.isFinite) ? values.reduce((s, v) => s + v, 0) : null);
+// Energy at a price: 0 kWh costs 0 even without a price; unknown energy or price, null. The one rule for
+// money from kWh: the Money page's days and months, and today's money so far (moneySoFar).
+export const pricedEnergy = (kwh, rate) => (!Number.isFinite(kwh) ? null : kwh === 0 ? 0 : Number.isFinite(rate) ? kwh * rate : null);
 export const clamp01 = (x) => Math.min(1, Math.max(0, x));
 export const pct = (v) => Math.round(v * 100);
 
