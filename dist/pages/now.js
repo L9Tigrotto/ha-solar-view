@@ -7,7 +7,7 @@ const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ ne
  *   typeof import("../lib/data.js"), typeof import("../lib/forecast.js")]} */
 const [{ HALF_HOUR, HOUR, NOON, hourStart, clamp01, say, cap, esc }, { skyIcon, HOUSE, PLUG, line, ADVICE_ICON, SUN_DOT, hint, big, helpButton, wxIcon, battRing, nowLabel },
   { advice, outlookAdvice, advicePool, outlookLastsH, batteryWord, isLow, gridCharging, sources, MIN_FLOW_W, EXPORT_W, IMPORT_W },
-  { SKY_NIGHT_DEG, SKY_DAY_DEG, RAIN_DAY_MM, coverOf }, { fromSensor, weatherOnly }, { SOLAR_SPREAD }] = await Promise.all([
+  { SKY_NIGHT_DEG, SKY_DAY_DEG, RAIN_DAY_MM, coverOf }, { fromSensor, weatherOnly, staleSince }, { SOLAR_SPREAD }] = await Promise.all([
   import(`../lib/core.js${v}`), import(`../lib/draw.js${v}`), import(`../lib/advice.js${v}`), import(`../lib/sky.js${v}`), import(`../lib/data.js${v}`), import(`../lib/forecast.js${v}`)]);
 
 const SOON_PCT = 1;       // the battery in an hour shows when it moves this many points or more, its likely range when that spans as much
@@ -128,8 +128,9 @@ function nowView({ data, sky, day, now, clock }) {
   const hour = ahead && ahead.map((x) => x + n.soc - Math.min(100, Math.max(n.soc, batt.floor)));
   const soon = hour && Math.abs(hour[1] - n.soc) >= SOON_PCT ? hour[1] : null;
   const range = soon !== null && fromSensor(data.mode) && hour[2] - hour[0] >= SOON_PCT ? [hour[0], hour[2]] : null;
+  const coming = comingView(data, now, clock);
   return {
-    head: { names, sub },
+    head: { names, sub, stale: staleSince(data, now) },
     flow: { n, today: data.today, night, glow: sky.day, battery: !!batt, battColor, cover: data.weather.cover, moon: data.moon },
     wear: data.wear,
     advice: { kind, word, sunCharging, daytime, rests, day },
@@ -137,10 +138,12 @@ function nowView({ data, sky, day, now, clock }) {
       state: charging ? (sunCharging ? "charging" : "chargingGrid") : lastsH === Infinity ? "untilSun" : lastsH ? "until" : discharging ? "discharging" : "resting",
       until, best: o?.best ?? [] },
     machines: n.soc === null && o?.best ? o.best : null,
-    coming: comingView(data, now, clock),
+    // The first days (U17): how many more until the usual day, and with it the page's own predictions.
+    learn: !fromSensor(data.mode) && data.usualIn > 0 ? data.usualIn : null,
+    coming,
     help: {
       battery: ["helpSolid", ...(o?.inHour ? ["helpGain", "helpUse", ...(sensor ? ["helpRange"] : []), "helpRise"] : []), "helpLow"],
-      days: ["helpDaysPill", ...(!weatherOnly(data) && data.usualToday?.used?.[1] > 0 ? ["helpDaysUse"] : []), ...(data.ahead?.days?.some((d) => Number.isFinite(d.cloud)) ? ["helpDaysSky"] : [])],
+      days: ["helpDaysPill", ...(!weatherOnly(data) && data.usualToday?.used?.[1] > 0 ? ["helpDaysUse"] : []), ...(coming?.days.some((d) => d.cover !== null) ? ["helpDaysSky"] : [])],
     },
   };
 }
@@ -149,6 +152,8 @@ function nowPage(v, t, f, clock, now, loading) {
   const { n, today } = v.flow, { names, sub: subKey } = v.head, src = names.map((s) => t.src[s]);
   const sentence = names.length > 1 && !names.includes("grid") ? t.sunBatt : say(t.runOn, { a: src[0] });
   const sub = subKey ? t[subKey] : "";
+  // A reading too old to be live says when it was taken (see staleSince).
+  const stale = v.head.stale === null ? "" : `<p class="stale">${say(t.lastUpdate, { t: whenSeen(v.head.stale, f, clock, now) })}</p>`;
   const charging = n.batteryChargeW > MIN_FLOW_W, discharging = n.batteryDischargeW > MIN_FLOW_W;
   const battW = Math.round(n.batteryChargeW || n.batteryDischargeW);
   const hints = {
@@ -164,18 +169,19 @@ function nowPage(v, t, f, clock, now, loading) {
   const adviceText = lines[a.day % lines.length];
   // One string per card, each keyed by data-card, for writeNow.
   return [
-    `<header data-card="head"><h1${loading ? ` data-wait="${t.loading}"` : ""}>${sentence}</h1>${sub ? `<p class="sub">${sub}</p>` : ""}</header>`,
+    `<header data-card="head"><h1${loading ? ` data-wait="${t.loading}"` : ""}>${sentence}</h1>${sub ? `<p class="sub">${sub}</p>` : ""}${stale}</header>`,
     `<div class="flowbox" data-card="flow">${flowSvg(n, { day: v.flow.glow }, v.flow.night, t, sub ? `${sentence}. ${sub}` : sentence, hints, v.flow.battery, v.flow.battColor, v.flow.cover, v.flow.moon)}</div>`,
     v.wear && `<section class="card wear" data-card="wear" aria-label="${t.wearTitle}">
       <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true">${ADVICE_ICON.low}</svg></span>
-      <p>${esc(say(t["wear" + v.wear.kind[0].toUpperCase() + v.wear.kind.slice(1)], v.wear))}</p>
+      <p><span>${esc(say(t["wear" + v.wear.kind[0].toUpperCase() + v.wear.kind.slice(1)], v.wear))}</span></p>
     </section>`,
     `<section class="card advice${a.rests ? " rest" : ""}" data-card="advice" data-kind="${a.kind}" aria-label="${t.adviceTitle}">
       <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true">${(a.kind === "go" && GO_ICON.get(adviceText)) || (a.rests ? ADVICE_ICON.ok : ADVICE_ICON[a.kind])}</svg></span>
-      <p>${esc(adviceText)}</p>
+      <p><span>${esc(adviceText)}</span></p>
     </section>`,
     v.battery && batteryCard(v.battery, t, f, clock, now),
     v.machines && `<section class="card machines" data-card="machines">${bestLine(v.machines, t, f, clock, now)}</section>`,
+    v.learn && `<section class="card learn" data-card="learn"><p>${v.learn === 1 ? t.learningOne : say(t.learning, { n: v.learn })}</p></section>`,
     v.coming && comingCard(v.coming, t, f),
   ].filter(Boolean);
 }
@@ -236,6 +242,9 @@ function batteryCard(v, t, f, clock, now) {
     </section>`;
 }
 
+// When the last reading came: its time, with its date when not today.
+const whenSeen = (ms, f, clock, now) => { const d = new Date(ms); return clock(ms).key === clock(now).key ? f.time(d) : `${f.date(d)}, ${f.time(d)}`; };
+
 // Round numbers for what is still to come: one decimal under 10, whole above.
 const near = (f, x) => f.num(x >= 10 ? Math.round(x) : x);
 // The weather words of an icon (see coverOf): "" is clear.
@@ -250,13 +259,14 @@ const bestLine = (best, t, f, clock, now) => best.map((b) => {
       : say(clock(b.t).key === clock(now).key ? t.adviseAt : t.adviseTomorrow, { n: name, a: f.time(new Date(b.t)) });
   const why = b.why && say(t[`why${cap(b.why)}`], { a: b.band?.toUpperCase() });
   const icon = b.kind === "wait" ? ADVICE_ICON.wait : APPLIANCE[b.type === "dishwasher" ? "dishes" : b.type] ?? ADVICE_ICON.go;
-  return `<div class="best" data-kind="${b.kind}"><span class="tile" aria-hidden="true"><svg viewBox="0 0 24 24">${icon}</svg></span><p>${what}${why ? `<small>${why}</small>` : ""}</p></div>`;
+  return `<div class="best" data-kind="${b.kind}"><span class="tile" aria-hidden="true"><svg viewBox="0 0 24 24">${icon}</svg></span><p><span>${what}</span>${why ? `<small>${why}</small>` : ""}</p></div>`;
 }).join("");
 
 // Up to 7 days from tomorrow, from the sensor, else from the Energy settings' solar forecast beside the
-// page's own forecast (as far as it reaches, SOLAR_SPREAD either way, no weather): the day, its weather (the
-// day's `cloud` by the sky's thresholds, rain from RAIN_DAY_MM; none when the sensor gives no cloud) and its
-// likely sun [low, mid, high]; the usual day's use beside them (`use`, null with weather alone). null without a day.
+// page's own forecast (as far as it reaches, SOLAR_SPREAD either way): the day, its weather (the day's `cloud` by
+// the sky's thresholds, rain from RAIN_DAY_MM; from the fresh sensor's days at every level, as the sky, B7; none
+// without them) and its likely sun [low, mid, high]; the usual day's use beside them (`use`, null with weather
+// alone). null without a day.
 function comingView(data, now, clock) {
   const a = data.ahead, today = clock(now).key;
   const days = (!a ? [] : fromSensor(data.mode) ? a.days : Object.entries(data.sunDays ?? {}).sort()
@@ -264,7 +274,8 @@ function comingView(data, now, clock) {
     .filter((d) => d.d > today && d.sun?.every(Number.isFinite)).slice(0, 7);
   if (!days.length) return null;
   const use = weatherOnly(data) ? null : data.usualToday?.used?.[1];
-  return { days: days.map((d) => ({ d: d.d, sun: d.sun, cover: Number.isFinite(d.cloud) ? coverOf(d.cloud, d.rain >= RAIN_DAY_MM) : null })),
+  const sky = (d) => (Number.isFinite(d.cloud) ? d : data.sensorSky?.[d.d] ?? {});
+  return { days: days.map((d) => { const s = sky(d); return { d: d.d, sun: d.sun, cover: Number.isFinite(s.cloud) ? coverOf(s.cloud, s.rain >= RAIN_DAY_MM) : null }; }),
     use: Number.isFinite(use) && use > 0 ? use : null };
 }
 // A bar from 0 to the likely sun with a thin line from low to high over it, and the likely figure. One track from
@@ -289,4 +300,4 @@ function comingCard(v, t, f) {
     </section>`;
 }
 
-export { nowView, nowPage, writeNow, learnGoIcons };
+export { nowView, nowPage, writeNow, learnGoIcons, whenSeen };

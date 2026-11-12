@@ -33,6 +33,8 @@
   #dev [type=number]{width:4em}
   #dev p{margin:6px 0 0}
   #dev output[name=status]{display:block;margin:4px 0 2px;color:#cfe}
+  /* This browser enlarges no text on its own: with ?text= the panel zooms (see below) and no size is divided back. */
+  solar-view{--zt:1!important;--zs:1!important}
 </style>
 </head>
 <body>
@@ -44,6 +46,7 @@
      ?check=skeleton compares the loading skeleton with the loaded page, ?sweep=1 tries every combination of sensor values.
      ?visible=all|now|null has every panel count those pages in view, whatever its pager says.
      ?display=rain:0,clouds:0 turns those display switches off on this device, as the gear would.
+     ?text=1.5 (or 2, about a phone's largest font) shows the panel as a phone app that enlarges text that much.
      The "preview" drawer sets all of this live, plus the time (?at=2026-10-25T11:00), the forecast and
      the live values on top of the scenario; every change goes into the URL, so a link reproduces it.
      The checks are the console.assert calls below: the console must stay free of assertion failures. -->
@@ -56,6 +59,13 @@
     if (d === null) localStorage.removeItem("solar-view-show");
     else localStorage.setItem("solar-view-show", JSON.stringify(Object.fromEntries(d.split(",").map((s) => s.split(":")).filter(([, v]) => v === "0").map(([k]) => [k, false]))));
   } catch (e) { /* no storage: every switch on */ }
+  // ?text=: the panel measures how much the browser enlarges text against a canvas (see textScale in shell.js),
+  // so a canvas that measures text this much smaller makes it zoom as in an app with big text.
+  const big = +new URLSearchParams(location.search).get("text");
+  if (big > 1) {
+    const measure = CanvasRenderingContext2D.prototype.measureText;
+    CanvasRenderingContext2D.prototype.measureText = function (text) { return { width: measure.call(this, text).width / big }; };
+  }
 </script>
 <button type="button" id="dev-open" aria-label="preview controls" title="preview controls" onclick="dev.showModal()"><svg viewBox="0 0 24 24" aria-hidden="true">
   <path d="M3 6h18M3 12h18M3 18h18"/><circle cx="8" cy="6" r="2.2" fill="#000"/><circle cx="16" cy="12" r="2.2" fill="#000"/><circle cx="10" cy="18" r="2.2" fill="#000"/></svg></button>
@@ -529,6 +539,7 @@ const form = document.querySelector("#dev form");
   <select name="lang">${opt([["", "system language"], ...Object.keys(LANGUAGES).map((k) => [k])])}</select>
   <select name="page">${opt([["now"], ["energy"], ["money"]])}</select>
   <label>advice day <input type="number" name="day" min="0" placeholder="today"></label>${check("admin", "admin")}
+  <label title="the phone's font size, as the panel measures it in an app; 2 is about the largest">text <select name="text">${opt([["1"], ["1.5"], ["2"]])}</select></label>
   <br>display: ${SWITCH_NAMES.map((n) => check("sw", n, n)).join("")}</fieldset>
 <p><button type="button" data-do="checks">run checks</button> <button type="button" data-do="skeleton">skeleton check</button>
   <button type="button" data-do="sweep" title="about 49,000 combinations: the page is busy for about five minutes">sweep (slow)</button> <button type="button" data-do="loading">loading 2s</button></p>
@@ -549,6 +560,7 @@ function fill() {
   el.page.value = q.get("page") ?? "now";
   el.day.value = q.get("day") ?? "";
   el.admin.checked = admin;
+  el.text.value = q.get("text") ?? "1";
   const off = (q.get("display") ?? "").split(",").filter((x) => x.endsWith(":0")).map((x) => x.slice(0, -2));
   for (const b of form.querySelectorAll("[name=sw]")) b.checked = !off.includes(b.value);
   for (const o of form.querySelectorAll("output[data-for]")) o.value = o.dataset.for === "minute" ? `${pad(Math.floor(el.minute.value / 60))}:${pad(el.minute.value % 60)}` : el[o.dataset.for].value;
@@ -587,6 +599,13 @@ form.addEventListener("input", (e) => {
   else if (n === "admin") { t.checked ? q.delete("admin") : q.set("admin", "0"); admin = t.checked; }
   else if (n === "day") { t.value === "" ? q.delete("day") : q.set("day", t.value); panel.testDay = t.value === "" ? undefined : +t.value; }
   else if (n === "page") { q.set("page", t.value); $(panel, `.tabs [data-page="${t.value}"]`)?.click(); }
+  else if (n === "text") {
+    // Measured once a load (see textScale), so a new size takes a reload.
+    t.value === "1" ? q.delete("text") : q.set("text", t.value);
+    save();
+    location.reload();
+    return;
+  }
   else if (n === "sw") {
     // The panel reads its switches when it is made, so these take a reload, as the gear's do for a new page.
     const off = [...form.querySelectorAll("[name=sw]")].filter((b) => !b.checked).map((b) => `${b.value}:0`);
@@ -762,6 +781,10 @@ for (const [k, s] of Object.entries(SCENARIOS)) {
   if (s.ahead && s.battKwh !== null) console.assert(p._outlook?.hoursAhead?.length && p._outlook.hoursAhead.every((r) => r.every(Number.isFinite)) && p._outlook.restToday && (p._outlook.inHour === null || range(p._outlook.inHour)), `forecast for ${k}: no hours, money or ranges ahead`, p._outlook);
   if (s.battKwh === null) console.assert(p._outlook && p._outlook.hoursAhead === null && p._outlook.best === null, `forecast for ${k}: figures with a battery of unknown size`, p._outlook);
   if (s.firstDays) console.assert(p._outlook === null && !/\d/.test($(p, ".batt-say p").textContent), `forecast for ${k}: an outlook, or a lasts until without one`, p._outlook);
+  // The first days say when predictions start (U17); a page with a usual day says nothing of the kind.
+  const learn = $(p, ".learn")?.textContent ?? "";
+  if (s.firstDays) console.assert([p._t.learningOne, say(p._t.learning, { n: learn.match(/\d+/)?.[0] })].includes(learn), `first days for ${k}: no learning line`, learn);
+  if (p._data?.usualToday) console.assert(!learn, `first days for ${k}: a learning line beside a usual day`, learn);
 }
 
 // Check: a second inverter added 2 days ago (see ROOF2) counts as nothing before its first row, so the days
@@ -1531,7 +1554,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
       && year(p).filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.dataset.month).join() === k
       && year(p).find((b) => b.dataset.month === k).querySelector("small").textContent === t.soFar
       && year(p).every((b, i, a) => (b.querySelector("small .wide")?.textContent ?? null) === (i < 11 && a[i + 1].dataset.month.slice(0, 4) !== b.dataset.month.slice(0, 4) ? b.dataset.month.slice(0, 4) : null))
-      && energy(p).querySelector(".daily .year + .stepped .month-total .period")?.textContent === say(t.monthSoFar, { m: formats("en", "EUR", "h12").monthYear(k) })
+      && energy(p).querySelector(".daily .year + .stepped .month-total .period")?.textContent.startsWith(say(t.monthSoFar, { m: formats("en", "EUR", "h12").monthYear(k) })) // a day missing (?gap=1) adds how many
       && energy(p).querySelector(".daily .month-total dt")?.textContent === t.prodMonths, "production: not the latest 12 months, this one so far with its total", year(p).map((b) => b.dataset.month));
     const back = year(p).find((b) => b.dataset.month < k);
     back.click();
@@ -1692,7 +1715,8 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     // so only from the 3rd on (until then today's 5 minute rows count, not the 2nd's day row).
     if (q.get("gap") === "1" && new Date(Date.now()).getDate() > 2) console.assert($(p, "#money .payback .note")?.textContent === t.paybackIncomplete && !$(p, "#money .payback .ring"), "payback with a gap: not the incomplete note", $(p, "#money .payback")?.textContent);
     else console.assert(/^[\d,]+ €$/.test($(p, "#money .payback .ring-mid")?.textContent) && $(p, "#money .payback .ring .size")?.textContent === "9,000 €"
-      && $(p, "#money .payback .ring-name")?.textContent === t.plantCost && $(p, "#money .payback .money").textContent.startsWith("About ")
+      && $(p, "#money .payback .ring-name")?.textContent === t.plantCost && $(p, "#money .payback .money:not(.month)").textContent.startsWith("About ")
+      && /^This month: [\d,]+ € saved$/.test($(p, "#money .payback .month")?.textContent)
       && !/%/.test($(p, "#money .payback").textContent), "payback: amount, cost, its name or time left missing, or a percentage shown", $(p, "#money .payback")?.textContent);
     // A day bar picks its own day; Energy's days keep today, also after a redraw.
     bars[0].click();
@@ -1706,7 +1730,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
   if (extras && q.get("gap") !== "1") {
     const since = new Date(localMidnight(270)).toISOString().slice(0, 7) + "-01";
     p = await draw(fakeHass(SCENARIOS.sunny), en, { system_cost: 500, install_date: since });
-    console.assert(/^Paid back in \w+ \d{4}$/.test($(p, "#money .payback p").textContent) && /^Since then \+[\d,]+ € gained$/.test($(p, "#money .payback .money").textContent)
+    console.assert(/^Paid back in \w+ \d{4}$/.test($(p, "#money .payback p").textContent) && /^Since then \+[\d,]+ € gained$/.test($(p, "#money .payback .money:not(.month)").textContent)
       && $(p, "#money .payback .ring-mid .done"), "payback paid: month, gain or check missing", $(p, "#money .payback")?.textContent);
     p = await draw(fakeHass(SCENARIOS.sunny), en, { system_cost: 500, saved_before: 600 });
     console.assert($(p, "#money .payback p").textContent === t.paidBack, "payback paid before the records: a month named", $(p, "#money .payback p").textContent);
@@ -1941,6 +1965,20 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   console.assert(snows(p) && rains(p), "sky: snowy-rainy is not snow and rain");
   p = await draw(fakeHass(SCENARIOS.rain), en);
   console.assert(!snows(p), "sky: snow without the weather entity saying so");
+}
+
+// Check: the gear dialog's setup check (U18): an admin sees a row per feature, the level and the washer assumed
+// among them; anyone else does not see it.
+{
+  const p = await draw(fakeHass(SCENARIOS.midday), { ...en, user: { is_admin: true } });
+  const d = p._gearDialog();
+  p._fillCheck(d);
+  const rows = [...d.querySelectorAll(".check dt")].map((x) => x.textContent), said = d.querySelector(".check").textContent;
+  console.assert(!d.querySelector(".check").hidden && rows.includes(STRINGS.en.chkLevel) && rows.includes("The washer")
+    && said.includes(say(STRINGS.en.chkMachineTyped, { k: 1, h: 2 })), "setup check: not shown to an admin, or a row missing", rows);
+  p.hass = { ...p.hass, user: { is_admin: false } };
+  p._fillCheck(d);
+  console.assert(d.querySelector(".check").hidden, "setup check: shown to a viewer who is no admin");
 }
 
 // Check: the display switches. The gear opens a modal dialog of three labelled switches (the sky's), all
@@ -2334,19 +2372,26 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   console.assert(back[2] && back[3] && back[2].includes("GMT+2") && back[3].includes("GMT+1") && !back[4].includes("GMT"), "hour by hour: the two 2:00 of the night the clocks go back not told apart", back[2], back[3]);
 }
 
-// Check: offline, Now alone shows the message on a page of its own (no dashboard tracks), Energy and Money
-// and their tabs gone; back online they return. A redraw puts focus back on the same control (a "?", a
+// Check: offline, Now holds the message alone, with when the inverter was last heard, and Energy and Money keep
+// their numbers and tabs (U8); back online the flow returns. A reading 30 minutes old says its time under the
+// headline; a fresh one does not. A redraw puts focus back on the same control (a "?", a
 // month, an hour), and Escape hides a hint without moving focus until the viewer leaves it. The language
 // picker changes the page's language at once and is no switch.
 {
-  const p = await draw(fakeHass(SCENARIOS.offline), en);
+  const seen = Date.now() - 30 * 60e3, aged = (h) => { for (const id of [ID.solarW, ID.gridW, ID.battW, ID.soc]) if (h.states[id]) h.states[id].last_updated = new Date(seen).toISOString(); return h; };
+  const p = await draw(aged(fakeHass(SCENARIOS.offline)), en);
   attach(p);
   const tabs = [...p.shadowRoot.querySelectorAll(".tabs button")], page = (id) => p.shadowRoot.getElementById(id);
-  console.assert(p.shadowRoot.querySelector(".pager").classList.contains("message") && page("energy").hidden && page("money").hidden && tabs[1].hidden && tabs[2].hidden && !tabs[0].hidden,
-    "offline: other pages or tabs still shown, or no message layout");
+  const time = formats("en", "EUR", undefined, TZ).time(new Date(seen));
+  console.assert(!p.shadowRoot.querySelector(".pager").classList.contains("message") && $(p, "#now .empty")?.textContent.includes(say(STRINGS.en.lastUpdate, { t: time }))
+    && !$(p, "#now .flowbox") && !page("energy").hidden && $(p, "#energy .share") && !tabs[1].hidden && !tabs[0].hidden,
+    "offline: Now without the message and its last update, or Energy and its tab gone", $(p, "#now").textContent);
   p.hass = { ...fakeHass(SCENARIOS.sunny), ...en };
   await tick(100);
-  console.assert(!p.shadowRoot.querySelector(".pager").classList.contains("message") && !page("energy").hidden && !tabs[1].hidden, "offline: pages not back with the numbers");
+  console.assert(!$(p, "#now .empty") && $(p, "#now .flowbox") && !$(p, "#now .stale") && !page("energy").hidden && !tabs[1].hidden, "offline: the flow not back with the numbers");
+  p.hass = { ...aged(fakeHass(SCENARIOS.sunny)), ...en };
+  await tick(100);
+  console.assert($(p, "#now .stale")?.textContent === say(STRINGS.en.lastUpdate, { t: time }), "frozen: a 30 minute old reading shown without its time", $(p, "#now header")?.textContent);
   const redraw = () => { p._html = {}; p._redraw(); };
   const active = () => p.shadowRoot.activeElement;
   for (const sel of ['#energy .help[data-card="daily"]', "#energy .daily [data-month]", '#energy .battday .hours24 li[tabindex="0"]', '#now .node[data-focus-key="flow:170:146"]']) {
@@ -2533,8 +2578,9 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   console.assert(header === $(p, "#now header"), "first visit: the skeleton is redrawn on every update");
 
   // A first visit's skeleton has the pages, tabs and cards the loaded page will have, with or without a battery
-  // or payback (see placeholder): on a wide screen a page that comes later changes every column.
-  const shape = (p) => ["now", "energy", "money"].map((id) => ($(p, `#${id}`).hidden ? "-" : [...p.shadowRoot.querySelectorAll(`#${id} .card`)].map((c) => c.classList[1]).join()))
+  // or payback (see placeholder): on a wide screen a page that comes later changes every column. The first days'
+  // line (.learn, last on Now) comes with the statistics: no skeleton can know it.
+  const shape = (p) => ["now", "energy", "money"].map((id) => ($(p, `#${id}`).hidden ? "-" : [...p.shadowRoot.querySelectorAll(`#${id} .card:not(.learn)`)].map((c) => c.classList[1]).join()))
     .concat([...p.shadowRoot.querySelectorAll(".tabs button")].filter((b) => !b.hidden).length, p.shadowRoot.querySelectorAll(".flow .node").length).join(" | ");
   for (const [name, config] of [["midday"], ["nobattery"], ["midday", { system_cost: 9000 }]]) {
     const loaded = shape(await draw(fakeHass(SCENARIOS[name]), {}, config));
@@ -2592,8 +2638,9 @@ if (current() && !current().offline) setTimeout(() => {
 
 // After the page's rise animation, which moves the cards.
 if (current() && !current().offline) setTimeout(() => {
-  const flow = $(panel, ".flow")?.getBoundingClientRect(), card = $(panel, ".advice")?.getBoundingClientRect();
-  if (flow && card) console.assert(flow.bottom <= card.top + 0.5, `advice card over the flow at ${innerWidth}x${innerHeight}: flow ends at ${flow.bottom}, card starts at ${card.top}`);
+  // With big text (?text=2) the advice comes first, the flow under it.
+  const flow = $(panel, ".flow")?.getBoundingClientRect(), card = $(panel, ".advice")?.getBoundingClientRect(), big = panel.hasAttribute("big");
+  if (flow && card) console.assert(big ? card.bottom <= flow.top + 0.5 : flow.bottom <= card.top + 0.5, `advice card over the flow at ${innerWidth}x${innerHeight}: flow ${flow.top} to ${flow.bottom}, card ${card.top} to ${card.bottom}`);
 }, 1200);
 
 // Check: the gear (display switches) is a button of 44 px or more, on screen and on top, and no page
@@ -2629,8 +2676,35 @@ if (current() && !current().offline) setTimeout(() => {
   }
 }, 1200);
 
+// Check: no word on a page is broken over two lines or sticks out of its card, at whatever size and text scale
+// this window has (try 375x812 with ?text=1.5 and ?text=2, in it and de, on every page). Chart text aside.
+function wordCheck() {
+  const range = document.createRange(), out = [];
+  for (const page of panel.shadowRoot.querySelectorAll(".page:not([hidden])")) {
+    for (const walk = document.createTreeWalker(page, NodeFilter.SHOW_TEXT); walk.nextNode();) {
+      const n = walk.currentNode, el = n.parentElement;
+      if (el.closest("svg") || !n.data.trim() || !el.checkVisibility({ visibilityProperty: true })) continue;
+      const box = (el.closest(".card") ?? page).getBoundingClientRect();
+      for (const m of n.data.matchAll(/[^\s-]+/g)) { // a line may end after a hyphen
+        range.setStart(n, m.index);
+        range.setEnd(n, m.index + m[0].length);
+        const lines = new Set([...range.getClientRects()].filter((r) => r.width).map((r) => Math.round(r.top))).size, r = range.getBoundingClientRect();
+        if (lines > 1 || r.left < box.left - 1 || r.right > box.right + 1) out.push(`${page.id}: "${m[0]}"`);
+      }
+    }
+  }
+  return [...new Set(out)];
+}
+window.wordCheck = wordCheck;
+if (current() && !current().offline) setTimeout(() => {
+  if (!innerWidth) return;
+  const bad = wordCheck();
+  console.assert(!bad.length, `words broken mid-word or out of their card at ${innerWidth} px, text ${q.get("text") ?? 1}`, bad);
+}, 1200);
+
 // Check (?check=skeleton, or skeletonCheck() in the console; skeletonCheck(true) for a first visit):
-// every box of the loading skeleton must sit where the loaded page puts it. Two allowances:
+// every box of the loading skeleton must sit where the loaded page puts it, at 375x812 and also with big
+// phone text (?check=skeleton&text=1.5, and &text=2). Two allowances:
 // a grey bar may be as wide as the loaded text instead of the loaded box (it hugs the text), and
 // the big share number is a shorter bar on the same centre (the inline box is taller than the digits).
 // Returns { path: [x, y, width, height, text x, text width] } relative to the panel. The path is
@@ -2680,7 +2754,7 @@ async function skeletonCheck(first = false) {
     const centred = /share:\d+ span\.big:\d+$/.test(path) && !off(d[1] + d[3] / 2);
     if ((!hugs && (off(d[0]) || off(d[2]))) || (!centred && (off(d[1]) || off(d[3])))) diffs.push({ path, dx: d[0], dy: d[1], dw: d[2], dh: d[3] });
   }
-  console.log(`skeleton check, ${ctl.scenario}, ${first ? "first" : "second"} visit: ${Object.keys(loaded).length} boxes, ${diffs.length} differ`);
+  console.log(`skeleton check, ${ctl.scenario}, text ${q.get("text") ?? 1}, ${first ? "first" : "second"} visit: ${Object.keys(loaded).length} boxes, ${diffs.length} differ`);
   window.skeletonDiffs = diffs; // for tools that cannot read the console
   if (diffs.length) console.table(diffs);
   if (!first) console.assert(!diffs.length, `skeleton: ${diffs.length} boxes move when the data lands`);

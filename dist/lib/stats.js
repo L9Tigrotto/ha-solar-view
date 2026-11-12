@@ -90,8 +90,8 @@ const balanceKwh = (d) => ([d.solarKwh, d.batteryKwh, d.gridImportKwh, d.chargeK
 const houseKwh = (d, ids) => (ids.loadKwh.length ? d.loadKwh : balanceKwh(d));
 
 // The usual day from hour rows: average W of house use and of sun for each hour of the day
-// (0 to 23, Home Assistant's time zone). null until every hour of the day has USUAL_MIN hours
-// behind it. An hour some sensor has no row for is skipped: its share would be missing (but see missingOk).
+// (0 to 23, Home Assistant's time zone). Until every hour of the day has USUAL_MIN hours behind it,
+// { onRecord }: the days the thinnest hour has (null without energy sensors). An hour some sensor has no row for is skipped: its share would be missing (but see missingOk).
 // machineW: the machines' own runs (`machineRows`, sensor id to hour rows) at each hour, inside house use;
 // only the machine advice takes them out, as it adds each run where it plans it. spread: the whole days'
 // sun and use at their 25th and 75th percentile over their mean ([1, 1] with too few), the page's own
@@ -130,7 +130,8 @@ function usualDay(res, ids, clock, machineRows = {}, geo = []) {
     const d = days.get(c.key) ?? days.set(c.key, { n: 0, sun: 0, use: 0 }).get(c.key);
     d.n++; d.sun += h.solarKwh; d.use += b;
   }
-  if (!all.length || sun.some((v) => v.length < USUAL_MIN)) return null;
+  if (!all.length) return null;
+  if (sun.some((v) => v.length < USUAL_MIN)) return { onRecord: Math.min(...sun.map((v) => v.length)) };
   const sorted = (v) => [...v].sort((x, y) => x - y), sumOf = (v) => v.reduce((s, x) => s + x, 0);
   // kWh in one hour is the average kW over it. balanceW is house use as the forecast counts it (standby
   // included), which differs from loadW only when the owner named a load sensor. The sun, with TRIM_MIN
@@ -245,7 +246,7 @@ function totals(ids, cfg, rows, clock, now, geo) {
   const solarWh = Object.fromEntries(Object.entries(whHour).filter(([t]) => fullDay(clock(+t).key)));
   // The hour rows are not asked at level none (see FETCHES): no usual day (no page forecast, no use line on the
   // coming days, no payback time left).
-  const usual = usualDay(hourly, ids, clock, machineHours, geo);
+  const day = usualDay(hourly, ids, clock, machineHours, geo), usual = day?.loadW ? day : null;
   const tomorrow = shiftKey(today, 1);
   // The sun forecast of this hour, and the average of the next 3.
   const fcHour = (i) => whHour[hourStart(now + i * HOUR, clock)] || 0;
@@ -270,6 +271,8 @@ function totals(ids, cfg, rows, clock, now, geo) {
     months: [...byDay(monthly, ids, clock)].map(([key, d]) => [key.slice(0, 7), { ...d, loadKwh: houseKwh(d, ids) }])
       .filter(([key]) => key < month).sort((a, b) => (a[0] < b[0] ? -1 : 1)),
     usualToday: usual && { used: usualBy(usual.loadW) },
+    // The days until there is a usual day (U17), while the level asks for one and too few are on record; else null.
+    usualIn: draws(cfg.level) && day?.onRecord !== undefined ? USUAL_MIN - day.onRecord : null,
     month: sum(of(month)),
     // The Energy settings' solar forecast for the advice ("soon", "later", "wait"; the level picks it, see
     // adviceForecast in data.js). `tomorrow` and `usual` are null when not known: only the "wait" advice needs them.
@@ -387,4 +390,4 @@ async function fetchStats(hass, ids, cfg, kept = {}, now, clock) {
   return { rows: Object.fromEntries(FETCHES.map(({ name }) => [name, next[name].rows])), kept: next };
 }
 
-export { ENERGY, balanceKwh, socDay, totals, toAsk, untilOf, fetchStats };
+export { ENERGY, balanceKwh, socDay, usualDay, totals, toAsk, untilOf, fetchStats }; // usualDay: for the tests

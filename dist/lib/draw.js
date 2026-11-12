@@ -146,7 +146,7 @@ function splitRing(parts, label, size) {
 }
 // Round steps for chart gridlines (see lineGrid).
 const STEPS = [0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000];
-const legendHtml = (list) => `<ul class="legend" style="--n:${list.length}">${list.map((l) =>
+const legendHtml = (list) => `<ul class="legend">${list.map((l) =>
   `<li><i style="--c:${markOf(l.color)}"></i><span>${l.label}</span></li>`).join("")}</ul>`;
 // A line chart's scale up to `top`, on a box 0 to 100 high stretched to its place (see .socline): its top
 // at a round step, the gridlines at each step, and their values beside them (`fmt`), in HTML so they keep

@@ -91,7 +91,8 @@ function ledgerOf(data, key, { back, got }) {
 
 // Payback from the ledger (`all`, see ledgerOf) and the owner's figures (`pb`: cost, before, since): what came back
 // since the install date plus what was saved before Home Assistant recorded (`got`), its share of the cost, and how
-// long is left (see paybackLeft; only while the page `predicts` anything). Once paid, the month it happened (`on`,
+// long is left (see paybackLeft; only while the page `predicts` anything), and what this month (the ledger's last)
+// brought back so far (`month`, null before the install month). Once paid, the month it happened (`on`,
 // null when it had before Home Assistant recorded). { incomplete: true } while a month since then is unknown; null
 // without a cost.
 function paybackOf(all, pb, predicts, at = {}) {
@@ -109,7 +110,7 @@ function paybackOf(all, pb, predicts, at = {}) {
   const left = paid || !predicts ? null : paybackLeft(pb.cost - got, part ? past.slice(1) : past, done.at(-1)?.key, done.at(-1)?.back, at);
   let on = null;
   for (let s = pb.before, i = 0; paid && s < pb.cost && i < done.length; i++) if ((s += done[i].back) >= pb.cost) on = done[i].key;
-  return { incomplete: false, got, cost: pb.cost, share: clamp01(got / pb.cost), paid, on, left };
+  return { incomplete: false, got, cost: pb.cost, share: clamp01(got / pb.cost), paid, on, left, month: done.at(-1)?.back ?? null };
 }
 
 // Today's hours of each band, as runs of whole hours in Home Assistant's time zone (a day the clocks change has
