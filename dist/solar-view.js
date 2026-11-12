@@ -3,13 +3,13 @@
    Served WITHOUT login, under /hacsfiles/ (HACS) or /local/ (copied by hand): never put a secret here.
    /local/ is cached hard: there, bump ?v= in configuration.yaml after every edit of any file. /hacsfiles/ tells the browser not to cache.
 
-   Files: this one (the element: loading, the render, focus and hints), core.js (time, numbers and text helpers shared by all),
-   format.js (numbers, money and dates as written), config.js (the panel config and the entities to read), sky.js (the sky's
-   colours, cloud and rain now, the sun's path), advice.js (the advice card's rules), forecast.js (the day simulation and
-   what follows from the forecast), stats.js (the statistics as numbers), data.js (what the page shows, and the skeleton's
-   numbers), money.js (the money rules), draw.js (rings, charts and icons shared by the pages), page-now.js,
-   page-energy.js and page-money.js (one per page), shell.js (the frame: sky, gear, tabs, dialogs), strings-en.js and one strings-xx.js per language (every text),
-   styles.js (the CSS). Sections here: rules, parts, the gear, the element. */
+   Files: this one (the element: loading, the render, focus and hints). In lib/: core.js (time, numbers and text helpers
+   shared by all), format.js (numbers, money and dates as written), config.js (the panel config and the entities to read),
+   sky.js (the sky's colours, cloud and rain now, the sun's path), advice.js (the advice card's rules), forecast.js (the day
+   simulation and what follows from the forecast), stats.js (the statistics as numbers), data.js (what the page shows, and
+   the skeleton's numbers), money.js (the money rules), draw.js (rings, charts and icons shared by the pages), shell.js (the
+   frame: sky, gear, tabs, dialogs), styles.js (the CSS). In pages/: now.js, energy.js and money.js (one per page). In
+   strings/: en.js and one xx.js per language (every text). Sections here: rules, parts, the gear, the element. */
 
 // The charts and lists the arrow keys move along, each one Tab stop (see _rove).
 const ROVE = ":is(ul.days,ol.week,ol.year,ol.hours24,svg.cols)";
@@ -23,7 +23,7 @@ const REFRESH_MS = 5 * 60 * 1000; // totals come from the statistics, which move
 // They must load with this file's own ?v=, or under /local/ the browser keeps stale copies. All start here,
 // in one wave: a file's own import of a sibling (forecast.js of core.js) then finds it already loading.
 // tsc cannot follow an import with ?v=, so each wave names its files' types (@type, see jsconfig.json).
-// Texts: one file per language (strings-it.js), loaded the first time it is on screen. English is always
+// Texts: one file per language (strings/it.js), loaded the first time it is on screen. English is always
 // there, under every other language, so a key one lacks reads in English (a half-copied /local/ update).
 const version = new URL(import.meta.url).search;
 // This device's language, set in the gear's dialog: one of LANGUAGES, kept apart from the Home Assistant
@@ -32,7 +32,7 @@ const LANGUAGE_KEY = "solar-view-language";
 const LANGUAGES = { en: "English", it: "Italiano", es: "Español", fr: "Français", de: "Deutsch", pt: "Português", nl: "Nederlands", pl: "Polski" };
 const STRINGS = {}; // the languages loaded so far
 const failedLanguages = new Set(); // these stay English for this visit
-const textsOf = (code) => import(`./strings-${code}.js${version}`).then((m) => m.STRINGS[code]);
+const textsOf = (code) => import(`./strings/${code}.js${version}`).then((m) => m.STRINGS[code]);
 const english = textsOf("en");
 const loads = {};
 const loadLanguage = (code) => loads[code] ??= Promise.all([english, code === "en" ? {} : textsOf(code)]).then(
@@ -45,21 +45,21 @@ const supported = (l) => [l, l.split("-")[0]].find((c) => Object.hasOwn(LANGUAGE
 let guess = "";
 try { guess = localStorage.getItem(LANGUAGE_KEY) ?? ""; } catch (e) { /* no storage */ }
 guess = supported(guess) ?? supported(document.documentElement.lang || navigator.language || "") ?? "en";
-/** @type {[unknown, unknown, typeof import("./styles.js"), typeof import("./forecast.js"), typeof import("./core.js"),
- *   typeof import("./format.js"), typeof import("./config.js"), typeof import("./sky.js"), typeof import("./advice.js"),
- *   typeof import("./stats.js"), typeof import("./data.js"), typeof import("./draw.js"), typeof import("./money.js"),
- *   typeof import("./page-now.js"), typeof import("./page-energy.js"), typeof import("./page-money.js"),
- *   typeof import("./shell.js")]} */
+/** @type {[unknown, unknown, typeof import("./lib/styles.js"), typeof import("./lib/forecast.js"), typeof import("./lib/core.js"),
+ *   typeof import("./lib/format.js"), typeof import("./lib/config.js"), typeof import("./lib/sky.js"), typeof import("./lib/advice.js"),
+ *   typeof import("./lib/stats.js"), typeof import("./lib/data.js"), typeof import("./lib/draw.js"), typeof import("./lib/money.js"),
+ *   typeof import("./pages/now.js"), typeof import("./pages/energy.js"), typeof import("./pages/money.js"),
+ *   typeof import("./lib/shell.js")]} */
 const [, , { CSS }, { findForecast }, { MINUTE, FIVE_MIN, HOUR, DAY, clockOf, stateNum, esc, warnOnce }, { formats, hourCycle },
   { readConfig, requiredIds, optionalIds }, { skyAt }, { withOwnAdvice }, { totals, fetchStats },
   { LAST_KEY, predict, readData, slim, remembered, placeholder },
   { line }, , { nowView, nowPage, writeNow, learnGoIcons }, { energyView, energyPage }, { paybackView, moneyView, moneyPage },
   { PAGES, shellHtml, gearDialog, readDialog, textScale }] = await Promise.all([
-  english, loadLanguage(guess), import(`./styles.js${version}`), import(`./forecast.js${version}`), import(`./core.js${version}`),
-  import(`./format.js${version}`), import(`./config.js${version}`), import(`./sky.js${version}`), import(`./advice.js${version}`),
-  import(`./stats.js${version}`), import(`./data.js${version}`), import(`./draw.js${version}`), import(`./money.js${version}`),
-  import(`./page-now.js${version}`), import(`./page-energy.js${version}`), import(`./page-money.js${version}`),
-  import(`./shell.js${version}`)]);
+  english, loadLanguage(guess), import(`./lib/styles.js${version}`), import(`./lib/forecast.js${version}`), import(`./lib/core.js${version}`),
+  import(`./lib/format.js${version}`), import(`./lib/config.js${version}`), import(`./lib/sky.js${version}`), import(`./lib/advice.js${version}`),
+  import(`./lib/stats.js${version}`), import(`./lib/data.js${version}`), import(`./lib/draw.js${version}`), import(`./lib/money.js${version}`),
+  import(`./pages/now.js${version}`), import(`./pages/energy.js${version}`), import(`./pages/money.js${version}`),
+  import(`./lib/shell.js${version}`)]);
 
 // ---- The gear: display switches and language ----
 // Display switches, per device (the gear): only the switches turned off are kept, as { rain: false }.

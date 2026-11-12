@@ -1,5 +1,5 @@
 /* The Dutch texts of the solar panel. Loaded by solar-view.js when this language is on screen.
-   The rules for every text are at the top of strings-en.js. */
+   The rules for every text are at the top of strings/en.js. */
 
 export const STRINGS = {
   nl: {

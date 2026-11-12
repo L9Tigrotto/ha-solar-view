@@ -3,12 +3,12 @@
    into HTML. */
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
-/** @type {[typeof import("./core.js"), typeof import("./draw.js"), typeof import("./advice.js"), typeof import("./sky.js"),
- *   typeof import("./data.js"), typeof import("./forecast.js")]} */
+/** @type {[typeof import("../lib/core.js"), typeof import("../lib/draw.js"), typeof import("../lib/advice.js"), typeof import("../lib/sky.js"),
+ *   typeof import("../lib/data.js"), typeof import("../lib/forecast.js")]} */
 const [{ HALF_HOUR, HOUR, NOON, hourStart, clamp01, say, cap, esc }, { skyIcon, HOUSE, PLUG, line, ADVICE_ICON, SUN_DOT, hint, big, helpButton, wxIcon, battRing, nowLabel },
   { advice, outlookAdvice, advicePool, outlookLastsH, batteryWord, isLow, gridCharging, sources, MIN_FLOW_W, EXPORT_W, IMPORT_W },
   { SKY_NIGHT_DEG, SKY_DAY_DEG, RAIN_DAY_MM, coverOf }, { fromSensor, weatherOnly }, { SOLAR_SPREAD }] = await Promise.all([
-  import(`./core.js${v}`), import(`./draw.js${v}`), import(`./advice.js${v}`), import(`./sky.js${v}`), import(`./data.js${v}`), import(`./forecast.js${v}`)]);
+  import(`../lib/core.js${v}`), import(`../lib/draw.js${v}`), import(`../lib/advice.js${v}`), import(`../lib/sky.js${v}`), import(`../lib/data.js${v}`), import(`../lib/forecast.js${v}`)]);
 
 const SOON_PCT = 1;       // the battery in an hour shows when it moves this many points or more, its likely range when that spans as much
 const PATHS = {

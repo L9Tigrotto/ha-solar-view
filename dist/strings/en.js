@@ -1,5 +1,5 @@
 /* The English texts of the solar panel, and the fallback for every other language. Loaded by
-   solar-view.js, as is strings-xx.js for the language on screen (see loadLanguage). The rules below hold
+   solar-view.js, as is strings/xx.js for the language on screen (see loadLanguage). The rules below hold
    for every language.
    A string must not contain a double quote, <, > or &: some go into HTML attributes.
    Every language needs every key that `en` has. `untilOne` is extra: `until` for an end time at one

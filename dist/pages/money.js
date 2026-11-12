@@ -3,11 +3,11 @@
    it into HTML. The rules are in money.js. */
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
-/** @type {[typeof import("./core.js"), typeof import("./draw.js"), typeof import("./money.js"), typeof import("./data.js"),
- *   typeof import("./forecast.js")]} */
+/** @type {[typeof import("../lib/core.js"), typeof import("../lib/draw.js"), typeof import("../lib/money.js"), typeof import("../lib/data.js"),
+ *   typeof import("../lib/forecast.js")]} */
 const [{ pct, say, cap, sumKnown, shiftMonth, yearKeys }, { ADVICE_ICON, HOUSE, PLUG, helpButton, markOf, ring, readout, dayLine, monthPicker, monthSteps, boldDate, monthName },
   { moneyOf, ledgerOf, paybackOf, bandRuns }, { paybackPredicts }, { bandOf }] = await Promise.all([
-  import(`./core.js${v}`), import(`./draw.js${v}`), import(`./money.js${v}`), import(`./data.js${v}`), import(`./forecast.js${v}`)]);
+  import(`../lib/core.js${v}`), import(`../lib/draw.js${v}`), import(`../lib/money.js${v}`), import(`../lib/data.js${v}`), import(`../lib/forecast.js${v}`)]);
 
 // Payback for this month (see paybackOf): its own step, as it walks up to 50 years of months. The page asks for it
 // once per change of the numbers, not on every redraw of Money (a month picked).

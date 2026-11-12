@@ -33,7 +33,7 @@ HACS may also list the file under Settings, Dashboards, Resources. The page is a
 
 ## Install by hand
 
-1. Copy the `dist` folder of this repository into `config/www/` and rename it to `solar-view`, so that you have `config/www/solar-view/solar-view.js` and every other file of `dist` beside it: `styles.js`, `forecast.js` and one `strings-xx.js` per language.
+1. Copy the `dist` folder of this repository into `config/www/` and rename it to `solar-view`, so that you have `config/www/solar-view/solar-view.js` with the folders of `dist` beside it: `lib/`, `pages/` and `strings/` (one file per language).
 2. Add the `panel_custom` entry above, with `module_url: /local/solar-view/solar-view.js?v=1`.
 3. Restart Home Assistant.
 
