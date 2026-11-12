@@ -160,18 +160,57 @@ function nowPage(v, t, f, clock, now, loading) {
   const a = v.advice, lines = advicePool(t, a.kind, a.word, a.sunCharging, a.daytime);
   // One line per calendar day, so it stays put between redraws and changes tomorrow.
   const adviceText = lines[a.day % lines.length];
-  return `
-    <header><h1${loading ? ` data-wait="${t.loading}"` : ""}>${sentence}</h1>${sub ? `<p class="sub">${sub}</p>` : ""}</header>
-    <div class="flowbox">${flowSvg(n, { day: v.flow.glow }, v.flow.night, t, sub ? `${sentence}. ${sub}` : sentence, hints, v.flow.battery, v.flow.battColor, v.flow.cover, v.flow.moon)}</div>
-    ${v.wear ? `<section class="card wear" aria-label="${t.wearTitle}">
+  // One string per card, each keyed by data-card, for writeNow.
+  return [
+    `<header data-card="head"><h1${loading ? ` data-wait="${t.loading}"` : ""}>${sentence}</h1>${sub ? `<p class="sub">${sub}</p>` : ""}</header>`,
+    `<div class="flowbox" data-card="flow">${flowSvg(n, { day: v.flow.glow }, v.flow.night, t, sub ? `${sentence}. ${sub}` : sentence, hints, v.flow.battery, v.flow.battColor, v.flow.cover, v.flow.moon)}</div>`,
+    v.wear && `<section class="card wear" data-card="wear" aria-label="${t.wearTitle}">
       <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true">${ADVICE_ICON.low}</svg></span>
       <p>${esc(say(t["wear" + v.wear.kind[0].toUpperCase() + v.wear.kind.slice(1)], v.wear))}</p>
-    </section>` : ""}
-    <section class="card advice${a.rests ? " rest" : ""}" data-kind="${a.kind}" aria-label="${t.adviceTitle}">
+    </section>`,
+    `<section class="card advice${a.rests ? " rest" : ""}" data-card="advice" data-kind="${a.kind}" aria-label="${t.adviceTitle}">
       <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true">${(a.kind === "go" && GO_ICON.get(adviceText)) || (a.rests ? ADVICE_ICON.ok : ADVICE_ICON[a.kind])}</svg></span>
       <p>${esc(adviceText)}</p>
-    </section>
-    ${v.battery ? batteryCard(v.battery, t, f, clock, now) : ""}${v.machines ? `<section class="card machines">${bestLine(v.machines, t, f, clock, now)}</section>` : ""}${v.coming ? comingCard(v.coming, t, f) : ""}`;
+    </section>`,
+    v.battery && batteryCard(v.battery, t, f, clock, now),
+    v.machines && `<section class="card machines" data-card="machines">${bestLine(v.machines, t, f, clock, now)}</section>`,
+    v.coming && comingCard(v.coming, t, f),
+  ].filter(Boolean);
+}
+
+// Now written card by card (S26, P14): a card whose markup is as before stays untouched, a changed one is brought
+// to its new markup in place (see morph), so the flow's streaks keep running (P4) and a hint elsewhere stays. A
+// card is matched by its data-card; anything else on the page (the error message) goes.
+function writeNow(page, cards) {
+  const before = [...page.childNodes], kept = new Set(), tpl = document.createElement("template");
+  const old = new Map(before.filter((el) => el.dataset?.card).map((el) => [el.dataset.card, el]));
+  let prev = null;
+  for (const html of cards) {
+    const key = html.match(/data-card="([^"]+)"/)[1];
+    let el = old.get(key);
+    if (el?.sv !== html) {
+      tpl.innerHTML = html;
+      el = el ? morph(el, tpl.content.firstElementChild) : tpl.content.firstElementChild;
+      el.sv = html;
+    }
+    if ((prev ? prev.nextElementSibling : page.firstElementChild) !== el) prev ? prev.after(el) : page.prepend(el);
+    kept.add(el);
+    prev = el;
+  }
+  before.forEach((n) => kept.has(n) || n.remove());
+}
+
+// `el` brought to `to` (the same markup with newer values): the attributes and texts that differ are set, a node of
+// another kind is replaced, so the elements that stay keep their animations. Gives the node now in place.
+function morph(el, to) {
+  if (el.nodeName !== to.nodeName) { el.replaceWith(to); return to; }
+  if (el.nodeType !== Node.ELEMENT_NODE) { if (el.data !== to.data) el.data = to.data; return el; }
+  for (const { name } of [...el.attributes]) if (!to.hasAttribute(name)) el.removeAttribute(name);
+  for (const { name, value } of to.attributes) if (el.getAttribute(name) !== value) el.setAttribute(name, value);
+  const a = [...el.childNodes], b = [...to.childNodes];
+  b.forEach((n, i) => (a[i] ? morph(a[i], n) : el.append(n)));
+  a.slice(b.length).forEach((n) => n.remove());
+  return el;
 }
 
 // The battery: its ring (see battRing), how full in words, what it does now or how long it lasts, and when to run
@@ -183,7 +222,7 @@ function batteryCard(v, t, f, clock, now) {
   const state = v.state === "until" ? say((/^0?1\D/.test(until) && t.untilOne) || t.until, { t: until }) : t[v.state];
   const ringName = v.soon === null ? say(stored ? t.hRing : t.hRingNoSize, { p, k: stored })
     : say(v.range ? t.hRingSoon : t.hRingSoonMid, { p, a: Math.round(v.soon), b: Math.round(v.range?.[0]), c: Math.round(v.range?.[1]) });
-  return `<section class="card battery">
+  return `<section class="card battery" data-card="battery">
       <h2>${t.battery}</h2>
       ${helpButton(t, "battery")}
       <div class="ring-box">
@@ -242,10 +281,10 @@ function comingCard(v, t, f) {
     return `<li ${hint(name, "")} style="--c:${SUN_DOT}"><span>${f.weekday(date)}</span>${wxIcon(d.cover)}
       <span class="track"><i style="--v:${at(mid)}%"></i><b style="--a:${at(lo)}%;--b:${at(hi)}%"></b>${mark}${i ? "" : label}</span><span class="num">${near(f, mid)}</span></li>`;
   }).join("");
-  return `<section class="card coming">
+  return `<section class="card coming" data-card="coming">
       <h2><span>${t.comingDays}</span> <span class="num">kWh</span></h2>${helpButton(t, "days")}
       <ul class="days${line ? " with-use" : ""}" style="--u:${u}%">${rows}</ul>
     </section>`;
 }
 
-export { nowView, nowPage, learnGoIcons };
+export { nowView, nowPage, writeNow, learnGoIcons };

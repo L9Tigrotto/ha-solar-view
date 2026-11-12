@@ -2348,7 +2348,8 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
     const el = $(p, sel);
     el.focus();
     redraw();
-    console.assert(active() && active() !== el && active().matches(sel) && active().isConnected, `focus: lost on a redraw (${sel})`, active());
+    // Now keeps its elements through a redraw (see writeNow); the other pages are written anew.
+    console.assert(active() && (sel.startsWith("#now") ? active() === el : active() !== el) && active().matches(sel) && active().isConnected, `focus: lost on a redraw (${sel})`, active());
   }
   // A month step draws its card anew and keeps focus on itself, then the other way back to this month.
   for (const sel of ["#energy .daily .total .step-prev", "#energy .daily .total .step-next"]) {

@@ -45,7 +45,7 @@ guess = supported(guess) ?? supported(document.documentElement.lang || navigator
 const [, , { CSS }, { findForecast }, { MINUTE, FIVE_MIN, HOUR, DAY, clockOf, stateNum, esc, warnOnce }, { formats, hourCycle },
   { readConfig, requiredIds, optionalIds }, { skyAt }, { withOwnAdvice }, { totals, fetchStats },
   { LAST_KEY, predict, readData, slim, remembered, placeholder },
-  { line, battRing, sw, wxIcon }, , { nowView, nowPage, learnGoIcons }, { energyView, energyPage }, { paybackView, moneyView, moneyPage }] = await Promise.all([
+  { line, battRing, sw, wxIcon }, , { nowView, nowPage, writeNow, learnGoIcons }, { energyView, energyPage }, { paybackView, moneyView, moneyPage }] = await Promise.all([
   english, loadLanguage(guess), import(`./styles.js${version}`), import(`./forecast.js${version}`), import(`./core.js${version}`),
   import(`./format.js${version}`), import(`./config.js${version}`), import(`./sky.js${version}`), import(`./advice.js${version}`),
   import(`./stats.js${version}`), import(`./data.js${version}`), import(`./draw.js${version}`), import(`./money.js${version}`),
@@ -269,6 +269,9 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
   _asleep() { return !!this._dropped || (this.isConnected && document.hidden); }
   _wake() { if (this._dirty && this._hass && !this._asleep()) { this._dirty = false; this.hass = this._hass; } }
 
+  // A page out of view pauses its animations (see .page[data-out] in styles.js, P4).
+  _markOut() { PAGES.forEach((p) => this.shadowRoot.getElementById(p).toggleAttribute("data-out", !!this._visible && !this._visible.has(p))); }
+
   _paint(prefix, colors) { colors.slice(0, 3).forEach((c, i) => this.style.setProperty(`--${prefix}${i + 1}`, c)); }
 
   // Hovering, tapping or focusing anything with data-hint shows its sentence. Delegated, because
@@ -312,6 +315,7 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
       tip.style.transform = `translate(${Math.round(left)}px,${Math.round(up ? Math.max(8, above) : Math.min(below, box.height - tip.offsetHeight - 8))}px)`;
       tip.classList.add("on");
     };
+    this._showHint = show; // see _render
     root.addEventListener("pointerover", show);
     root.addEventListener("focusin", show);
     // Moving between the parts of one target (a ring's arcs) is not leaving it.
@@ -352,6 +356,7 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
     const seen = new IntersectionObserver((entries) => {
       const shown = (this._visible ??= new Set());
       for (const e of entries) if (e.intersectionRatio > 0) shown.add(e.target.id); else shown.delete(e.target.id);
+      this._markOut();
       if (PAGES.some((p) => shown.has(p) && this._built[p] !== this._keys[p])) this._render();
     }, { root: this._pager, threshold: [0, 0.01] });
     [...this._pager.children].forEach((p) => seen.observe(p));
@@ -618,6 +623,7 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
     const t = this._t;
     const $ = (id) => this.shadowRoot.getElementById(id);
     this.toggleAttribute("dark", dark);
+    this._markOut();
 
     // Three ways to have nothing to show. Still loading: the Energy settings or the statistics
     // have not answered, or Home Assistant is starting and the sensors are not there yet.
@@ -771,16 +777,15 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
       return;
     }
     // Only a page whose markup changed is written: the live values redraw Now alone, and a hint or focus on
-    // another page stays. A written page has new elements: its hint goes (the sentence belonged to the old
-    // numbers), and keyboard focus moves to the same control on it (see focusKey), or nowhere if it is gone.
-    const changed = write.filter((p) => html[p] !== this._html[p]);
-    const redrawn = (el) => !!el && changed.some((p) => $(p).contains(el));
-    if (redrawn(this._hintFor)) this._hint.classList.remove("on");
+    // another page stays. Energy and Money are written whole, Now card by card (see writeNow). Keyboard focus
+    // on a written page moves to the same control on it (see focusKey), or nowhere if it is gone.
+    const changed = write.filter((p) => p === "now" || html[p] !== this._html[p]); // Now's cards: writeNow skips the same ones
+    const hinted = this._hintFor, said = hinted?.dataset.hint;
     const active = this.shadowRoot.activeElement;
     const focusedPage = active ? changed.find((p) => $(p).contains(active)) : null;
     const focused = focusedPage ? focusKey($(focusedPage), active) : null;
     changed.forEach((p) => {
-      $(p).innerHTML = html[p];
+      if (p === "now") writeNow($(p), html[p]); else $(p).innerHTML = html[p];
       this._rove($(p));
       // Each "?" named with its card's title, so a list of buttons tells them apart.
       $(p).querySelectorAll(".card > h2 + .help").forEach((b) => {
@@ -788,6 +793,11 @@ ${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "
         b.setAttribute("aria-label", `${t.helpTitle}: ${(h.querySelector("span") ?? h).textContent}`);
       });
     });
+    // A hint goes with its mark, and says its mark's new sentence when that changed.
+    if (hinted && this._hint.classList.contains("on")) {
+      if (!hinted.isConnected) this._hint.classList.remove("on");
+      else if (hinted.dataset.hint !== said) this._showHint({ target: hinted });
+    }
     for (const p of write) {
       this._html[p] = html[p];
       this._built[p] = keys[p];
