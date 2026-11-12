@@ -654,7 +654,7 @@ if (q.get("shot") === "1") document.getElementById("dev-open").hidden = true;
   attach(p);
   let saved = null;
   try { saved = localStorage.getItem("solar-view-language"); } catch (e) { /* no storage */ }
-  const pick = $(p, 'select[name="language"]'), tab = () => $(p, ".tabs button").textContent;
+  const pick = p._gearDialog().querySelector('select[name="language"]'), tab = () => $(p, ".tabs button").textContent;
   pick.value = late;
   pick.dispatchEvent(new Event("change", { bubbles: true }));
   const kept = tab() === STRINGS.en.tabNow && p.getAttribute("lang") === "en";
@@ -705,7 +705,10 @@ const TEXTS = Object.fromEntries(await Promise.all(Object.keys(LANGUAGES).map(as
   // Check: the help lines follow the level: month end and days to come only where Production draws them, the
   // battery's range only from the sensor, the small rings' line naming where they come from, the weather line
   // only with an icon drawn.
-  const shown = (p, k) => { const li = $(p, `dialog.read [data-t="${k}"]`)?.closest("li"); return !!li && !li.hidden; };
+  const shown = (p, k) => {
+    p.shadowRoot.querySelectorAll(".help[data-card]").forEach((b) => p._readDialog(b.dataset.card)); // built on first open
+    const li = $(p, `dialog.read [data-t="${k}"]`)?.closest("li"); return !!li && !li.hidden;
+  };
   for (const [what, p] of [["level none", none], ["level usual", usual], ["sensor", flat]]) {
     const rings = !!$(p, ".today.share .rings");
     console.assert(shown(p, "helpProdEnd") === !!$(p, ".daily i.ghost") && shown(p, "helpProdAhead") === !!$(p, ".daily li.ahead")
@@ -1368,9 +1371,10 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     // The "?": a labelled button that opens a modal dialog; closing it the way Escape does gives focus back to it.
     p = await at("sunny", null);
     attach(p);
-    const help = $(p, ".battery button.help"), read = $(p, "dialog.read");
+    const help = $(p, ".battery button.help");
     console.assert(help?.getAttribute("aria-label")?.startsWith(`${t.helpTitle}: `) && help.querySelector("svg[aria-hidden=true]"), "help: not a labelled button", help?.outerHTML);
     help?.focus(); help?.click();
+    const read = $(p, "dialog.read");
     console.assert(read?.open && read.matches(":modal") && read.querySelector("h2").textContent === t.helpTitle && read.querySelectorAll("li span").length === 5
       && [...read.querySelectorAll("[data-t]")].every((el) => el.textContent.trim()), "help: no modal dialog with its title and lines");
     if (read?.requestClose) read.requestClose();
@@ -1829,8 +1833,8 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   const cards = buttons.map((b) => b.dataset.card);
   console.assert(!extras || cards.join(" ") === "battery days share battday daily recent prices table", "help: not one per card", cards); // ?extras=0: other money cards
   for (const b of buttons) {
-    const read = $(p, `dialog.read[data-card="${b.dataset.card}"]`);
     b.focus(); b.click();
+    const read = $(p, `dialog.read[data-card="${b.dataset.card}"]`);
     console.assert(b.getAttribute("aria-label")?.startsWith(`${t.helpTitle}: `) && read?.getAttribute("aria-label") === b.getAttribute("aria-label") && read?.open && read.matches(":modal") && read.querySelectorAll("li span").length >= 2
       && [...read.querySelectorAll("[data-t]")].every((el) => el.textContent.trim()), `help ${b.dataset.card}: no modal dialog with its lines`);
     if (read?.requestClose) read.requestClose();
@@ -1946,7 +1950,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
 {
   const SHOW = "solar-view-show";
   // A checkbox only fires change while connected.
-  const flip = (p, n) => { document.body.append(p); $(p, `dialog input[name="${n}"]`)?.click(); p.remove(); };
+  const flip = (p, n) => { document.body.append(p); p._gearDialog().querySelector(`input[name="${n}"]`)?.click(); p.remove(); };
   // A panel created with these switches off, as a reload would find them.
   const off = async (s, names) => {
     localStorage.setItem(SHOW, JSON.stringify(Object.fromEntries(names.map((n) => [n, false]))));
@@ -1958,10 +1962,11 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   try {
     let p = await draw(fakeHass(SCENARIOS.sunny), en);
     attach(p); // showModal needs a connected dialog
-    const gear = $(p, "button.gear"), dialog = $(p, "dialog");
-    const switches = [...p.shadowRoot.querySelectorAll("dialog input[type=checkbox][role=switch]")];
+    const gear = $(p, "button.gear");
+    console.assert(!$(p, "dialog"), "dialogs: built before they open (P19)");
     console.assert(gear?.getAttribute("aria-label")?.trim() && gear.querySelector("svg[aria-hidden=true]"), "switches: the gear is not a button with a name", gear?.outerHTML);
     gear?.focus(); gear?.click();
+    const dialog = $(p, "dialog"), switches = [...p.shadowRoot.querySelectorAll("dialog input[type=checkbox][role=switch]")];
     console.assert(dialog?.open && dialog.matches(":modal"), "switches: the gear does not open a modal dialog");
     console.assert(switches.length === 3 && switches.every((s) => s.checked && s.labels?.[0]?.textContent.trim()), "switches: not three labelled switches, all on", switches.map((s) => s.labels?.[0]?.textContent));
     console.assert(JSON.stringify(switches.map((s) => s.name)) === JSON.stringify(SWITCH_NAMES), "switches: the drawer's names differ from the gear's", switches.map((s) => s.name));
@@ -1988,7 +1993,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
     flip(p, "rain");
     const kept = localStorage.getItem(SHOW), again = await draw(fakeHass(SCENARIOS.rain), en);
     localStorage.removeItem(SHOW);
-    console.assert(kept === '{"rain":false}' && $(again, ".rain")?.hidden === true && $(again, 'input[name="rain"]')?.checked === false, "switches: not kept for a reload", kept);
+    console.assert(kept === '{"rain":false}' && $(again, ".rain")?.hidden === true && again._gearDialog().querySelector('input[name="rain"]')?.checked === false, "switches: not kept for a reload", kept);
 
     // Storage that throws, on every call or already on reading localStorage: everything drawn, a switch still works.
     const real = Object.getOwnPropertyDescriptor(window, "localStorage");
@@ -2380,7 +2385,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   console.assert(tip(), "hint: not shown again after leaving and coming back");
   let saved = null;
   try { saved = localStorage.getItem("solar-view-language"); } catch (e) { /* no storage */ }
-  const pick = $(p, 'select[name="language"]');
+  const pick = p._gearDialog().querySelector('select[name="language"]');
   pick.value = "it";
   pick.dispatchEvent(new Event("change", { bubbles: true }));
   console.assert(p.getAttribute("lang") === "it" && tabs[0].textContent === STRINGS.it.tabNow && getComputedStyle(pick).width !== "48px", "language: not applied at once, or styled as a switch");
