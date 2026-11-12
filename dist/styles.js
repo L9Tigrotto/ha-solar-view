@@ -605,6 +605,8 @@ dialog form > button{display:block;min-height:44px;margin:16px 0 0 auto;padding:
   /* Same clock as the streak, whose front reaches the end of the path at 78 % of each run. */
   .flow .lit{animation:tip 2.8s linear infinite}
   @keyframes tip{0%,74%{opacity:0}80%,95%{opacity:1}100%{opacity:0}}
+  /* Paused while their page is out of view (P4); they go on from there when it comes back. */
+  .page[data-out] .flow *{animation-play-state:paused}
   .hint{transition:opacity .2s var(--ease),visibility .2s}
   @keyframes breathe{50%{transform:scale(1.12);opacity:.75}}
   .veil{transition:opacity 1.4s var(--ease)}
