@@ -2,6 +2,7 @@
    a month's sunlight). Pure, for the page and the statistics. */
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
+/** @type {typeof import("./core.js")} */
 const { MINUTE, HALF_HOUR, DAY, clamp01, num, daysIn } = await import(`./core.js${v}`);
 
 // ---- Sky: colours follow the sun's height (sun.sun elevation, degrees) ----
@@ -99,7 +100,7 @@ const declination = (n) => 23.45 * (Math.PI / 180) * Math.sin((2 * Math.PI * (28
 // from the date, the hour and the longitude, then Haurwitz's clear sky. The equation of time is left out (a
 // quarter hour at most): the usual day only compares nearby days by it, which shifts them alike.
 function clearSky(t, lat, lon) {
-  const rad = Math.PI / 180, d = new Date(t + HALF_HOUR), n = (d - Date.UTC(d.getUTCFullYear(), 0, 1)) / DAY;
+  const rad = Math.PI / 180, d = new Date(t + HALF_HOUR), n = (d.getTime() - Date.UTC(d.getUTCFullYear(), 0, 1)) / DAY;
   const decl = declination(n);
   const ha = (d.getUTCHours() + d.getUTCMinutes() / 60 + lon / 15 - 12) * 15 * rad;
   const c = Math.sin(lat * rad) * Math.sin(decl) + Math.cos(lat * rad) * Math.cos(decl) * Math.cos(ha);

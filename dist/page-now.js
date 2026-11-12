@@ -3,6 +3,8 @@
    into HTML. */
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
+/** @type {[typeof import("./core.js"), typeof import("./draw.js"), typeof import("./advice.js"), typeof import("./sky.js"),
+ *   typeof import("./data.js"), typeof import("./forecast.js")]} */
 const [{ HALF_HOUR, HOUR, NOON, hourStart, clamp01, say, cap, esc }, { skyIcon, HOUSE, PLUG, line, ADVICE_ICON, SUN_DOT, hint, big, helpButton, wxIcon, battRing, nowLabel },
   { advice, outlookAdvice, advicePool, outlookLastsH, batteryWord, isLow, gridCharging, sources, MIN_FLOW_W, EXPORT_W, IMPORT_W },
   { SKY_NIGHT_DEG, SKY_DAY_DEG, RAIN_DAY_MM, coverOf }, { fromSensor, weatherOnly }, { SOLAR_SPREAD }] = await Promise.all([
