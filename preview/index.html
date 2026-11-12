@@ -42,6 +42,7 @@
      ?loading=2 starts with 2 seconds of "Home Assistant is still starting"; the button replays it.
      ?page=now|energy|money opens on that page, ?shot=1 hides this tool's controls.
      ?check=skeleton compares the loading skeleton with the loaded page, ?sweep=1 tries every combination of sensor values.
+     ?visible=all|now|null has every panel count those pages in view, whatever its pager says.
      ?display=rain:0,clouds:0 turns those display switches off on this device, as the gear would.
      The "preview" drawer sets all of this live, plus the time (?at=2026-10-25T11:00), the forecast and
      the live values on top of the scenario; every change goes into the URL, so a link reproduces it.
@@ -63,7 +64,16 @@
 <solar-view></solar-view>
 <script type="module">
 import { readConfig } from "../dist/config.js";
-import { STRINGS, LANGUAGES, loadLanguage, formats, clockOf, totals as statsTotals, ring, SKY, skyAt, dawnOf, greyOf, moonPhase, paybackLeft, monthSun, seasonGuess, yearKeys, shareRing, paybackCard, socDay, moneyHtml, battDayCard, wearOf } from "../dist/solar-view.js";
+import { STRINGS, LANGUAGES, loadLanguage } from "../dist/solar-view.js";
+import { formats } from "../dist/format.js";
+import { clockOf, yearKeys } from "../dist/core.js";
+import { totals as statsTotals, socDay } from "../dist/stats.js";
+import { SKY, skyAt, dawnOf, greyOf, moonPhase, monthSun } from "../dist/sky.js";
+import { wearOf } from "../dist/advice.js";
+import { ring } from "../dist/draw.js";
+import { paybackLeft, seasonGuess } from "../dist/money.js";
+import { shareRing, battDayView, battDayCard } from "../dist/page-energy.js";
+import { paybackCard, moneyHtml } from "../dist/page-money.js";
 // The entities and settings in one object, as the panel keeps them (see _load).
 const fromConfig = (...a) => { const { ids, cfg } = readConfig(...a); return { ...ids, ...cfg }; };
 // totals as the checks call it: the entities and settings in one object, then the day, 5 minute and hour rows, the
@@ -207,6 +217,10 @@ const configOf = (s) => ({ ...(extras && q.get("payback") !== "0" ? { system_cos
   ...(s?.batteryAgeDays ? { battery_install_date: new Date(localMidnight(s.batteryAgeDays)).toISOString().slice(0, 10) } : {}),
   ...(s?.exportOff ? { export_max_kw: 0 } : {}), ...(s?.floor != null ? { battery_floor: s.floor } : {}), ...(s?.level ? { level: s.level } : {}) });
 const q = new URLSearchParams(location.search);
+// ?visible=all|now|null: every panel counts those pages in view whatever its pager reports (see _visible in the panel;
+// null: not known yet, so all), so the checks act the same with the pane shown or hidden. Without it the pager decides.
+const VISIBLE = { all: ["now", "energy", "money"], now: ["now"], null: null }[q.get("visible")];
+const pinVisible = (p) => { if (VISIBLE !== undefined) Object.defineProperty(p, "_visible", { configurable: true, get: () => VISIBLE && new Set(VISIBLE), set() {} }); };
 const name = q.get("scenario") in SCENARIOS ? q.get("scenario") : "midday";
 // Language, theme and viewer can change from the drawer once the checks have run.
 let lang = q.get("lang") || navigator.language;
@@ -394,6 +408,7 @@ function fakeHass(s, loading = false) {
 }
 
 const panel = document.querySelector("solar-view");
+pinVisible(panel);
 if (q.has("day")) panel.testDay = Number(q.get("day"));
 panel.narrow = innerWidth < 870;
 
@@ -598,6 +613,7 @@ fill();
 // A throwaway panel, drawn once its numbers have loaded.
 const draw = async (hass, more = {}, config) => {
   const p = document.createElement("solar-view");
+  pinVisible(p);
   if (config) p.panel = { config };
   Object.assign(p, more.props || {});
   p.hass = { ...hass, ...more, props: undefined };
@@ -648,7 +664,7 @@ if (q.get("shot") === "1") document.getElementById("dev-open").hidden = true;
     "a language loaded late: not kept until its file came, or not applied", late, { kept, tab: tab() });
   console.assert($(p, ".advice p").textContent === STRINGS[late].adviceGo[1] && $(p, ".advice svg").innerHTML.includes("M20 21v-8"), "a language loaded late: its go line without its icon");
   p.testDay = STRINGS[late].adviceGo.length;
-  p._drawn = ""; p.hass = { ...p.hass };
+  p._redraw();
   await tick();
   console.assert($(p, ".advice p").textContent === "Own line", "a language loaded late: the owner's own lines missing", $(p, ".advice p").textContent);
   try { saved === null ? localStorage.removeItem("solar-view-language") : localStorage.setItem("solar-view-language", saved); } catch (e) { /* no storage */ }
@@ -1175,7 +1191,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
 
 // Check: money so far, hour by hour, at each hour's price; standby left out of the savings, never below 0.
 {
-  const { moneySoFar } = await import("../dist/forecast.js");
+  const { moneySoFar } = await import("../dist/money.js");
   const H = 36e5;
   const hours = { [H]: { loadKwh: 1, gridImportKwh: 0.2, gridExportKwh: 0 }, [2 * H]: { loadKwh: 0.5, gridImportKwh: 0, gridExportKwh: 1 },
     [3 * H]: { loadKwh: 0.05, gridImportKwh: 0.05, gridExportKwh: 0 } };
@@ -1500,7 +1516,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
       console.assert(JSON.stringify(picked(p)) === '[0,1,"0"]', "days: a tapped bar not picked", picked(p));
       days(p)[1].dispatchEvent(new FocusEvent("focusin", { bubbles: true, composed: true }));
       console.assert(JSON.stringify(picked(p)) === '[1,1,"1"]', "days: a focused bar not picked", picked(p));
-      p._drawn = ""; p.hass = { ...p.hass };
+      p._redraw();
       console.assert(JSON.stringify(picked(p)) === '[1,1,"1"]', "days: the picked day lost in a redraw", picked(p));
     }
     // Production: the 12 months up to this one, oldest first, this one last, pressed and "so far", the year
@@ -1524,7 +1540,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     const stops = (sel) => [...energy(p).querySelectorAll(`.daily ${sel} [tabindex="0"]`)];
     console.assert(same(stops(".year").map((b) => b.dataset.month), [back.dataset.month]) && same(stops(".week").map((li) => li.dataset.i), [all[length - 1].dataset.i]),
       "production: not one Tab stop per chart, on the pick", stops(".year").length, stops(".week").length);
-    p._pick = {}; p._drawn = ""; p.hass = { ...p.hass };
+    p._pick = {}; p._redraw();
   } catch (e) { console.assert(false, "energy: threw", e); }
 }
 
@@ -2268,7 +2284,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   const next = (k) => new Date(Date.UTC(+k.slice(0, 4), +k.slice(5, 7), 1)).toISOString().slice(0, 7);
   const x = { loadKwh: 10, gridImportKwh: 2, gridExportKwh: 1, costMoney: null, earnedMoney: null, days: 30 }, all = [];
   for (let k = "2025-01"; k < key; k = next(k)) all.push([k, x]);
-  const html = (months, { fee = 0, price = { buy: 0.3, sell: 0.1 }, pick = null } = {}) => moneyHtml({ t, f, clock: utc, pick, data: {
+  const html = (months, { fee = 0, price = { buy: 0.3, sell: 0.1 }, pick = null } = {}) => moneyHtml({ t, f, clock: utc, now: Date.now(), pick, data: {
     price, sends: true, payback: { cost: 1e6, before: 0, since: null }, months, month: x, lastMonth: x, monthKey: key, ahead: null, outlook: null, usualToday: null,
     monthDays: [{ date: Date.parse(`${key}-01`) + 432e5, ...x }], billFixed: { months: {}, now: fee } } });
   console.assert(!html(all).includes(t.paybackIncomplete) && html(all.filter((_, i) => i !== 1)).includes(t.paybackIncomplete), "payback: a month missing from the month rows counted as nothing");
@@ -2291,7 +2307,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   console.assert(late.monthDays[3]?.solarKwh === 6, "totals: just after midnight yesterday unknown while its 5 minute rows hold it", late.monthDays[3]);
   const soc = socDay({ a: [{ start: day + 9 * H, mean: 20 }, { start: day + 10 * H, mean: 30 }], b: [{ start: day + 10 * H, mean: 60 }] }, { a: 5, b: 15 }, utc, day + 12 * H, ["a", "b"]);
   console.assert(soc.length === 1 && soc[0][0] === day + 10 * H && soc[0][1] === 52.5, "battery charge: one battery's mean read as all of them", soc);
-  const { moneySoFar } = await import("../dist/forecast.js");
+  const { moneySoFar } = await import("../dist/money.js");
   const m = moneySoFar({ [day]: { loadKwh: 1, gridImportKwh: null, gridExportKwh: 0.5 } }, () => 0.3, () => 0.1, 0, day + H);
   console.assert(m.saved === null && m.cost === null && m.earned === 0.05, "money so far: an unknown import counted as 0", m);
 }
@@ -2302,11 +2318,11 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   const t = STRINGS.en, f = formats("en", "EUR", "h23", "Europe/Rome"), clock = clockOf("Europe/Rome"), H = 36e5, real = Date.now;
   const card = (midnightUtc, rows = []) => {
     Date.now = () => midnightUtc + 12 * H;
-    try { return battDayCard({ data: { batt: null, now: { soc: null }, battDay: rows, outlook: null }, t, f, clock, pick: null }); } finally { Date.now = real; }
+    try { return battDayCard(battDayView({ batt: null, now: { soc: null }, battDay: rows, outlook: null }, Date.now(), clock, null), t, f, clock); } finally { Date.now = real; }
   };
   const cells = (html) => [...html.split('<ol class="hours24"')[1].split("</ol>")[0].matchAll(/<li([^>]*)>/g)].map((m) => m[1].match(/data-hint="([^"]*)"/)?.[1] ?? "");
   const spring = card(Date.UTC(2026, 2, 28, 23)), normal = card(Date.UTC(2026, 10, 4, 23));
-  const fall = card(Date.UTC(2026, 9, 24, 22), [[Date.UTC(2026, 9, 25, 0), null, 0, 0, 1, 1, 0], [Date.UTC(2026, 9, 25, 1), null, 0, 0, 2, 2, 0]]);
+  const fall = card(Date.UTC(2026, 9, 24, 22), [{ t: Date.UTC(2026, 9, 25, 0), soc: null, charge: 0, batt: 0, sun: 1, house: 1, grid: 0 }, { t: Date.UTC(2026, 9, 25, 1), soc: null, charge: 0, batt: 0, sun: 2, house: 2, grid: 0 }]);
   const back = cells(fall);
   console.assert(cells(spring).length === 23 && back.length === 25 && cells(normal).length === 24 && spring.includes("--n:23") && fall.includes("--n:25")
     && /<div class="ticks"><span style="left:0%">00</.test(spring + fall), "hour by hour: not the day's real hours, or not from midnight", cells(spring).length, back.length);
@@ -2326,7 +2342,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   p.hass = { ...fakeHass(SCENARIOS.sunny), ...en };
   await tick(100);
   console.assert(!p.shadowRoot.querySelector(".pager").classList.contains("message") && !page("energy").hidden && !tabs[1].hidden, "offline: pages not back with the numbers");
-  const redraw = () => { p._drawn = ""; p._html = []; p._render(); };
+  const redraw = () => { p._html = {}; p._redraw(); };
   const active = () => p.shadowRoot.activeElement;
   for (const sel of ['#energy .help[data-card="daily"]', "#energy .daily [data-month]", '#energy .battday .hours24 li[tabindex="0"]', '#now .node[data-focus-key="flow:170:146"]']) {
     const el = $(p, sel);

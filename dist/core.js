@@ -49,6 +49,8 @@ export function dayHours(ms, clock) {
   for (; clock(t).key === key; t += HOUR) hours.push(t);
   return hours;
 }
+// The hour starting at ms holds now.
+export const inHour = (ms, now) => ms <= now && now < ms + HOUR;
 // A day key moved by whole days. Plain calendar arithmetic, so daylight saving cannot bend it.
 export const shiftKey = (key, days) => new Date(Date.parse(key) + days * DAY).toISOString().slice(0, 10);
 // A month key ("2026-10") moved by whole months.
@@ -72,6 +74,8 @@ export const sumKnown = (values) => (values.every(Number.isFinite) ? values.redu
 // Energy at a price: 0 kWh costs 0 even without a price; unknown energy or price, null. The one rule for
 // money from kWh: the Money page's days and months, and today's money so far (moneySoFar).
 export const pricedEnergy = (kwh, rate) => (!Number.isFinite(kwh) ? null : kwh === 0 ? 0 : Number.isFinite(rate) ? kwh * rate : null);
+// The outlook's battery runs start from the floor at the lowest: a reading under it moves them by this much.
+export const socShift = (soc, floor) => soc - Math.min(100, Math.max(soc, floor));
 export const clamp01 = (x) => Math.min(1, Math.max(0, x));
 export const pct = (v) => Math.round(v * 100);
 
