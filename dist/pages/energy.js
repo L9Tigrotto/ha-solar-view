@@ -3,11 +3,11 @@
    energyPage turns it into HTML. */
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
-/** @type {[typeof import("./core.js"), typeof import("./draw.js"), typeof import("./data.js"), typeof import("./stats.js")]} */
+/** @type {[typeof import("../lib/core.js"), typeof import("../lib/draw.js"), typeof import("../lib/data.js"), typeof import("../lib/stats.js")]} */
 const [{ MINUTE, FIVE_MIN, HOUR, clamp01, pct, say, cap, dayHours, hourStart, inHour, socShift, sumKnown, daysIn, yearKeys },
   { hint, big, markOf, helpButton, TRACK, ringSize, splitRing, legendHtml, lineGrid, readout, monthSteps, steps, dayLine, monthTotal, monthPicker, nowLabel, boldDate, monthName },
   { fromSensor, weatherOnly }, { balanceKwh }] = await Promise.all([
-  import(`./core.js${v}`), import(`./draw.js${v}`), import(`./data.js${v}`), import(`./stats.js${v}`)]);
+  import(`../lib/core.js${v}`), import(`../lib/draw.js${v}`), import(`../lib/data.js${v}`), import(`../lib/stats.js${v}`)]);
 
 const MIN_USE_KWH = 0.05; // under this the house has used nothing yet today, so there is no share to show
 const SENT_KWH = 0.05;    // "sent to the grid" rows stay hidden below this
@@ -298,7 +298,7 @@ function battDayCard(v, t, f, clock) {
 // use) the usual day's; with weather alone the days stop there, and the month's end shows only once they
 // reach it. { days: [{ date, kwh, usual }], end } (end null while a day of the month has no numbers on
 // record), or null without a forecast or a day to come.
-/** @param {import("./data.js").Data} data */
+/** @param {import("../lib/data.js").Data} data */
 function monthAhead(data) {
   const a = data.ahead, list = data.monthDays, sensor = fromSensor(data.mode);
   if (!list?.length || !a || !(sensor || Number.isFinite(data.usualSun))) return null;

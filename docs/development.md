@@ -1,14 +1,14 @@
 # Development
 
-There is no build step. The files in `dist/` are what Home Assistant loads, and what HACS downloads: it takes every `.js` file in that folder, so nothing else belongs there.
+There is no build step. The files in `dist/` are what Home Assistant loads, and what HACS downloads: it takes every file in that folder and its subfolders, so nothing else belongs there. `solar-view.js` stays at the top (HACS looks for it by name); the rest is in `lib/`, `pages/` and `strings/`.
 
 | File | What is in it |
 |---|---|
 | `solar-view.js` | Rules, logic, data loading, drawing, the custom element. |
-| `strings-en.js` | Every English text. Also the fallback: any key another language lacks reads in English. |
-| `strings-it.js`, `strings-es.js`, ... | Every text of one language. The panel loads English, plus the language on screen when it is first shown (see `loadLanguage` in `solar-view.js`). |
-| `styles.js` | The stylesheet, as one string. |
-| `forecast.js` | The day simulation and what the page derives from the forecast. Plain functions, no imports. |
+| `strings/en.js` | Every English text. Also the fallback: any key another language lacks reads in English. |
+| `strings/it.js`, `strings/es.js`, ... | Every text of one language. The panel loads English, plus the language on screen when it is first shown (see `loadLanguage` in `solar-view.js`). |
+| `lib/styles.js` | The stylesheet, as one string. |
+| `lib/forecast.js` | The day simulation and what the page derives from the forecast. Plain functions, no imports. |
 | `preview/simulate-cases.json` | Not in `dist/`: the day simulation cases, shared with the integration's Python test (see Checks). |
 | `preview/home-days.json` | Not in `dist/`: a real house's 2017, day by day, for the preview's past days. Built by `preview/home-days.py` from Open Power System Data's household data (house DE_KN_residential4 in Konstanz, about 11 kWp, CC BY 4.0, [doi:10.25832/household_data/2020-04-15](https://doi.org/10.25832/household_data/2020-04-15)), scaled to about 6 kWp (sun and use alike) and with a 10 kWh battery simulated on its hours, as the house had none. Days whose PV hours copy another day's (10 to 13 May, 23 November and 25 November to 31 December) are the same dates of 2016, listed in `from_2016`. |
 | `preview/home-hours.json` | Not in `dist/`: the same house and simulated battery as `home-days.json`, hour by hour (sun and use in kWh, the battery's charge in % at the end of each hour, 24 slots a day), written by `preview/home-days.py` as its second file. The drawer's "real" live values read it. |
@@ -72,7 +72,7 @@ The day simulation is checked against `preview/simulate-cases.json`: hours, batt
 
 Every load also checks that the marks on rings (the power origin rings too), the coming days' pills, the day and hour bars and the gear reach 3:1 contrast against the lightest sky of each theme, and logs each ratio as "contrast of the marks".
 
-Every load also checks the texts' loading: the first load fetches only `strings-en.js` and the guessed language's file (the gear's choice, else the page's `lang`, which the preview sets from `?lang=` as Home Assistant does from the profile), and a language the gear picks that is not loaded yet comes without a reload, with its numbers, its go icons and the owner's own lines. A file that fails to load (the panel then stays English) is not checked: rename one in `dist/` by hand to try it.
+Every load also checks the texts' loading: the first load fetches only `strings/en.js` and the guessed language's file (the gear's choice, else the page's `lang`, which the preview sets from `?lang=` as Home Assistant does from the profile), and a language the gear picks that is not loaded yet comes without a reload, with its numbers, its go icons and the owner's own lines. A file that fails to load (the panel then stays English) is not checked: rename one in `dist/` by hand to try it.
 
 `?check=skeleton` must log "0 differ": the loading skeleton has to sit exactly where the loaded page puts things, so nothing jumps when the numbers arrive. Run it after any change to markup, CSS or text length, at phone width.
 
@@ -82,7 +82,7 @@ The repository has no releases, so HACS follows the latest commit on `main`: eve
 
 ## Adding or fixing a language
 
-Each language has its own file, `dist/strings-xx.js`, named by the language code. To add a language, copy `strings-en.js` to the new code's file, rename its `en` key to the code, and translate it.
+Each language has its own file, `dist/strings/xx.js`, named by the language code. To add a language, copy `strings/en.js` to the new code's file, rename its `en` key to the code, and translate it.
 
 - Every key of `en` must be there, and the language its own name in `LANGUAGES` (in `solar-view.js`), which the gear lists and the preview checks.
 - An advice pool can have its own lines, two or more, except `adviceGo`: the same number as in `en`, in the same order, since each line names the appliance its icon shows.
