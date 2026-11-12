@@ -25,6 +25,8 @@ export const STRINGS = {
     sun: "Sun", noSun: "No sun", battery: "Battery", home: "Home", grid: "Grid",
     empty: "Empty", low: "Low", good: "Good", nearlyFull: "Almost full", full: "Full",
     noUseYet: "The house has not used anything yet today",
+    // The first days, before a usual day is on record (see usualIn): {n} days still to go, 2 or more; then one.
+    learning: "Learning your usual day: predictions start in {n} days", learningOne: "Learning your usual day: predictions start tomorrow",
     charging: "Charging thanks to the sun", chargingGrid: "Charging from the grid", discharging: "Powering the house", resting: "Resting",
     adviceTitle: "Advice",
     // Battery wear, a card above the advice (see wearOf): health {p}, age {y} in whole years (9 or more).
@@ -213,6 +215,8 @@ export const STRINGS = {
     helpLow: "Red ring: the battery is low",
     offlineTitle: "Inverter not reachable",
     offline: "The inverter isn't answering for now. The numbers will come back as soon as they're available.",
+    // When the live readings stopped, or the last came (a frozen inverter): {t} a time, or a date and a time.
+    lastUpdate: "Last update: {t}",
     setupTitle: "Let's set up the solar panels",
     setup: "We can't find the solar production sensor yet.",
     setupGone: "Some sensors set up in Energy can't be found.",
@@ -222,6 +226,13 @@ export const STRINGS = {
     missing: "Sensors not found:",
     gearLabel: "Display settings", showTitle: "Show on this device", showDone: "Done",
     showNote: "Only this device. Others keep their own choice.",
+    // The setup check in the gear dialog, admins only (see _fillCheck): each feature, then on, or off and what to set.
+    chkTitle: "Setup check (admins only)", chkLevel: "Predictions", chkAuto: "automatic: {a}",
+    chkStepped: "{a} (asked for {b}, its data is missing)", chkBattery: "Battery size", chkBatteryOff: "unknown: set battery_kwh, or the capacity in the Energy settings",
+    chkMoneyOff: "no price: add one in the Energy settings",
+    chkPaybackOff: "off: set system_cost", chkBands: "Price bands", chkBandsOff: "off: set tariff",
+    chkOn: "ok", chkMachineSensor: "learned from {s}", chkMachineTyped: "assumed: {k} kWh over {h} h",
+    chkMachineOff: "off: set its kwh and hours",
     showSky: "Sky", swSunHeight: "Sun height", swClouds: "Clouds", swRain: "Rain and snow",
     tabEnergy: "Energy", tabMoney: "Money",
     wxSunny: "sunny", wxPartly: "partly cloudy", wxCloudy: "cloudy", wxRain: "rain",
@@ -230,6 +241,8 @@ export const STRINGS = {
     paybackTitle: "Payback",
     paybackOf: "{a} of {b} back",
     paybackLeft: "About {d} left",
+    // Under the payback ring: what this month brought back so far (savings, and sales while export is on).
+    paybackMonth: "This month: {v} saved",
     paybackRange: "{a} to {b}",
     paidBack: "Paid back",
     helpRecentBar: "Line: what the sun and the battery saved each day of this month, a dot a day",
@@ -292,6 +305,8 @@ export const STRINGS = {
     hDayUsual: "On {d}, the panels should make about {k}, as on a usual day",
     prodEnd: "Month end, estimate",
     prodEndAbout: "about {k}",
+    // Production, a month with days missing: its total is only the days on record (in its hint and over its total).
+    prodMissing: "days not on record: {n}",
     prodEndHint: "{m}: {a}, about {e} by the end (estimate)",
     helpProdEnd: "Faded bar on this month: where it should end, an estimate",
     helpProdAhead: "Dashes: the sun expected on the days left this month, from the solar forecast as far as it reaches, then from a usual day. Tap a day to read it",

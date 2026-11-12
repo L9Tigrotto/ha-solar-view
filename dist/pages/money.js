@@ -162,7 +162,7 @@ function paybackHtml(v, t, f) {
         ${ring(v.share, "--sun", paid ? head : of, paid ? "" : f.moneyWhole(v.cost))}
         <div class="ring-mid" aria-hidden="true">${paid ? `<svg class="done" viewBox="0 0 24 24">${ADVICE_ICON.ok}</svg>` : `<span class="amount">${f.moneyWhole(got)}</span>`}</div>
       </div>
-      ${paid ? `<p>${head}</p>` : `<p class="ring-name">${t.plantCost}</p>`}${when ? `<p class="money">${when}</p>` : ""}
+      ${paid ? `<p>${head}</p>` : `<p class="ring-name">${t.plantCost}</p>`}${v.month === null ? "" : `<p class="money month">${say(t.paybackMonth, { v: f.moneyWhole(v.month) })}</p>`}${when ? `<p class="money">${when}</p>` : ""}
     </section>`;
 }
 // The card from a ledger in one step (see paybackOf).

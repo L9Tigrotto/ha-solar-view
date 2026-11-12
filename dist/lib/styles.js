@@ -6,10 +6,16 @@
    Sizes follow the panel (container queries), not the window: the sidebar may be open. */
 export const CSS = `
 :host{
-  display:flex;flex-direction:column;position:relative;overflow:hidden;container-type:size;
-  /* Big phone text (see textScale in solar-view.js): the whole panel zooms by --zf, as a browser zooms a page,
-     and every text size in this sheet is divided by it again, since the app already enlarges text; --zs for chart text. */
-  zoom:var(--zf,1);height:calc(100dvh / var(--zf,1));
+  display:flex;flex-direction:column;position:relative;overflow:hidden;container:panel / size;
+  /* Big phone text (see textScale in shell.js): the phone enlarges text by --zf, and the whole panel zooms by
+     --z, as a browser zooms a page. --z is 70 % of the phone's extra size (2 gives 1.7): the full size was still
+     too big on the owner's parents' phones. Every text size in this sheet is divided by --zt, the part the app
+     already enlarged (--zf; the preview, whose browser enlarges nothing, sets it to 1), so text ends at --z;
+     --zs for chart text. */
+  --z:calc(1 + (var(--zf,1) - 1) * .7);
+  zoom:var(--z);height:calc(100dvh / var(--z));--zt:var(--zf,1);
+  /* The tab bar and the gear grow with the text up to 1.3 times, no more: they zoom back by --cap. */
+  --cap:calc(min(var(--z),1.3) / var(--z));
   color-scheme:light;
   --ink:#0e2236; --ink-2:#27405a; --paper:#ffffff;
   --card:rgba(255,255,255,.65); --card-line:rgba(255,255,255,.8);
@@ -25,9 +31,9 @@ export const CSS = `
      lines, lead lines, card titles, page titles (body is the 16px below; the big numbers stand apart).
      Weights: 400 text, 500 labels and lead lines, 600 values, 700 titles.
      Radii: small (focus, skeleton bars), medium (hint, tile), pill (bars, tabs). */
-  --t-xs:calc(11.5px / var(--zf,1)); --t-s:calc(13px / var(--zf,1)); --t-m:calc(15px / var(--zf,1)); --t-l:calc(18px / var(--zf,1)); --t-h:calc(16px / var(--zf,1)); --t-title:calc(34px / var(--zf,1));
+  --t-xs:calc(12px / var(--zt)); --t-s:calc(13px / var(--zt)); --t-m:calc(15px / var(--zt)); --t-l:calc(18px / var(--zt)); --t-h:calc(16px / var(--zt)); --t-title:calc(34px / var(--zt));
   --r-s:8px; --r-m:13px; --pill:999px;
-  background:var(--sv-sky3);color:var(--ink);font:calc(16px / var(--zf,1))/1.45 var(--f);
+  background:var(--sv-sky3);color:var(--ink);font:calc(16px / var(--zt))/1.45 var(--f);
   -webkit-text-size-adjust:100%;-webkit-font-smoothing:antialiased;
   /* No grey box flashing over a tap on phones: the round tabs and buttons show their own state. */
   -webkit-tap-highlight-color:transparent;
@@ -97,8 +103,12 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 /* NOW: sentence and flow straight on the sky, battery and advice on cards at the bottom. */
 .now{grid-template-rows:auto minmax(170px,1fr) auto auto;align-content:stretch}
 .now header{padding:0 32px;text-align:center}
-.now h1{font-size:calc(clamp(28px,8cqw,36px) / var(--zf,1));text-wrap:balance}
+.now h1{font-size:calc(clamp(28px,8cqw,36px) / var(--zt));text-wrap:balance}
 .now .sub{margin-top:8px;color:var(--ink-2);text-wrap:balance}
+/* A reading too old to be live: when it came, under the headline at any text size. */
+.now .stale{margin-top:6px;color:var(--ink-2);font-size:var(--t-m)}
+/* Offline: the message alone on Now, centred (Energy and Money still show their numbers). */
+.now:has(> .empty){grid-template-rows:none;align-content:center}
 .flowbox{display:grid;grid-template-rows:minmax(0,1fr);place-items:center;min-height:0;padding:6px 0}
 /* The drawing's box: the size the SVG had alone (the ratio of its viewBox when the height is free). */
 .flowfit{position:relative;width:100%;max-width:400px;height:100%;max-height:236px;min-width:0;min-height:0;aspect-ratio:340/198}
@@ -169,12 +179,12 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .ring-box{position:relative;width:176px;max-width:100%;margin:0 auto 6px}
 /* On the ring's centre (y 103 of 176), not the box's: every ring alike. */
 .ring-mid{position:absolute;inset:auto 0;top:58.5%;translate:0 -50%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;pointer-events:none}
-.ring-mid .big{font-size:calc(52px / var(--zf,1))}
+.ring-mid .big{font-size:calc(52px / var(--zt))}
 /* The digits are what the eye centres, so an unseen % on the left balances the one on the right. */
 .ring-mid .big:has(small)::before{content:"%";visibility:hidden;font-size:.42em;font-weight:300;letter-spacing:0;margin-right:3px}
 /* The battery's word and what it is doing centred under its ring. */
 .batt-say{min-width:0;text-align:center}
-.batt-word{display:flex;align-items:center;justify-content:center;gap:8px;font-size:calc(24px / var(--zf,1));font-weight:600;letter-spacing:-.01em;line-height:1.2}
+.batt-word{display:flex;align-items:center;justify-content:center;gap:8px;font-size:calc(24px / var(--zt));font-weight:600;letter-spacing:-.01em;line-height:1.2}
 .batt-word i{flex:none;width:12px;height:12px;border-radius:50%;background:var(--c)}
 .batt-say p{color:var(--ink-2);font-size:var(--t-m);text-wrap:pretty}
 
@@ -196,9 +206,9 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 :is(.advice,.wear) .tile{flex:none;display:grid;place-items:center;width:44px;height:44px;border-radius:var(--r-m);background:var(--tile);color:#0b1626}
 :is(.advice,.wear) .tile svg{width:26px;height:26px}
 :is(.advice,.wear) p{font-size:var(--t-l);font-weight:500;line-height:1.3;letter-spacing:-.01em;text-wrap:balance}
-/* Lead lines: the sentence under the share ring, centred under it. */
-.share > p:not(.money){text-align:center}
-:is(.share,.payback) > p:not(.money,.ring-name){font-size:var(--t-l);font-weight:500;line-height:1.3;letter-spacing:-.01em;text-wrap:balance}
+/* Lead lines: the sentence under the share ring, centred under it (beside the small rings too). */
+:is(.share,.rings > div) > p:not(.money){text-align:center}
+:is(.share,.payback,.rings > div) > p:not(.money,.ring-name){font-size:var(--t-l);font-weight:500;line-height:1.3;letter-spacing:-.01em;text-wrap:balance}
 /* The whole-page message (not set up, offline): a card centred on the sky. An icon, a title, what is
    wrong; for setup the path in Home Assistant as chips, and for admins the sensors not found. */
 .empty{align-self:center;width:100%;max-width:520px;padding:24px 20px;text-align:center;text-wrap:balance}
@@ -220,8 +230,9 @@ h1,h2,h3,p,ol{margin:0;padding:0}
    before the data (titles, headings, labels, units, weekdays) stays readable, as does the
    "Loading" headline. Every mark is one grey layer: a fill drawn over its track is hidden.
    A bar hugs its text (fit-content), and must stay where that text sits when loaded. */
-.skel :is(.sub,.batt-say p,.advice p,.wear p,p.money,.best p,.day:not(:has(.readout)),.big,.readout dd,.amount,.side b,.price b,.batt-word > span,.card > .note,.flowtext .tv){
+.skel :is(.sub,.batt-say p,:is(.advice,.wear,.best) p > *,p.money,.day:not(:has(.readout)),.big,.readout dd,.amount,.side b,.price b,.batt-word > span,.card > .note,.flowtext .tv){
   color:transparent!important;background:var(--track);border-radius:var(--r-s);width:fit-content}
+/* The advice and washer sentences grey as spans, a bar a line, so a tile floated beside them (big text) stays clear. */
 .skel .big{display:inline-block}
 .skel :is(.readout dd,.batt-say p){margin-inline:auto}
 /* The headline keeps the box of the sentence shown last time, with the loading word over it. */
@@ -253,7 +264,7 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 /* ENERGY: Power origin's share ring, its text left aligned like every other card. NOW: the best time as a
    highlighted line, on the battery card or, without a charge reading, on a card of its own. MONEY: the
    payback ring, centred, its text left aligned the same way. */
-.share .ring-mid .big{font-size:calc(44px / var(--zf,1))}
+.share .ring-mid .big{font-size:calc(44px / var(--zt))}
 /* The split ring (see splitRing): a smaller ring, with room above for the top label. Each label sits where
    its line starts: 16 viewBox units (8 % of the width) beside the ring, at the height of the ring's centre,
    or above it (bottom is a share of the height, 176 units). */
@@ -269,11 +280,11 @@ h1,h2,h3,p,ol{margin:0;padding:0}
    without labels, under the big ring and its sentence; beside them once there is room for its side labels. */
 .share{container:share / inline-size}
 .rings{display:flex;flex-direction:column;align-items:center}
-.rings-ahead{display:flex;justify-content:center;gap:24px;margin:10px 0 4px;padding:0;list-style:none}
+.rings-ahead{display:none;justify-content:center;gap:24px;margin:10px 0 4px;padding:0;list-style:none}
 .rings-ahead li{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:var(--t-s);color:var(--ink-2);font-variant-numeric:tabular-nums;white-space:nowrap}
 .share .rings-ahead .ring-box{width:100px;margin:0}
 .rings-ahead .ring .lead{display:none}
-.share .rings-ahead .ring-mid .big{font-size:calc(30px / var(--zf,1))}
+.share .rings-ahead .ring-mid .big{font-size:calc(30px / var(--zt))}
 @container share (min-width:420px){
   .rings{flex-direction:row;justify-content:center}
   .share .rings > div > .ring-box{margin-inline:66px 74px}
@@ -282,7 +293,7 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 /* Too narrow for the side labels (a small phone, or big text): they drop under the ring's ends, next to
    their parts, without the lines. */
 @container share (max-width:240px){
-  .share .ring-box{margin-bottom:calc(30px / var(--zf,1) + 4px)}
+  .share .ring-box{margin-bottom:calc(30px / var(--zt) + 4px)}
   .share .ring .lead{display:none}
   .share .part.left{right:auto;left:-12px;top:100%;translate:0 0}
   .share .part.right{left:auto;right:-12px;top:100%;translate:0 0}
@@ -297,9 +308,9 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .best p{text-wrap:balance}
 .best small{display:block;margin-top:2px;font-size:var(--t-s);font-weight:400;color:var(--ink-2)}
 .machines .best:first-child{margin-top:0}
-.legend{list-style:none;display:grid;grid-template-columns:repeat(var(--n),minmax(0,1fr));gap:6px 2px;margin:6px 0 0;padding:0;
+.legend{list-style:none;display:flex;flex-wrap:wrap;justify-content:center;gap:6px 2px;margin:6px 0 0;padding:0;
   font-size:var(--t-s);line-height:1.25;color:var(--ink-2);text-align:center}
-.legend li{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
+.legend li{flex:1 1 0;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:min(100%,min-content)}
 .legend i{flex:none;width:10px;height:10px;border-radius:50%;background:var(--c)}
 .card :is(h2,h3):has(.num){display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:0 12px}
 
@@ -321,6 +332,8 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .days li:first-child .use{top:-4px}
 .days li:last-child .use{bottom:-4px}
 .days .now-label{top:-24px}
+/* The first days: one plain line on a card of its own (see learn in nowView). */
+.learn p{font-size:var(--t-m);color:var(--ink-2);text-wrap:pretty}
 /* A card's own line under its chart (no numbers on record), read as the picked day's sentences. */
 .card > .note{margin-top:8px;font-size:var(--t-m);text-wrap:pretty}
 /* This month's days (see dayLine): a line over up to 31 narrow columns, a dot a day over its date, the
@@ -415,38 +428,43 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .year button:is(:hover,:focus-visible) .bar{background:color-mix(in srgb,var(--ink) 10%,transparent)}
 .year [aria-pressed=true]{color:var(--ink);font-weight:700}
 .year button[aria-pressed=true] .bar{outline:1.5px solid var(--ink);outline-offset:-1.5px;border-radius:4px}
-.year small{min-height:12px;font-size:calc(9px / var(--zf,1));line-height:12px;white-space:nowrap}
+.year small{min-height:14px;font-size:calc(12px / var(--zt));line-height:14px;white-space:nowrap}
+/* This month, the rightmost: its "so far" ends with the bar's column, so it stays on the card. */
+.year li:last-child small{align-self:end}
 .year{container-type:inline-size}
 .year .narrow{display:none}
 @container (max-width: 340px){.year .wide{display:none}.year .narrow{display:inline}}
 /* Dragging across a chart's row picks (an hour's only with a finger); the page still scrolls up and down. */
 :is(.week,.hours24){touch-action:pan-y;user-select:none;-webkit-user-select:none}
 /* Figures under a chart (see readout): the picked hour, day or month over them, then a label with its
-   chart's dot over each figure, all centred; three to a row (two when two or four), a short row centred. */
+   chart's dot over each figure, all centred; three to a row (two when two or four, or three at big text, so
+   no label takes more than two lines), a short row centred. A figure is never narrower than its longest word. */
 .readout{margin-top:12px;text-align:center}
 .readout .period{margin-bottom:10px;font-size:var(--t-s);font-weight:600;line-height:1.35;color:var(--ink-2)}
 .readout dl{display:flex;flex-wrap:wrap;justify-content:center;gap:14px 10px;margin:0}
-.readout dl > div{flex:0 1 calc((100% - 20px) / 3);min-width:0;display:flex;flex-direction:column;justify-content:space-between;gap:4px}
-.readout dl:is([data-n="2"],[data-n="4"]) > div{flex-basis:calc((100% - 10px) / 2)}
+.readout dl > div{flex:0 1 calc((100% - 20px) / 3);min-width:min(100%,min-content);display:flex;flex-direction:column;justify-content:space-between;gap:4px}
+.readout dl:is([data-n="2"],[data-n="4"]) > div,:host([big]) .readout dl[data-n="3"] > div{flex-basis:calc((100% - 10px) / 2)}
 .readout dl[data-n="1"] > div{flex-basis:100%}
 .readout dt{display:flex;justify-content:center;align-items:center;gap:5px;font-size:var(--t-xs);line-height:1.3;color:var(--ink-2)}
 .readout dt i{flex:none;width:7px;height:7px;border-radius:50%;background:var(--c)}
 /* An estimate (where the month should end): its dot faded, outlined in the colour. */
 .readout .est dt i{background:color-mix(in srgb,var(--c) 30%,transparent);outline:1.5px solid var(--c);outline-offset:-1.5px}
-.readout dt span{min-width:0;overflow-wrap:anywhere;text-align:center}
-.readout dd{margin:0;font-size:calc(18px / var(--zf,1));font-weight:600;line-height:1.2;letter-spacing:-.025em;color:var(--ink);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.readout dt span{min-width:0;overflow-wrap:break-word;text-align:center}
+.readout dd{margin:0;font-size:calc(18px / var(--zt));font-weight:600;line-height:1.2;letter-spacing:-.025em;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
 .readout dd.neg{color:var(--low-mark,var(--low))}
 .picked .readout{margin-top:0}
 /* A month's total between its charts, set off from the one below. */
 .month-total{margin:14px 0;padding:12px 0;border-bottom:1px solid var(--track)}
 .month-total .readout{margin:0}
-.month-total dd{font-size:calc(28px / var(--zf,1));font-weight:300}
+.month-total dd{font-size:calc(28px / var(--zt));font-weight:300;white-space:normal}
+/* Where the month should end: an estimate, set smaller than the total on record beside it. */
+.month-total .est dd{font-size:var(--t-l);font-weight:400}
 .battday .ticks{position:relative;height:16px;margin-top:4px;font-size:var(--t-xs);color:var(--ink-2)}
 .battday .ticks span{position:absolute}
 /* Payback once paid: a check in the full ring. */
 .payback .ring-mid .done{width:55px;height:55px;color:var(--sun-mark,var(--sun))}
 /* Payback before it is paid: what came back in the middle, the cost in the gap and named under the ring. */
-.payback .ring-mid .amount{font-size:calc(35px / var(--zf,1));font-weight:300;letter-spacing:-.025em;font-variant-numeric:tabular-nums}
+.payback .ring-mid .amount{font-size:calc(35px / var(--zt));font-weight:300;letter-spacing:-.025em;font-variant-numeric:tabular-nums}
 .payback .ring-name{margin-top:-2px;font-size:var(--t-s);color:var(--ink-2);text-align:center}
 /* Month balance, the picked month: the grid cost to the left of the middle line, what was saved and
    earned to the right, on one scale; each figure under its bar, the figures (see readout) under both. */
@@ -469,7 +487,7 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .price{margin-top:12px}
 .price + .price{padding-top:12px;border-top:1px solid var(--track)}
 .price > .rate{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:4px 12px;font-size:var(--t-m);font-weight:500}
-.price b{margin-inline-start:auto;font-size:calc(28px / var(--zf,1));font-weight:300;letter-spacing:-.02em;white-space:nowrap;font-variant-numeric:tabular-nums}
+.price b{margin-inline-start:auto;font-size:calc(28px / var(--zt));font-weight:300;letter-spacing:-.02em;white-space:nowrap;font-variant-numeric:tabular-nums}
 .price small{font-size:var(--t-s);font-weight:400;color:var(--ink-2)}
 .route{display:flex;align-items:center;gap:20px;margin-top:6px;font-size:var(--t-s);color:var(--ink-2)}
 .route svg{flex:none;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round}
@@ -490,7 +508,7 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .bands [aria-current]{border-color:var(--grid-mark,var(--grid));color:var(--ink)}
 
 /* Tab bar, with Home Assistant's own menu button beside it when the sidebar is hidden. */
-footer{position:relative;flex:none;display:flex;justify-content:center;align-items:center;gap:6px;padding:6px 8px max(8px,env(safe-area-inset-bottom))}
+footer{position:relative;flex:none;zoom:var(--cap);display:flex;justify-content:center;align-items:center;gap:6px;padding:6px 8px max(8px,env(safe-area-inset-bottom))}
 ha-menu-button{color:var(--ink)}
 /* Each tab an icon above a short label. */
 .tabs{display:flex;gap:2px;min-width:0;overflow-x:auto;scrollbar-width:none;padding:4px;border-radius:26px;background:var(--card);border:1px solid var(--card-line)}
@@ -501,12 +519,13 @@ ha-menu-button{color:var(--ink)}
 
 /* Display switches: the gear in the top right corner, the same on every page (it is not in the pager),
    and its dialog. Page headings keep clear of the gear (see .title and .now header). */
-.gear{position:absolute;z-index:3;top:max(4px,env(safe-area-inset-top));right:max(4px,env(safe-area-inset-right));display:grid;place-items:center;
+.gear{position:absolute;z-index:3;zoom:var(--cap);top:max(4px,env(safe-area-inset-top));right:max(4px,env(safe-area-inset-right));display:grid;place-items:center;
   width:44px;height:44px;padding:0;border:0;background:none;color:var(--ink);cursor:pointer}
 .gear svg{width:22px;height:22px;fill:none;stroke:currentColor}
+.gear.away:not(:focus-visible){opacity:0;visibility:hidden}
 :is(.gear,.help,.step,.show input[role="switch"],dialog form > button,.tabs button):focus-visible{border-radius:var(--pill)}
 dialog:is(.show,.read){width:min(360px,calc(100vw - 32px));max-height:calc(100dvh - 32px);padding:20px 20px 16px;border:1px solid var(--track);border-radius:18px;
-  background:var(--paper);color:var(--ink);font:calc(16px / var(--zf,1))/1.45 var(--f)}
+  background:var(--paper);color:var(--ink);font:calc(16px / var(--zt))/1.45 var(--f)}
 dialog:is(.show,.read)::backdrop{background:rgba(4,6,15,.5)}
 :is(.show,.read) h2{font-size:var(--t-l);font-weight:600;line-height:1.25;letter-spacing:-.01em}
 .show p{margin-top:4px;font-size:var(--t-m);color:var(--ink-2)}
@@ -531,6 +550,10 @@ dialog:is(.show,.read)::backdrop{background:rgba(4,6,15,.5)}
   .show .language option::checkmark{order:2;margin-left:auto}
   .show .language svg{flex:none;width:24px;height:16px;border-radius:2px}
 }
+/* The setup check (admins): each feature over what it is set to, or what it needs. */
+.show .check dl{display:grid;gap:8px;margin:8px 0 0}
+.show .check dt{font-size:var(--t-m);font-weight:500}
+.show .check dd{margin:0;font-size:var(--t-s);color:var(--ink-2);overflow-wrap:anywhere}
 dialog form > button{display:block;min-height:44px;margin:16px 0 0 auto;padding:0 22px;border:0;border-radius:var(--pill);
   background:var(--ink);color:var(--paper);font:600 var(--t-m) var(--f);cursor:pointer}
 /* How to read the battery ring: a rising and a falling example, then one line per mark with its swatch. */
@@ -558,18 +581,49 @@ dialog form > button{display:block;min-height:44px;margin:16px 0 0 auto;padding:
   .battday .plot{height:96px}
   .battday .plot.charge{height:60px}
   .page{gap:10px;padding-top:max(16px,env(safe-area-inset-top));padding-bottom:6px}
-  .now h1{font-size:calc(26px / var(--zf,1))}
+  .now h1{font-size:calc(26px / var(--zt))}
   .now .sub{margin-top:4px;font-size:var(--t-m)}
   .card{padding:12px 16px 14px}
   .card h2{margin-bottom:6px}
-  .batt-word{font-size:calc(21px / var(--zf,1))}
+  .batt-word{font-size:calc(21px / var(--zt))}
   :is(.advice,.wear){padding:10px 14px}
-  :is(.advice,.wear) p{font-size:calc(16px / var(--zf,1))}
-  .title{font-size:calc(28px / var(--zf,1))}
+  :is(.advice,.wear) p{font-size:calc(16px / var(--zt))}
+  .title{font-size:calc(28px / var(--zt))}
   .share .ring-box{width:120px;margin-top:36px}
-  .share .ring-mid .big{font-size:calc(36px / var(--zf,1))}
+  .share .ring-mid .big{font-size:calc(36px / var(--zt))}
   .week{height:100px}
   .tabs button{min-height:46px;padding-block:3px 2px}
+}
+
+/* Big text (see BIG_TEXT in solar-view.js; the panel is then narrow and short): Now leads with the headline
+   alone and the advice, then a smaller flow. The headline starts under the gear and takes the page's width. */
+:host([big]) .now{grid-template-rows:none}
+:host([big]) .now header{order:-2;padding:calc(52px * var(--cap) - 16px) 0 0}
+:host([big]) .now .sub{display:none}
+:host([big]) .now h1{font-size:calc(20px / var(--zt))}
+:host([big]) .now :is(.wear,.advice){order:-1}
+/* The flow as tall as its width gives it, at most 150px: its row grows to it (min-height:auto). */
+:host([big]) .flowbox{min-height:auto}
+:host([big]) .flowfit{height:auto;max-height:150px}
+/* A tile beside the start of its sentence, which runs on under it. The washer line's tile goes above it
+   instead: its bold sentence and the line under it stay one block, at the card's full width. */
+:host([big]) :is(.advice,.wear){display:flow-root}
+:host([big]) :is(.advice,.wear) .tile{float:left;margin:2px 12px 2px 0}
+:host([big]) .best{flex-direction:column;align-items:flex-start;gap:8px}
+/* The coming days in narrower columns, without the usual use's name (the help names the line). */
+:host([big]) .days li{grid-template-columns:2.4em 26px minmax(0,1fr) 2em;gap:4px}
+:host([big]) .days .now-label{display:none}
+:host([big]) .days.with-use{margin-top:4px}
+/* Owner detail, for the wide screen only (see below): the battery's likely range in an hour, Power origin's
+   small rings, and their help lines. */
+.ring .range,.read li:has(> [data-t=helpRange],> [data-t^=helpShareAhead]){display:none}
+
+/* The owner detail above, on the wide screen. By the panel's name: the small rings sit in Power origin's own
+   container (see .share). */
+@container panel (min-width:1004px){
+  .rings-ahead{display:flex}
+  .ring .range{display:inline}
+  .read li:has(> [data-t=helpRange],> [data-t^=helpShareAhead]):not([hidden]){display:flex}
 }
 
 /* Wide panels: no paging, the pages stand side by side. */
@@ -593,6 +647,7 @@ dialog form > button{display:block;min-height:44px;margin:16px 0 0 auto;padding:
 
 @media (prefers-reduced-motion:no-preference){
   .tabs button{transition:background-color .2s var(--ease),color .2s var(--ease)}
+  .gear{transition:opacity .2s var(--ease),visibility .2s}
   /* Light travelling along whichever paths are live. */
   .flow .streak{display:block;animation:run 2.8s linear infinite}
   .flow .halo{animation:breathe 6s ease-in-out infinite;transform-origin:170px 36px}

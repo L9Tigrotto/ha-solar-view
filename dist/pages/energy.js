@@ -316,14 +316,16 @@ function monthAhead(data) {
   const soFar = sumKnown(list.map((d) => (d.none ? null : d.solarKwh))), rest = a.left?.sun?.[1];
   return { days, end: soFar === null || cut >= 0 || !Number.isFinite(rest) ? null : soFar + rest + days.reduce((s, d) => s + d.kwh, 0) };
 }
-// What the sun made each of the 12 months (`totals`, null for a month with a day missing: a part of it would read
-// as the whole), the picked month (this one at first) with its days, and this month's days to come and end (see
-// monthAhead).
+// What the sun made each of the 12 months (`totals`: the days on record, null with none) and how many of its days
+// are not on record (`missing`, the month then marked as partial), the picked month (this one at first) with its
+// days, and this month's days to come and end (see monthAhead).
 function productionView(data, pick, coming) {
   const cur = data.monthKey, at = yearKeys(cur).includes(pick?.dailyMonth) ? pick.dailyMonth : cur;
   const daysOf = (k) => (k === cur ? data.monthDays : data.pastDays?.[k]) ?? [];
-  const total = (k) => { const s = daysOf(k).map((d) => (d.none ? null : d.solarKwh)); return s.length ? sumKnown(s) : null; };
-  return { cur, at, totals: Object.fromEntries(yearKeys(cur).map((k) => [k, total(k)])), days: daysOf(at),
+  // A remembered month is one entry of its known days' sum and its missing count (see slim).
+  const total = (k) => { const s = daysOf(k).map((d) => (d.none ? null : d.solarKwh)).filter(Number.isFinite); return s.length ? s.reduce((a, x) => a + x, 0) : null; };
+  const missing = (k) => daysOf(k).reduce((n, d) => n + (d.none ? 1 : 0) + (d.missing ?? 0), 0);
+  return { cur, at, totals: Object.fromEntries(yearKeys(cur).map((k) => [k, total(k)])), missing: Object.fromEntries(yearKeys(cur).map((k) => [k, missing(k)])), days: daysOf(at),
     end: coming?.end ?? null, ahead: at === cur && coming ? coming.days : [], pick: pick?.daily };
 }
 // Production: the 12 months as bars (see monthPicker), the picked month's total under them, then its days (see
@@ -337,12 +339,14 @@ function productionCard(v, t, f) {
     const plain = cap(say(said, { d: date, k: f.kwh(d.kwh) }));
     return [d.kwh, plain, boldDate(plain, said, date)];
   });
-  const hintOf = (k, n) => (n === null ? `${named(k)}: ${t.noData}` : k === cur && end !== null ? say(t.prodEndHint, { m: named(k), a: kwh(n), e: kwh(end) }) : `${named(k)}: ${kwh(n)}`);
+  // A month with days not on record says so: its total is only theirs.
+  const partial = (k) => (v.missing[k] && v.totals[k] !== null ? ` · ${say(t.prodMissing, { n: v.missing[k] })}` : "");
+  const hintOf = (k, n) => (n === null ? `${named(k)}: ${t.noData}` : k === cur && end !== null ? say(t.prodEndHint, { m: named(k), a: kwh(n), e: kwh(end) }) : `${named(k)}: ${kwh(n)}${partial(k)}`);
   return `<section class="card daily" data-pick="daily">
       <h2><span>${t.production}</span> <span class="num">kWh</span></h2>${helpButton(t, "daily")}
       <h3 class="chart-title">${t.prodMonths}</h3>
       ${monthPicker(t, f, cur, at, (k) => v.totals[k], hintOf, "--sun", false, (k) => (k === cur ? end : null))}
-      <div class="stepped total">${monthSteps(t, cur, at, (k) => cap(named(k)))}${monthTotal(cap(named(at)), [[t.prodMonths, kwh(v.totals[at]), "--sun"],
+      <div class="stepped total">${monthSteps(t, cur, at, (k) => cap(named(k)))}${monthTotal(cap(named(at)) + partial(at), [[t.prodMonths, kwh(v.totals[at]), "--sun"],
         at === cur && end !== null ? [t.prodEnd, say(t.prodEndAbout, { k: kwh(end) }), "--sun", false, true] : null])}</div>
       <h3 class="chart-title"><span>${t.daily}</span> <span class="num">${cap(f.monthYear(at))}</span></h3>
       ${dayLine(t, f, at, v.days, (d) => (d.none ? null : d.solarKwh),

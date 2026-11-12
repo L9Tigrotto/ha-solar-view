@@ -7,7 +7,7 @@ const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ ne
 /** @type {[typeof import("./core.js"), typeof import("./sky.js"), typeof import("./advice.js"),
  *   typeof import("./config.js"), typeof import("./forecast.js"), typeof import("./stats.js"),
  *   typeof import("./money.js")]} */
-const [{ HOUR, NOON, FULL_SOC, clockOf, dayHours, hourStart, inHour, shiftKey, stateNum, numberOrEntity, sumKnown, warnOnce },
+const [{ HOUR, NOON, FULL_SOC, clockOf, dayHours, hourStart, inHour, shiftKey, stateNum, numberOrEntity, warnOnce },
   { SKY_LOW_DEG, weatherOf, cloudNow, raining, snowing, dawnOf, greyOf, coverOf, moonPhase }, { wearOf }, { BATTERY_FLOOR_SOC },
   { sensorOf, forecastOf, lookAhead, bandOf, bandPrices }, { ENERGY }, { moneySoFar }] = await Promise.all([
   import(`./core.js${v}`), import(`./sky.js${v}`), import(`./advice.js${v}`), import(`./config.js${v}`), import(`./forecast.js${v}`), import(`./stats.js${v}`), import(`./money.js${v}`)]);
@@ -15,6 +15,7 @@ const [{ HOUR, NOON, FULL_SOC, clockOf, dayHours, hourStart, inHour, shiftKey, s
 const SUN = "sun.sun";
 const WATTS = { W: 1, kW: 1e3, MW: 1e6 };
 const SOLAR_NOISE_W = 15; // an inverter can report a few watts all night (7 to 8 W measured)
+const STALE_MS = 10 * 60 * 1000; // no live state written for this long: the page says when the last one was (U8)
 
 // ---- How far the page predicts (decision 1 in docs/audit/06-fix-plan.md) ----
 // none: nothing. usual_days: the usual day's sun (the season scaling it, see usualDay) and use, no Solar
@@ -149,6 +150,14 @@ function reading(hass, ids) {
     soc: socs.length ? socs.reduce((a, s) => a + s[0] * s[1], 0) / socs.reduce((a, s) => a + s[1], 0) : null,
   };
 }
+// When the newest of these states was last written (ms), null when none says: Home Assistant writes a live power
+// reading every few seconds, so all of them quiet for STALE_MS means a frozen or silent inverter.
+const lastSeen = (hass, ids) => {
+  const t = ids.map((id) => Date.parse(hass.states[id]?.last_updated)).filter(Number.isFinite);
+  return t.length ? Math.max(...t) : null;
+};
+// The time of the last reading when it is too old to be live (see lastSeen), else null.
+const staleSince = (data, now) => (data.seen !== null && now - data.seen > STALE_MS ? data.seen : null);
 // The Energy settings' prices now: text is an entity id, unless it is a number typed as text.
 const pricesOf = (hass, ids) => ({ buy: numberOrEntity(ids.price.buy, hass), sell: numberOrEntity(ids.price.sell, hass) });
 
@@ -164,6 +173,7 @@ function live(hass, ids, cfg, facts, now) {
   const battery = hasBattery(ids);
   return {
     now: reading(hass, ids),
+    seen: lastSeen(hass, [...ids.solarW, ...ids.battW, ...ids.gridW, ...ids.soc, ...ids.loadW]),
     // Kept simple: without sun.sun the sky falls back to three steps from solar power.
     sun: Number.isFinite(elevation) ? { elevation, rising: !!sun.attributes.rising, dawn: dawnOf(sun.attributes) }
       : { elevation: raw >= 500 ? 30 : raw >= SOLAR_NOISE_W ? SKY_LOW_DEG : -10, rising: false },
@@ -188,9 +198,9 @@ function live(hass, ids, cfg, facts, now) {
 // The part of the statistics (see totals) the cards draw: an allow-list, so what only the forecast reads (its
 // inputs, a month of grid hours, the price sensor's rows) stays out of the redraw key and the saved copy.
 function project(stats) {
-  const { today, lastMonth, month, monthDays, pastDays, monthKey, months, usualToday, sunDays, usualSun, usualSunDays, fixedMonths, socDay, todayHours } = stats;
+  const { today, lastMonth, month, monthDays, pastDays, monthKey, months, usualToday, usualIn, sunDays, usualSun, usualSunDays, fixedMonths, socDay, todayHours } = stats;
   const round = (x, to) => (Number.isFinite(x) ? Math.round(x * to) / to : null), socAt = new Map(socDay);
-  return { today, lastMonth, month, monthDays, pastDays, monthKey, months, usualToday, sunDays, usualSun, usualSunDays, fixedMonths,
+  return { today, lastMonth, month, monthDays, pastDays, monthKey, months, usualToday, usualIn: usualIn ?? null, sunDays, usualSun, usualSunDays, fixedMonths,
     // Today by the hour, oldest first: { t: hour start, soc: mean charge %, then in kWh what the battery took in
     // (charge) and gave back (batt), the sun made, the house used, the grid gave, and the house's use as the balance
     // (as the forecast counts it) }, rounded; null where the statistics have no row.
@@ -221,17 +231,20 @@ function readData(hass, ids, cfg, stats, looked = {}, now = Date.now()) {
     bands: looked.bands ?? null,
     // The fresh sensor's months (B7): finished months' money as it counted it, and this month's end.
     sensorMonths: looked.facts?.months ?? null,
+    // The fresh sensor's sky by day, { "2026-11-10": { cloud, rain } }, for the coming days' icons at every level.
+    sensorSky: looked.facts ? Object.fromEntries(looked.facts.days.filter((d) => Number.isFinite(d.cloud)).map((d) => [d.d, { cloud: d.cloud, rain: d.rain }])) : null,
   };
 }
 
 // ---- The copy kept for the next visit ----
 // The skeleton's copy (P10): every card's shape, not every figure behind it. The forecast's hours go (no card
 // draws an hour ahead from them while loading), and each of the 11 past months' days become one entry holding the
-// month's sun (Production's bars; a month's days are drawn only once it is picked).
+// month's sun on record and its days missing (Production's bars; a month's days are drawn only once it is picked).
 const slim = (data) => ({ ...data,
   ahead: data.ahead && { ...data.ahead, hours: [] },
   pastDays: Object.fromEntries(Object.entries(data.pastDays ?? {}).map(([k, days]) =>
-    [k, [{ date: days[0]?.date, solarKwh: sumKnown(days.map((d) => (d.none ? null : d.solarKwh))) }]])),
+    [k, [{ date: days[0]?.date, solarKwh: days.some((d) => !d.none) ? days.reduce((s, d) => s + (d.none ? 0 : d.solarKwh), 0) : null,
+      missing: days.filter((d) => d.none).length }]])),
 });
 
 // Numbers for the loading skeleton. Best is what this browser showed last time (`last`, see slim and
@@ -250,7 +263,7 @@ function remembered() {
 function placeholder(hass, ids, cfg, last, now = Date.now()) {
   const sun = hass.states[SUN], elevation = parseFloat(sun?.attributes?.elevation);
   const fresh = { sun: { elevation: Number.isFinite(elevation) ? elevation : 30, rising: !!sun?.attributes?.rising, dawn: dawnOf(sun?.attributes) }, weather: { grey: 0, rain: false, snow: false, cover: "" },
-    moon: { phase: moonPhase(now), south: hass.config?.latitude < 0 } };
+    moon: { phase: moonPhase(now), south: hass.config?.latitude < 0 }, seen: null };
   // The icon over the flow keeps last time's cloud, so it does not change shape when the data lands. A copy from
   // before levels predicts nothing.
   if (last) return { mode: NO_MODE, ...last, ...fresh, weather: { ...fresh.weather, cover: last.weather?.cover ?? "" } };
@@ -282,4 +295,4 @@ function placeholder(hass, ids, cfg, last, now = Date.now()) {
   };
 }
 
-export { LAST_KEY, NO_MODE, modeOf, fromSensor, weatherOnly, paybackPredicts, adviceForecast, bandsOf, predict, reading, live, project, readData, slim, remembered, placeholder };
+export { LAST_KEY, NO_MODE, lastSeen, staleSince, modeOf, fromSensor, weatherOnly, paybackPredicts, adviceForecast, bandsOf, predict, reading, live, project, readData, slim, remembered, placeholder };

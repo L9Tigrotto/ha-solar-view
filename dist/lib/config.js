@@ -77,7 +77,8 @@ const configOf = (c) => {
     if (key in from) warnOnce(`${key} is given in ${from[key] || "the top level"} and in ${where}: ${where}'s is used`);
     out[key] = value; from[key] = where;
   };
-  for (const [key, value] of Object.entries(top)) if (!CONFIG_GROUPS.includes(key) && key !== "sensors") put(key, value, "");
+  // Home Assistant adds its own keys to the panel's config (_panel_custom: name, module_url...): not the owner's.
+  for (const [key, value] of Object.entries(top)) if (!CONFIG_GROUPS.includes(key) && key !== "sensors" && !key.startsWith("_")) put(key, value, "");
   for (const g of CONFIG_GROUPS) {
     if (top[g] != null && !isMap(top[g])) warnOnce(`${g}: ${shown(top[g])} is not a group of options, so it is ignored`);
     else for (const [key, value] of Object.entries(top[g] ?? {})) put(key, value, g);
@@ -234,4 +235,16 @@ const requiredIds = (ids) => [ids.solarW, ids.battW, ids.gridW, ids.soc].filter(
 // Read while they have a value, else left out: the load sensor (house use is then the balance).
 const optionalIds = (ids) => ids.loadW;
 
-export { BATTERY_FLOOR_SOC, USUAL_MIN, USUAL_MAX, readConfig, requiredIds, optionalIds, quietHours, calendarDate, configOf }; // the last three: for the tests
+// The setup check in the gear dialog, for admins (U18): each feature on or off, as plain data the dialog puts in
+// words. `mode` is the level in use after any step down (see modeOf), `battery` whether there is one, `money`
+// whether Money has numbers to show. A machine without a sensor runs on its typed figures, or the assumed washer's.
+const setupCheck = (cfg, { mode, battery, money }) => [
+  { key: "level", asked: cfg.level, used: mode.level },
+  ...(battery ? [{ key: "battery", on: cfg.batt.kwh > 0, kwh: cfg.batt.kwh }] : []),
+  { key: "money", on: money },
+  { key: "payback", on: !!cfg.payback },
+  { key: "bands", on: !!cfg.tariff },
+  ...cfg.machines.map((m) => ({ key: "machine", type: m.type, sensor: m.sensor, kwh: m.kwh, hours: m.hours })),
+];
+
+export { BATTERY_FLOOR_SOC, USUAL_MIN, USUAL_MAX, readConfig, requiredIds, optionalIds, setupCheck, quietHours, calendarDate, configOf }; // the last three: for the tests

@@ -61,11 +61,13 @@ const shellHtml = (css) => `<style>${css}</style>
 <footer><ha-menu-button hidden></ha-menu-button><nav class="tabs">${PAGES.map((p) =>
   `<button type="button" data-page="${p}"><svg viewBox="0 0 24 24" aria-hidden="true">${TAB_ICON[p]}</svg><span></span></button>`).join("")}</nav></footer>`;
 
-// The gear's dialog: the display switches and the language. Texts come later (see _dialogTexts).
+// The gear's dialog: the display switches, the language, and for admins the setup check (see _fillCheck). Texts
+// come later (see _dialogTexts).
 const gearDialog = (languages) => `<dialog class="show" aria-labelledby="show-title"><form method="dialog"><h2 id="show-title" data-t="showTitle"></h2><p data-t="showNote"></p>
 ${Object.entries(SWITCHES).map(([group, names]) => `<fieldset><legend data-t="${group}"></legend>${names.map((n) =>
   `<label><span data-t="sw${n[0].toUpperCase() + n.slice(1)}"></span><input type="checkbox" role="switch" name="${n}"></label>`).join("")}</fieldset>`).join("")}
 ${languagePicker(languages)}
+<fieldset class="check" hidden><legend data-t="chkTitle"></legend><dl></dl></fieldset>
 <button data-t="showDone"></button></form></dialog>`;
 
 // How to read one card, "" for a card without one.
