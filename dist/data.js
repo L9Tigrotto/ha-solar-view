@@ -4,10 +4,10 @@
    numbers (placeholder). */
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
-const [{ HOUR, NOON, FULL_SOC, clockOf, dayHours, hourStart, shiftKey, stateNum, numberOrEntity, sumKnown, warnOnce },
+const [{ HOUR, NOON, FULL_SOC, clockOf, dayHours, hourStart, inHour, shiftKey, stateNum, numberOrEntity, sumKnown, warnOnce },
   { SKY_LOW_DEG, weatherOf, cloudNow, raining, snowing, dawnOf, greyOf, coverOf, moonPhase }, { wearOf }, { BATTERY_FLOOR_SOC },
-  { sensorOf, forecastOf, lookAhead, moneySoFar, bandOf, bandPrices }, { ENERGY }] = await Promise.all([
-  import(`./core.js${v}`), import(`./sky.js${v}`), import(`./advice.js${v}`), import(`./config.js${v}`), import(`./forecast.js${v}`), import(`./stats.js${v}`)]);
+  { sensorOf, forecastOf, lookAhead, bandOf, bandPrices }, { ENERGY }, { moneySoFar }] = await Promise.all([
+  import(`./core.js${v}`), import(`./sky.js${v}`), import(`./advice.js${v}`), import(`./config.js${v}`), import(`./forecast.js${v}`), import(`./stats.js${v}`), import(`./money.js${v}`)]);
 
 const SUN = "sun.sun";
 const WATTS = { W: 1, kW: 1e3, MW: 1e6 };
@@ -38,6 +38,11 @@ function modeOf(level, { usual = false, solar = false } = {}, sensor, now) {
 }
 // The sensor is the forecast in use: its days, hours and ranges, not the page's own.
 const fromSensor = (mode) => mode?.level === "weather" || mode?.level === "learned_weather";
+// The forecast sensor without house use (its mode Weather): sun and sky only. Nothing from the usual day
+// shows beside it (the coming days' use line, payback's time left), nor money it cannot know (month end).
+const weatherOnly = (data) => data.mode?.level === "weather" && !!data.ahead;
+// Payback's time left: while the page predicts anything, as with a forecast or a usual day; not beside weather alone.
+const paybackPredicts = (data) => !weatherOnly(data) && !!(data.outlook || data.usualToday);
 
 // The figures the advice reads for "soon", "later" and "wait" (see advice): the sensor's hours and days when it is
 // the forecast in use (B5), the Energy settings' Solar Forecast at usual_days_weather (see totals), else none
@@ -139,7 +144,7 @@ function live(hass, ids, cfg, facts, now) {
   const elevation = parseFloat(sun?.attributes?.elevation); // NaN while sun.sun has no value
   const raw = watts(hass, ids.solarW);
   // The fresh sensor's hour holding now ({} when it has none), null without a fresh sensor.
-  const hour = facts ? facts.hours.find((h) => h.t <= now && now < h.t + HOUR) ?? {} : null;
+  const hour = facts ? facts.hours.find((h) => inHour(h.t, now)) ?? {} : null;
   const weather = weatherOf(hass), wx = weather?.state, cloud = cloudNow(hour, weather?.attributes?.cloud_coverage), rain = raining(hour, wx), snow = snowing(wx);
   const battery = hasBattery(ids);
   return {
@@ -171,20 +176,24 @@ function project(stats) {
   const { today, lastMonth, month, monthDays, pastDays, monthKey, months, usualToday, sunDays, usualSun, usualSunDays, fixedMonths, socDay, todayHours } = stats;
   const round = (x, to) => (Number.isFinite(x) ? Math.round(x * to) / to : null), socAt = new Map(socDay);
   return { today, lastMonth, month, monthDays, pastDays, monthKey, months, usualToday, sunDays, usualSun, usualSunDays, fixedMonths,
-    // Today by the hour, oldest first: [hour start, mean charge %, then in kWh what the battery took in and
-    // gave back, the sun made, the house used and the grid gave, and the house's use as the balance (as the
-    // forecast counts it)], rounded; null where the statistics have no row.
+    // Today by the hour, oldest first: { t: hour start, soc: mean charge %, then in kWh what the battery took in
+    // (charge) and gave back (batt), the sun made, the house used, the grid gave, and the house's use as the balance
+    // (as the forecast counts it) }, rounded; null where the statistics have no row.
     battDay: [...new Set([...socAt.keys(), ...Object.keys(todayHours).map(Number)])].sort((a, b) => a - b).map((t) => {
-      const p = socAt.get(t), h = todayHours[t];
-      return [t, p === undefined ? null : round(p, 10), ...["chargeKwh", "batteryKwh", "solarKwh", "houseKwh", "gridImportKwh", "loadKwh"].map((k) => (h ? round(h[k], 100) : null))];
+      const p = socAt.get(t), h = todayHours[t], kwh = (k) => (h ? round(h[k], 100) : null);
+      return { t, soc: p === undefined ? null : round(p, 10), charge: kwh("chargeKwh"), batt: kwh("batteryKwh"), sun: kwh("solarKwh"),
+        house: kwh("houseKwh"), grid: kwh("gridImportKwh"), balance: kwh("loadKwh") };
     }),
   };
 }
 
 // Everything the page shows, as one plain object: live states from `hass`, the rest from `stats` (see totals) and
 // `looked` (see predict). `ids` are the entities to read, `cfg` the owner's settings (see readConfig).
+// project() once per statistics load, not on every state change.
+const projected = new WeakMap();
+const projectOnce = (stats) => projected.get(stats) ?? projected.set(stats, project(stats)).get(stats);
 function readData(hass, ids, cfg, stats, looked = {}, now = Date.now()) {
-  const { billFixedNow, ...state } = live(hass, ids, cfg, looked.facts, now), { fixedMonths, ...drawn } = project(stats);
+  const { billFixedNow, ...state } = live(hass, ids, cfg, looked.facts, now), { fixedMonths, ...drawn } = projectOnce(stats);
   return { ...state, ...drawn,
     // The bill's fixed part: its month means (see fixedAt), and its value now.
     billFixed: { months: fixedMonths ?? {}, now: billFixedNow },
@@ -214,14 +223,15 @@ const LAST_KEY = "solar-view-last";
 function remembered() {
   try {
     const last = JSON.parse(localStorage.getItem(LAST_KEY));
-    if (last && last.now && last.monthDays && "batt" in last && "sends" in last) return last;
+    // A copy from before the hour rows had names holds them as lists.
+    if (last && last.now && last.monthDays && "batt" in last && "sends" in last && !Array.isArray(last.battDay?.[0])) return last;
   } catch (e) { /* no storage, or an old shape: use typical numbers */ }
   return null;
 }
-function placeholder(hass, ids, cfg, last) {
+function placeholder(hass, ids, cfg, last, now = Date.now()) {
   const sun = hass.states[SUN], elevation = parseFloat(sun?.attributes?.elevation);
   const fresh = { sun: { elevation: Number.isFinite(elevation) ? elevation : 30, rising: !!sun?.attributes?.rising, dawn: dawnOf(sun?.attributes) }, weather: { grey: 0, rain: false, snow: false, cover: "" },
-    moon: { phase: moonPhase(Date.now()), south: hass.config?.latitude < 0 } };
+    moon: { phase: moonPhase(now), south: hass.config?.latitude < 0 } };
   // The icon over the flow keeps last time's cloud, so it does not change shape when the data lands. A copy from
   // before levels predicts nothing.
   if (last) return { mode: NO_MODE, ...last, ...fresh, weather: { ...fresh.weather, cover: last.weather?.cover ?? "" } };
@@ -232,7 +242,7 @@ function placeholder(hass, ids, cfg, last) {
   // Before the Energy settings answer: a battery, export on, no prices (see _render, which waits for them).
   const battery = !ids || hasBattery(ids), soc = !ids || ids.soc.length ? 50 : null;
   // Today in Home Assistant's time zone, as the loaded page counts it, not the browser's.
-  const now = Date.now(), clock = clockOf(hass.config?.time_zone), today = clock(now).key, month = today.slice(0, 7);
+  const clock = clockOf(hass.config?.time_zone), today = clock(now).key, month = today.slice(0, 7);
   const hours = dayHours(now, clock).filter((t) => t <= now);
   return {
     ...fresh,
@@ -248,9 +258,9 @@ function placeholder(hass, ids, cfg, last) {
     price: { buy: ids?.price.buy != null ? 0.25 : null, sell: ids?.price.sell != null ? 0.08 : null }, payback: cfg?.payback ?? null,
     // The hours done since midnight and this one so far (its figures show under the charts, with no charge mean
     // until it ends), a day the clocks change too (see battDayCard).
-    battDay: hours.map((t, i) => [t, i < hours.length - 1 ? 50 : null, 0, 0, 0.5, 0.5, 0]),
+    battDay: hours.map((t, i) => ({ t, soc: i < hours.length - 1 ? 50 : null, charge: 0, batt: 0, sun: 0.5, house: 0.5, grid: 0 })),
     ahead: null, outlook: null, mode: NO_MODE,
   };
 }
 
-export { LAST_KEY, NO_MODE, modeOf, fromSensor, adviceForecast, bandsOf, predict, reading, live, project, readData, slim, remembered, placeholder };
+export { LAST_KEY, NO_MODE, modeOf, fromSensor, weatherOnly, paybackPredicts, adviceForecast, bandsOf, predict, reading, live, project, readData, slim, remembered, placeholder };

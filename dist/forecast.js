@@ -3,7 +3,7 @@
    The simulation cases in preview/simulate-cases.json pin the rules; change both together. */
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale core.js
-const { HOUR, FIVE_MIN, FULL_SOC, LASTS_MAX_H, hourStart, dayHours, shiftKey, shiftMonth, sumKnown, pricedEnergy } = await import(`./core.js${v}`);
+const { HOUR, FIVE_MIN, FULL_SOC, LASTS_MAX_H, hourStart, dayHours, shiftKey, shiftMonth, sumKnown } = await import(`./core.js${v}`);
 
 // ---- Rules (tune here) ----
 const EFFICIENCY = 0.95;   // battery round trip until there are enough days to measure it
@@ -461,22 +461,4 @@ export function lookAhead(ahead, now, clock, n, battery, settings, soFar) {
     hoursAhead: sims[1].map((st, i) => [st.t, st.made, st.fromBatt, st.fromGrid, rows[i].use * (i ? 1 : firstShare)]).filter(([t]) => clock(t).key === today),
     restToday, daysMoney,
   };
-}
-
-// Today so far in money, hour by hour: `todayHours` is { hour start ms: { loadKwh, gridImportKwh,
-// gridExportKwh } } with loadKwh the energy balance, buyAt(t) and sellAt(t) the price of that hour.
-// Standby is left out of the savings, as in lookAhead, for the part of each hour already passed by
-// `now`. Each hour priced as the Money page prices a day (pricedEnergy): a known 0 kWh is 0 even without a
-// price; a field is null when an hour it needs has an unknown figure, or kWh and no price.
-export function moneySoFar(todayHours, buyAt, sellAt, standbyKwhPerHour, now) {
-  let saved = 0, cost = 0, earned = 0;
-  const add = (sum, kwh, rate) => sumKnown([sum, pricedEnergy(kwh, rate)]);
-  for (const [key, h] of Object.entries(todayHours)) {
-    const t = +key, buy = buyAt(t), standby = (standbyKwhPerHour * (Math.min(now, t + HOUR) - t)) / HOUR;
-    const { loadKwh: use, gridImportKwh: imp, gridExportKwh: exp } = h;
-    saved = add(saved, Number.isFinite(use) && Number.isFinite(imp) ? Math.max(0, use - standby - imp) : null, buy);
-    cost = add(cost, imp, buy);
-    earned = add(earned, exp, sellAt(t));
-  }
-  return { saved, cost, earned };
 }
