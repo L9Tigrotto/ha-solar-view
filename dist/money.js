@@ -3,6 +3,7 @@
    (core.js), so 0 kWh is a known 0 and unknown energy or no price is null, never 0. */
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
+/** @type {[typeof import("./core.js"), typeof import("./sky.js"), typeof import("./forecast.js")]} */
 const [{ HOUR, sumKnown, daysIn, shiftMonth, dayHours, clamp01, num, pricedEnergy }, { monthSun }, { bandOf }] = await Promise.all([
   import(`./core.js${v}`), import(`./sky.js${v}`), import(`./forecast.js${v}`)]);
 
@@ -150,7 +151,7 @@ function moneyAhead(data) {
 // year is on record. null with nothing on record.
 // soFar: what month `lastKey` (under way) brought so far; its rest, what such a month brings less that,
 // comes back first (at least 1 month is said all the same).
-function paybackLeft(owed, past, lastKey, soFar = null, { lat, sell = 0 } = {}) {
+function paybackLeft(owed, past, lastKey, soFar = null, /** @type {{ lat?: number, sell?: number }} */ { lat, sell = 0 } = {}) {
   const by = Object.fromEntries(past.map((x) => [x.key.slice(5), x.back])); // oldest first: the latest wins
   const avg = past.length ? past.reduce((s, x) => s + x.back, 0) / past.length : 0;
   if (!(avg > 0) || !lastKey) return null;

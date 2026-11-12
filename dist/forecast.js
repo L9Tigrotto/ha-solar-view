@@ -3,6 +3,7 @@
    The simulation cases in preview/simulate-cases.json pin the rules; change both together. */
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale core.js
+/** @type {typeof import("./core.js")} */
 const { HOUR, FIVE_MIN, FULL_SOC, LASTS_MAX_H, hourStart, dayHours, shiftKey, shiftMonth, sumKnown } = await import(`./core.js${v}`);
 
 // ---- Rules (tune here) ----
@@ -46,6 +47,16 @@ export function simulate(hours, soc, battery, exportMaxKw, firstShare) {
 }
 
 // ---- The forecast shape ----
+/** A forecast hour from its start t (ms): sun and use in kWh as [low, mid, high] (use null without house use),
+ * then cloud, rain and the prices, null when not known.
+ * @typedef {{ t: number, sun: number[], use: number[] | null, cloud: number | null, rain: number | null,
+ *   buy: number | null, sell: number | null }} Hour */
+/** The forecast in use (see forecastOf): the sensor's or the page's own, its hours from the present one on, the
+ * rest of today (`left`), whole days by key (`d`), tomorrowSun false when tomorrow's sun is only the usual day's,
+ * and the machines' usual W by clock hour.
+ * @typedef {{ from: "sensor" | "page", hours: Hour[], left: { sun: number[], use: number[] | null },
+ *   days: { d: string, sun: number[], use: number[] | null, cloud?: number, rain?: number }[], tomorrowSun: boolean,
+ *   machineW: number[] | null }} Ahead */
 const FRESH_MS = 3 * HOUR; // a sensor older than this is not trusted: the page builds its own
 const SKY_MIN_KWH = 0.5;   // today's usual sun by now before the sun so far scales the rest of today
 const SKY_MAX = 1.5;       // at most this many times the usual sun for the rest of today
@@ -80,6 +91,7 @@ export function sensorOf(sensor, now) {
 // and nothing that needs use is worked out.
 // sunSoFar: kWh the sun made today, by sunUntil (ms, the end of its statistics; now when not known); it
 // scales today's usual sun, see below, never down when `throttled`.
+/** @returns {Ahead | null} */
 export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar, sunUntil, throttled = false, sunOnly = false }) {
   const today = clock(now).key, start = hourStart(now, clock);
   const a = sensorOf(sensor, now), fresh = !!a, written = a?.written;
@@ -146,7 +158,7 @@ export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar
     const whole = sumOf(all, field, clock, today, sameDay ? hourStart(written, clock) : -Infinity)[1];
     return Array.isArray(base) && whole > 0 ? base.map((v) => (v * ahead[1]) / whole) : ahead;
   };
-  const left = Object.fromEntries(["sun", "use"].map((f) => [f, f === "use" && !withUse ? null : fresh ? rebase(f) : sumOf(all, f, clock, today, now)]));
+  const left = /** @type {Ahead["left"]} */ (Object.fromEntries(["sun", "use"].map((f) => [f, f === "use" && !withUse ? null : fresh ? rebase(f) : sumOf(all, f, clock, today, now)])));
   const hours = all.filter((h) => h.t >= start);
   return { from: fresh ? "sensor" : "page", hours, left, days, tomorrowSun: !guessed,
     // The machines' usual runs inside house use, W by clock hour (usual.machineW): the advice takes them out.
@@ -384,6 +396,12 @@ function advise(rows, bad, now, n, battery, settings, firstShare, clock) {
 // charge, hours and money ahead. n is the present reading { soc, loadW, solarW }; battery null is no
 // battery; soFar is today's money so far { saved, cost, earned }. A battery of unknown size hides all of
 // it: every figure would be a guess.
+/** @typedef {{ saved: number | null, cost: number | null, earned: number | null }} Money */
+/** What follows from the forecast (see lookAhead); [t, ...] rows as its comments below say.
+ * @typedef {{ lastsUntil: number | null, best: { type: string, kind: string, t: number, why: string, band: string | null,
+ *   kw: number | null }[] | null, inHour: number[] | null, fills: boolean, socAhead: number[][] | null,
+ *   hoursAhead: number[][] | null, restToday: Money | null, daysMoney: (string | number | null)[][] | null }} Outlook */
+/** @param {Ahead} ahead @returns {Outlook} */
 export function lookAhead(ahead, now, clock, n, battery, settings, soFar) {
   const none = { lastsUntil: null, best: null, inHour: null, fills: false, socAhead: null, hoursAhead: null, restToday: null, daysMoney: null };
   if (battery && !battery.kwh) return none;

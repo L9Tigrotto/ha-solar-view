@@ -21,6 +21,7 @@ const CLOCK_KEEP = 5000;
 const clocks = new Map();
 export function clockOf(tz) {
   if (clocks.has(tz)) return clocks.get(tz);
+  /** @type {Intl.DateTimeFormatOptions} */
   const opts = { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
   let f;
   try { f = new Intl.DateTimeFormat("en-CA", { ...opts, timeZone: tz }); } catch (e) { f = new Intl.DateTimeFormat("en-CA", opts); }

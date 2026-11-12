@@ -3,6 +3,8 @@
    it into HTML. The rules are in money.js. */
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
+/** @type {[typeof import("./core.js"), typeof import("./draw.js"), typeof import("./money.js"), typeof import("./data.js"),
+ *   typeof import("./forecast.js")]} */
 const [{ pct, say, cap, sumKnown, shiftMonth, yearKeys }, { ADVICE_ICON, HOUSE, PLUG, helpButton, markOf, ring, readout, dayLine, monthPicker, monthSteps, boldDate, monthName },
   { moneyOf, ledgerOf, paybackOf, bandRuns }, { paybackPredicts }, { bandOf }] = await Promise.all([
   import(`./core.js${v}`), import(`./draw.js${v}`), import(`./money.js${v}`), import(`./data.js${v}`), import(`./forecast.js${v}`)]);

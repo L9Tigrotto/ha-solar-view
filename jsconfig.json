@@ -1,0 +1,14 @@
+// Types in development only, from the JSDoc in dist/ (nothing here is shipped or built):
+//   npx -p typescript@5.6.3 tsc -p jsconfig.json --noEmit
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "checkJs": true,
+    "strict": false,
+    "noEmit": true
+  },
+  "include": ["dist/**/*.js"]
+}

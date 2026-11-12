@@ -2,6 +2,7 @@
    day line. Each returns markup as text; none reads the clock or the page. */
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
+/** @type {typeof import("./core.js")} */
 const { clamp01, pct, say, cap, yearKeys, daysIn } = await import(`./core.js${v}`);
 
 // Icons drawn as lines: most are Lucide's (lucide.dev, ISC and MIT licences, at the end of this file) on its
@@ -208,8 +209,8 @@ function dayLine(t, f, key, list, v, name, line, at, { live = true, between = ""
       </div>${between}
       <div class="stepped">${steps(t, "Day", at, end)}<div class="picked" aria-live="polite" aria-atomic="true">${lines.map((l, i) => `<div class="day" data-i="${i}"${i === at ? "" : " hidden"}>${l}</div>`).join("")}</div></div>`;
 }
-// "Now" or "usual use" over a chart at x (0 to 100, as a number or as text), kept inside the card near its ends.
-const nowLabel = (x, text) => `<span class="now-label${+x < 8 ? " start" : +x > 92 ? " end" : ""}" style="--x:${x}%">${text}</span>`;
+// "Now" or "usual use" over a chart at x (0 to 100), kept inside the card near its ends.
+const nowLabel = (x, text) => `<span class="now-label${x < 8 ? " start" : x > 92 ? " end" : ""}" style="--x:${x}%">${text}</span>`;
 // A sentence with its date in bold. {d} is the first placeholder of `said` in every language, so it sits where
 // the date starts in `plain` (said filled in), even when cap() raised the date's first letter.
 const boldDate = (plain, said, date) => { const i = said.indexOf("{d}"); return `${plain.slice(0, i)}<b>${plain.slice(i, i + date.length)}</b>${plain.slice(i + date.length)}`; };

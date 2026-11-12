@@ -1,6 +1,7 @@
 /* The panel's frame: the shadow DOM's markup (sky, rain, snow, gear, pager, tab bar), the gear's dialog and
    the help dialogs ("How to read this"), and how much the browser enlarges text. */
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
+/** @type {typeof import("./draw.js")} */
 const { battRing, sw, wxIcon } = await import(`./draw.js${v}`);
 
 const PAGES = ["now", "energy", "money"];
@@ -85,7 +86,7 @@ function textScale() {
   box.style.cssText = `position:fixed;left:-9999px;top:0;font:${font};white-space:nowrap;-webkit-text-size-adjust:100%;text-size-adjust:100%`;
   box.innerHTML = `<span>${word}</span><svg width="2000" height="200"><text y="150" style="font:${font}">${word}</text></svg>`;
   document.body.append(box);
-  const page = box.firstChild.getBoundingClientRect().width, chart = box.querySelector("text").getComputedTextLength();
+  const page = box.firstElementChild.getBoundingClientRect().width, chart = box.querySelector("text").getComputedTextLength();
   box.remove();
   const ctx = document.createElement("canvas").getContext("2d");
   ctx.font = font;

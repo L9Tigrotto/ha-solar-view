@@ -4,6 +4,9 @@
    numbers (placeholder). */
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
+/** @type {[typeof import("./core.js"), typeof import("./sky.js"), typeof import("./advice.js"),
+ *   typeof import("./config.js"), typeof import("./forecast.js"), typeof import("./stats.js"),
+ *   typeof import("./money.js")]} */
 const [{ HOUR, NOON, FULL_SOC, clockOf, dayHours, hourStart, inHour, shiftKey, stateNum, numberOrEntity, sumKnown, warnOnce },
   { SKY_LOW_DEG, weatherOf, cloudNow, raining, snowing, dawnOf, greyOf, coverOf, moonPhase }, { wearOf }, { BATTERY_FLOOR_SOC },
   { sensorOf, forecastOf, lookAhead, bandOf, bandPrices }, { ENERGY }, { moneySoFar }] = await Promise.all([
@@ -18,13 +21,17 @@ const SOLAR_NOISE_W = 15; // an inverter can report a few watts all night (7 to 
 // Forecast. weather: the sensor's sun, no house use. usual_days_weather: the Energy settings' Solar Forecast for
 // the sun, the usual day for use once one is on record. learned_weather: the sensor's sun and use. The last three without their data
 // step down (STEP), again while data is missing; each step is said once in the console, nothing on screen.
+/** @typedef {"none" | "usual_days" | "weather" | "usual_days_weather" | "learned_weather"} Level */
+/** @typedef {{ level: Level, sensorFresh: boolean }} Mode the level in use after any step down; the sensor is fresh (see sensorOf) */
+/** @type {Record<string, Level>} */
 const STEP = { weather: "none", learned_weather: "usual_days_weather", usual_days_weather: "usual_days", usual_days: "none" };
+/** @type {Mode} */
 const NO_MODE = { level: "none", sensorFresh: false };
-// { level: the level in use after any step down, sensorFresh: the sensor is fresh (see sensorOf) }. `level` is
-// the config's (null: auto, which says nothing when it settles lower: the fresh sensor, else the page's own
+// `level` is the config's (null: auto, which says nothing when it settles lower: the fresh sensor, else the page's own
 // forecast, else none). The Solar Forecast alone is enough for usual_days_weather, at auto and when set: it gives
 // the advice its "soon", "later" and "wait" before a usual day is on record. `usual`: a usual day is on record
 // (3 days); `solar`: the Solar Forecast answered.
+/** @param {Level | null} level @returns {Mode} */
 function modeOf(level, { usual = false, solar = false } = {}, sensor, now) {
   const s = sensorOf(sensor, now), sensorFresh = !!s;
   const has = { none: true, usual_days: usual, weather: sensorFresh, usual_days_weather: solar, learned_weather: sensorFresh && s.withUse };
@@ -37,11 +44,14 @@ function modeOf(level, { usual = false, solar = false } = {}, sensor, now) {
   return { level: l, sensorFresh };
 }
 // The sensor is the forecast in use: its days, hours and ranges, not the page's own.
+/** @param {Mode} mode */
 const fromSensor = (mode) => mode?.level === "weather" || mode?.level === "learned_weather";
 // The forecast sensor without house use (its mode Weather): sun and sky only. Nothing from the usual day
 // shows beside it (the coming days' use line, payback's time left), nor money it cannot know (month end).
+/** @param {Data} data */
 const weatherOnly = (data) => data.mode?.level === "weather" && !!data.ahead;
 // Payback's time left: while the page predicts anything, as with a forecast or a usual day; not beside weather alone.
+/** @param {Data} data */
 const paybackPredicts = (data) => !weatherOnly(data) && !!(data.outlook || data.usualToday);
 
 // The figures the advice reads for "soon", "later" and "wait" (see advice): the sensor's hours and days when it is
@@ -79,9 +89,14 @@ function bandsOf(hass, ids, cfg, stats, now, clock) {
 }
 
 // The forecast and what follows from it (ghosts, lasts until, best time, money, month end), worked out when the
-// statistics load and when the sensor writes, not on every redraw: { mode, ahead, outlook, bands, forecast, facts }.
+// statistics load and when the sensor writes, not on every redraw.
 // facts: the fresh sensor (see sensorOf), whose sky, prices and months are facts used at every level (B7); null
 // when it is not fresh. A sensor that cannot be read leaves the page without a forecast, nothing else.
+/** @typedef {import("./forecast.js").Ahead} Ahead */
+/** @typedef {import("./forecast.js").Outlook} Outlook */
+/** bands: see bandsOf; forecast: see adviceForecast.
+ * @typedef {{ mode: Mode, ahead: Ahead | null, outlook: Outlook | null, bands: any, forecast: any, facts: any }} Looked */
+/** @param {import("./config.js").Config} cfg @returns {Looked} */
 function predict(hass, ids, cfg, stats, sensor, now, clock) {
   const out = { mode: NO_MODE, ahead: null, outlook: null, bands: bandsOf(hass, ids, cfg, stats, now, clock), forecast: null, facts: null };
   try {
@@ -191,7 +206,11 @@ function project(stats) {
 // `looked` (see predict). `ids` are the entities to read, `cfg` the owner's settings (see readConfig).
 // project() once per statistics load, not on every state change.
 const projected = new WeakMap();
+/** @returns {ReturnType<typeof project>} */
 const projectOnce = (stats) => projected.get(stats) ?? projected.set(stats, project(stats)).get(stats);
+/** Everything the page shows: its fields are readData's, live's and project's.
+ * @typedef {ReturnType<typeof readData>} Data */
+/** @param {import("./config.js").Config} cfg @param {Partial<Looked>} [looked] */
 function readData(hass, ids, cfg, stats, looked = {}, now = Date.now()) {
   const { billFixedNow, ...state } = live(hass, ids, cfg, looked.facts, now), { fixedMonths, ...drawn } = projectOnce(stats);
   return { ...state, ...drawn,

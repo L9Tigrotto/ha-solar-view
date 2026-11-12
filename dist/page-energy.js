@@ -3,6 +3,7 @@
    energyPage turns it into HTML. */
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
+/** @type {[typeof import("./core.js"), typeof import("./draw.js"), typeof import("./data.js"), typeof import("./stats.js")]} */
 const [{ MINUTE, FIVE_MIN, HOUR, clamp01, pct, say, cap, dayHours, hourStart, inHour, socShift, sumKnown, daysIn, yearKeys },
   { hint, big, markOf, helpButton, TRACK, ringSize, splitRing, legendHtml, lineGrid, readout, monthSteps, steps, dayLine, monthTotal, monthPicker, nowLabel, boldDate, monthName },
   { fromSensor, weatherOnly }, { balanceKwh }] = await Promise.all([
@@ -199,8 +200,8 @@ function battDayView(data, now, clock, pick) {
 }
 function battDayCard(v, t, f, clock) {
   const H = HOUR, { now, hours, day0, soc, hour } = v, N = hours.length;
-  const x = (ms) => (clamp01((ms - day0) / (N * H)) * 100).toFixed(2), y = (p) => (100 - Math.min(100, Math.max(0, p))).toFixed(2);
-  const path = (pts) => pts.map(([ms, p], i) => `${i ? "L" : "M"}${x(ms)} ${y(p)}`).join("");
+  const x = (ms) => clamp01((ms - day0) / (N * H)) * 100, y = (p) => (100 - Math.min(100, Math.max(0, p))).toFixed(2);
+  const path = (pts) => pts.map(([ms, p], i) => `${i ? "L" : "M"}${x(ms).toFixed(2)} ${y(p)}`).join("");
   const hourly = hour.map((h) => h.kwh);
   const kwh = lineGrid(Math.max(...hourly.map((h) => (h ? Math.max(...h.v) : 0)), 0.1), f.num);
   // Across its hour (0 to 1): the middle, but the hour in progress at now, on the now line as the charge
@@ -260,8 +261,9 @@ function battDayCard(v, t, f, clock) {
   const dot = (color, val, over = 0.5) => `<i style="--c:${markOf(color)};--v:${Math.min(100, Math.max(0, val)).toFixed(1)}%;--x:${over.toFixed(2)}"></i>`;
   const cells = (named, dots) => said.map(([, name], i) => `<li${name ? (named ? ` ${hint(name, "")}` : ` data-hint="${name}"`) : ""} data-i="${i}"${name ? "" : ' class="future"'}${i === at ? ' aria-current="true"' : ""}>${dots(i)}</li>`).join("");
   // What is still to come shaded, now a line across both charts, named once over the top one (kept inside the card near midnight).
-  const later = `<rect class="later" x="${x(now)}" y="0" width="${(100 - x(now)).toFixed(2)}" height="100"/><line class="now-line" x1="${x(now)}" x2="${x(now)}" y1="0" y2="100"/>`;
-  const label = nowLabel(x(now), t.nowMark);
+  const xNow = x(now), nx = xNow.toFixed(2);
+  const later = `<rect class="later" x="${nx}" y="0" width="${(100 - xNow).toFixed(2)}" height="100"/><line class="now-line" x1="${nx}" x2="${nx}" y1="0" y2="100"/>`;
+  const label = nowLabel(xNow, t.nowMark);
   const charge = lineGrid(100, (p) => `${p}%`);
   const legend = legendHtml([{ label: t.sun, color: "--sun" }, { label: t.homeUse, color: "--home" }, { label: t.colGrid, color: "--grid" }]);
   const title = (name, unit) => `<h3 class="chart-title"><span>${name}</span> <span class="num">${unit}</span></h3>`;
@@ -296,6 +298,7 @@ function battDayCard(v, t, f, clock) {
 // use) the usual day's; with weather alone the days stop there, and the month's end shows only once they
 // reach it. { days: [{ date, kwh, usual }], end } (end null while a day of the month has no numbers on
 // record), or null without a forecast or a day to come.
+/** @param {import("./data.js").Data} data */
 function monthAhead(data) {
   const a = data.ahead, list = data.monthDays, sensor = fromSensor(data.mode);
   if (!list?.length || !a || !(sensor || Number.isFinite(data.usualSun))) return null;
@@ -306,9 +309,9 @@ function monthAhead(data) {
     const dayKwh = a.days.find((d) => d.d === key)?.sun?.[1] ?? (sensor ? null : data.sunDays?.[key]);
     if (!sensor) return { date, kwh: dayKwh ?? data.usualSunDays?.[key] ?? data.usualSun, usual: !(key in (data.sunDays ?? {})) };
     const usual = weatherOnly(data) ? null : data.usualSunDays?.[key];
-    return Number.isFinite(dayKwh) ? { date, kwh: dayKwh, usual: false } : Number.isFinite(usual) && { date, kwh: usual, usual: true };
+    return Number.isFinite(dayKwh) ? { date, kwh: dayKwh, usual: false } : Number.isFinite(usual) ? { date, kwh: usual, usual: true } : null;
   });
-  const cut = all.indexOf(false), days = cut < 0 ? all : all.slice(0, cut);
+  const cut = all.indexOf(null), days = cut < 0 ? all : all.slice(0, cut);
   if (sensor && !days.length && list.length < n) return null;
   const soFar = sumKnown(list.map((d) => (d.none ? null : d.solarKwh))), rest = a.left?.sun?.[1];
   return { days, end: soFar === null || cut >= 0 || !Number.isFinite(rest) ? null : soFar + rest + days.reduce((s, d) => s + d.kwh, 0) };

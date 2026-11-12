@@ -1,6 +1,7 @@
 /* What the advice card says: the advice kind, its lines, and the battery's word. Pure. */
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
+/** @type {typeof import("./core.js")} */
 const { DAY, HOUR, LASTS_MAX_H, warnOnce } = await import(`./core.js${v}`);
 
 // ---- Rules (tune here) ----

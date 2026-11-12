@@ -2,6 +2,7 @@
    read and the owner's settings, checked (readConfig). */
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale core.js
+/** @type {typeof import("./core.js")} */
 const { num, warnOnce } = await import(`./core.js${v}`);
 
 const BATTERY_FLOOR_SOC = 20; // percent where the inverter stops discharging, unless config says battery_floor
@@ -226,6 +227,7 @@ function readConfig(prefs, config, costs = {}) {
   };
   return { ids, cfg };
 }
+/** @typedef {ReturnType<typeof readConfig>["cfg"]} Config the owner's settings, each with its default */
 // The live sensors the Now page cannot do without, one list per kind (solar, battery and grid power, charge).
 // A kind is silent only when all of its sensors are: a second inverter asleep at night is not.
 const requiredIds = (ids) => [ids.solarW, ids.battW, ids.gridW, ids.soc].filter((kind) => kind.length);

@@ -2,11 +2,14 @@
    numbers: days, months, today by the hour, the usual day (totals). */
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
+/** @type {[typeof import("./core.js"), typeof import("./sky.js"), typeof import("./forecast.js"),
+ *   typeof import("./config.js")]} */
 const [{ MINUTE, FIVE_MIN, HOUR, DAY, NOON, shiftKey, shiftMonth, daysIn, yearKeys, dayHours, hourStart, clamp01, sumKnown }, { clearSky }, { efficiencyOf, machineOf }, { USUAL_MIN }] = await Promise.all([
   import(`./core.js${v}`), import(`./sky.js${v}`), import(`./forecast.js${v}`), import(`./config.js${v}`)]);
 
 const ENERGY = ["solarKwh", "batteryKwh", "chargeKwh", "gridImportKwh", "gridExportKwh", "loadKwh"];
 const PARTS = [...ENERGY, "costMoney", "earnedMoney"]; // everything summed from the statistics
+/** @returns {Record<string, any>} */
 const zero = () => Object.fromEntries(PARTS.map((k) => [k, 0])); // every part at 0, to add into
 
 // ---- Rules (tune here) ----
@@ -205,6 +208,7 @@ function totals(ids, cfg, rows, clock, now, geo) {
   // This month day by day, today last (from its 5 minute rows), each at noon UTC of its day: the page
   // formats these dates in UTC, so every viewer sees the same day. The rest of a day's figures show when
   // its day is picked (see productionCard), its money on Money (see moneyHtml).
+  /** @returns {Record<string, any>} */
   const dayOf = (key) => ({ date: Date.parse(key) + NOON, ...sum([key]) });
   const monthDays = Array.from({ length: +today.slice(8) }, (_, i) => dayOf(`${month}-${String(i + 1).padStart(2, "0")}`));
   // The other 11 months Production shows, day by day, with only what a picked day says (see picked),
@@ -248,6 +252,7 @@ function totals(ids, cfg, rows, clock, now, geo) {
   const fade = { now: fcHour(0), next: (fcHour(1) + fcHour(2) + fcHour(3)) / 3 };
   // The usual day's kWh by now and in all, over today's real hours: a 23 or 25 hour day has as many.
   const hours = dayHours(now, clock);
+  /** @param {number[]} w @param {(t: number) => number} [k] */
   const usualBy = (w, k = () => 1) => {
     let by = 0, all = 0;
     for (const t of hours) { const v = w[clock(t).hour] * k(t); all += v; by += v * clamp01((now - t) / HOUR); }

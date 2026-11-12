@@ -13,6 +13,8 @@
 
 // The charts and lists the arrow keys move along, each one Tab stop (see _rove).
 const ROVE = ":is(ul.days,ol.week,ol.year,ol.hours24,svg.cols)";
+// Something on the panel's own markup (an event, an observer entry): its target is an element there.
+/** @template E @typedef {E & { target: HTMLElement }} On */
 
 // ---- Rules (tune here) ----
 const REFRESH_MS = 5 * 60 * 1000; // totals come from the statistics, which move every 5 minutes
@@ -20,6 +22,7 @@ const REFRESH_MS = 5 * 60 * 1000; // totals come from the statistics, which move
 // ---- Parts: helpers, texts and stylesheet live in their own files ----
 // They must load with this file's own ?v=, or under /local/ the browser keeps stale copies. All start here,
 // in one wave: a file's own import of a sibling (forecast.js of core.js) then finds it already loading.
+// tsc cannot follow an import with ?v=, so each wave names its files' types (@type, see jsconfig.json).
 // Texts: one file per language (strings-it.js), loaded the first time it is on screen. English is always
 // there, under every other language, so a key one lacks reads in English (a half-copied /local/ update).
 const version = new URL(import.meta.url).search;
@@ -42,6 +45,11 @@ const supported = (l) => [l, l.split("-")[0]].find((c) => Object.hasOwn(LANGUAGE
 let guess = "";
 try { guess = localStorage.getItem(LANGUAGE_KEY) ?? ""; } catch (e) { /* no storage */ }
 guess = supported(guess) ?? supported(document.documentElement.lang || navigator.language || "") ?? "en";
+/** @type {[unknown, unknown, typeof import("./styles.js"), typeof import("./forecast.js"), typeof import("./core.js"),
+ *   typeof import("./format.js"), typeof import("./config.js"), typeof import("./sky.js"), typeof import("./advice.js"),
+ *   typeof import("./stats.js"), typeof import("./data.js"), typeof import("./draw.js"), typeof import("./money.js"),
+ *   typeof import("./page-now.js"), typeof import("./page-energy.js"), typeof import("./page-money.js"),
+ *   typeof import("./shell.js")]} */
 const [, , { CSS }, { findForecast }, { MINUTE, FIVE_MIN, HOUR, DAY, clockOf, stateNum, esc, warnOnce }, { formats, hourCycle },
   { readConfig, requiredIds, optionalIds }, { skyAt }, { withOwnAdvice }, { totals, fetchStats },
   { LAST_KEY, predict, readData, slim, remembered, placeholder },
@@ -133,18 +141,39 @@ class SolarView extends HTMLElement {
     this._looked = {};       // the forecast and what follows from it (see predict in data.js)
     this._kept = {};         // the statistics kept between loads, by call (see fetchStats)
     this._last = undefined;  // the copy kept for the skeleton (see slim), read from storage once; null: none
+    this._saved = undefined; // the _stats whose copy was saved last
+    this._run = 0;           // bumped by each load and each detach: only the newest load may answer (see _load)
+    this._setup = undefined; // the Energy settings, kept until their `until` (see _load)
+    this._seen = undefined;  // the forecast sensor's state when _looked was made
+    this._soon = false;      // a load is queued (see _loadSoon)
+    this._dropped = false;   // taken off the page (see disconnectedCallback)
+    this._onVisible = undefined; // the visibilitychange listener, made once
+    this._holdUntil = undefined; // a first visit waits until then for the Energy settings before drawing (see _render)
+    this._held = undefined;      // the timer that draws then
+    // What _render keeps between calls: the texts and formats with what they were made for, the sky's key, payback.
+    this._lang = this._tConfig = this._cfg = this._t = undefined;
+    this._fKey = this._f = this._clock = undefined;
+    this._skyKey = this._paybackKey = this._payback = undefined;
+    // What Home Assistant set (see the setters), and each card's pick (see _wireWeek).
+    this._hass = this._panel = this._narrow = undefined;
+    /** @type {Record<string, number | string>} */
+    this._pick = undefined;
+    this._hintFor = undefined; // the mark whose hint shows (see _wireHints)
+    /** @type {number | undefined} preview harness only (?day=), set from outside: declared here, never written */
+    this.testDay;
     // The host attributes (dark, ready) are set in _render: a custom element constructor must
     // not set attributes on itself.
     const root = this.attachShadow({ mode: "open" });
     root.innerHTML = shellHtml(CSS);
-    this._pager = root.querySelector(".pager");
+    this._pager = /** @type {HTMLElement} */ (root.querySelector(".pager"));
+    /** @type {HTMLElement & { hass?: object, narrow?: boolean }} Home Assistant's own element */
     this._menu = root.querySelector("ha-menu-button");
-    this._tabs = [...root.querySelectorAll(".tabs button")];
-    this._hint = root.querySelector(".hint");
+    this._tabs = /** @type {HTMLElement[]} */ ([...root.querySelectorAll(".tabs button")]);
+    this._hint = /** @type {HTMLElement} */ (root.querySelector(".hint"));
     this._status = root.querySelector(".status");
-    this._rain = root.querySelector(".rain");
-    this._snow = root.querySelector(".snow");
-    this._gear = root.querySelector(".gear");
+    this._rain = /** @type {HTMLElement} */ (root.querySelector(".rain"));
+    this._snow = /** @type {HTMLElement} */ (root.querySelector(".snow"));
+    this._gear = /** @type {HTMLElement} */ (root.querySelector(".gear"));
     this._dialog = null; // the gear's dialog, built the first time it opens (see _gearDialog)
     try { this._show = JSON.parse(localStorage.getItem(SHOW_KEY)) ?? {}; } catch (e) { this._show = {}; }
     try { const l = localStorage.getItem(LANGUAGE_KEY); this._language = Object.hasOwn(LANGUAGES, l ?? "") ? l : ""; } catch (e) { this._language = ""; }
@@ -222,8 +251,9 @@ class SolarView extends HTMLElement {
       const dot = el.style.getPropertyValue("--c");
       tip.classList.toggle("dot", !!dot);
       tip.style.setProperty("--dot", dot);
-      // Rects come zoomed (see textScale), the hint is placed in the panel's own pixels.
-      const z = this.currentCSSZoom || 1, unzoom = (b) => ({ left: b.left / z, top: b.top / z, bottom: b.bottom / z, width: b.width / z, height: b.height / z });
+      // Rects come zoomed (see textScale), the hint is placed in the panel's own pixels. currentCSSZoom by name:
+      // TypeScript 5.6's DOM types lack it.
+      const z = this["currentCSSZoom"] || 1, unzoom = (b) => ({ left: b.left / z, top: b.top / z, bottom: b.bottom / z, width: b.width / z, height: b.height / z });
       const box = unzoom(this.getBoundingClientRect()), r = unzoom(el.getBoundingClientRect()), mid = r.left - box.left + r.width / 2;
       const left = Math.max(8, Math.min(box.width - tip.offsetWidth - 8, mid - tip.offsetWidth / 2));
       // Above the mark, else below it; where neither has room, on the roomier side, kept inside the panel.
@@ -266,7 +296,7 @@ class SolarView extends HTMLElement {
     // its page arrives. A touch or the wheel means the viewer took over, so the swipe leads again.
     let going = "";
     // A hidden page (the error message hides Energy and Money) is never marked or scrolled to.
-    const io = new IntersectionObserver((entries) => {
+    const io = new IntersectionObserver((/** @type {On<IntersectionObserverEntry>[]} */ entries) => {
       for (const e of entries) if (!e.target.hidden && e.isIntersecting && (!going || e.target.id === going)) { going = ""; mark(e.target.id); }
     }, { root: this._pager, threshold: 0.6 });
     [...this._pager.children].forEach((p) => io.observe(p));
@@ -297,8 +327,8 @@ class SolarView extends HTMLElement {
   _wireShow() {
     this._gear.addEventListener("click", () => this._gearDialog().showModal());
     // The "?" button is redrawn with its page, so focus goes back to the one on screen now.
-    this._pager.addEventListener("click", (e) => {
-      const help = e.target.closest?.(".help");
+    this._pager.addEventListener("click", (/** @type {On<MouseEvent>} */ e) => {
+      const help = /** @type {HTMLElement} */ (e.target.closest?.(".help"));
       const d = help && this._readDialog(help.dataset.card);
       if (!d) return;
       // Named as its button is, with the card's title.
@@ -312,7 +342,7 @@ class SolarView extends HTMLElement {
   _addDialog(html) {
     const tpl = document.createElement("template");
     tpl.innerHTML = html;
-    const d = tpl.content.firstElementChild;
+    const d = /** @type {HTMLDialogElement} */ (tpl.content.firstElementChild);
     this.shadowRoot.append(d);
     return d;
   }
@@ -322,19 +352,19 @@ class SolarView extends HTMLElement {
   _gearDialog() {
     if (this._dialog) return this._dialog;
     const d = this._dialog = this._addDialog(gearDialog(LANGUAGES));
-    const boxes = [...d.querySelectorAll('input[role="switch"]')];
+    const boxes = /** @type {HTMLInputElement[]} */ ([...d.querySelectorAll('input[role="switch"]')]);
     boxes.forEach((b) => { b.checked = this._show[b.name] !== false; });
     // Safari does not focus a tapped button, so the dialog would hand focus to the page instead.
     d.addEventListener("close", () => this._gear.focus());
     // The language: applied at once; Automatic clears it. Without storage it holds for this visit.
-    const language = d.querySelector('select[name="language"]');
+    const language = /** @type {HTMLSelectElement} */ (d.querySelector('select[name="language"]'));
     language.addEventListener("change", () => {
       if (!Object.hasOwn(LANGUAGES, language.value) && language.value !== "") return;
       this._language = language.value;
       try { this._language ? localStorage.setItem(LANGUAGE_KEY, this._language) : localStorage.removeItem(LANGUAGE_KEY); } catch (e) { /* this visit only */ }
       this._render();
     });
-    d.addEventListener("change", (e) => {
+    d.addEventListener("change", (/** @type {On<Event>} */ e) => {
       if (!e.target.matches('input[role="switch"]')) return;
       this._show = Object.fromEntries(boxes.filter((b) => !b.checked).map((b) => [b.name, false]));
       try { localStorage.setItem(SHOW_KEY, JSON.stringify(this._show)); } catch (e) { /* this view only */ }
@@ -347,14 +377,14 @@ class SolarView extends HTMLElement {
   // How to read a card, null for a card without one.
   _readDialog(card) {
     const root = this.shadowRoot;
-    let d = root.querySelector(`dialog.read[data-card="${card}"]`);
+    let d = /** @type {HTMLDialogElement} */ (root.querySelector(`dialog.read[data-card="${card}"]`));
     if (d) return d;
     const html = readDialog(card);
     if (!html) return null;
     d = this._addDialog(html);
     // Its card gone meanwhile (an error message took the page), the gear takes focus instead.
     d.addEventListener("close", () => {
-      const help = root.querySelector(`.help[data-card="${card}"]`);
+      const help = /** @type {HTMLElement} */ (root.querySelector(`.help[data-card="${card}"]`));
       (help?.checkVisibility() && !help.closest("[inert]") ? help : this._gear).focus();
     });
     this._dialogTexts();
@@ -367,8 +397,8 @@ class SolarView extends HTMLElement {
   // select's copy of it (selectedcontent) shows the new name.
   _dialogTexts() {
     const t = this._t;
-    if (t) this.shadowRoot.querySelectorAll("dialog [data-t]").forEach((el) => { el.textContent = t[el.dataset.t]; });
-    const pick = this._dialog?.querySelector('select[name="language"]');
+    if (t) this.shadowRoot.querySelectorAll("dialog [data-t]").forEach((/** @type {HTMLElement} */ el) => { el.textContent = t[el.dataset.t]; });
+    const pick = /** @type {HTMLSelectElement} */ (this._dialog?.querySelector('select[name="language"]'));
     if (!pick) return;
     const auto = pick.querySelector('option[value=""]');
     if (t) (auto.querySelector("span") ?? auto).textContent = t.languageAuto;
@@ -418,22 +448,22 @@ class SolarView extends HTMLElement {
       this._redraw(card.closest(".page").id);
       return true;
     };
-    this._pager.addEventListener("click", (e) => {
+    this._pager.addEventListener("click", (/** @type {On<MouseEvent>} */ e) => {
       // Safari does not focus a button it clicks. A step takes focus itself, or a month's redraw would put it
       // back on the day that had it (see focusKey): that day's hint would open, and the day be picked.
-      e.target.closest?.(".step")?.focus();
+      /** @type {HTMLElement} */ (e.target.closest?.(".step"))?.focus();
       if (!step(e) && !month(e)) pick(e);
     });
-    this._pager.addEventListener("focusin", (e) => { if (!e.target.closest?.(HOUR)) pick(e); });
+    this._pager.addEventListener("focusin", (/** @type {On<FocusEvent>} */ e) => { if (!e.target.closest?.(HOUR)) pick(e); });
     // The hour under the pointer or focus, on both charts.
-    const hover = (li) => this._pager.querySelectorAll(HOUR).forEach((c) => c.classList.toggle("hover", !!li?.dataset.hint && c.dataset.i === li.dataset.i));
-    this._pager.addEventListener("pointerover", (e) => hover(e.target.closest?.(HOUR)));
-    this._pager.addEventListener("focusin", (e) => hover(e.target.closest?.(HOUR)));
+    const hover = (li) => this._pager.querySelectorAll(HOUR).forEach((/** @type {HTMLElement} */ c) => c.classList.toggle("hover", !!li?.dataset.hint && c.dataset.i === li.dataset.i));
+    this._pager.addEventListener("pointerover", (/** @type {On<PointerEvent>} */ e) => hover(e.target.closest?.(HOUR)));
+    this._pager.addEventListener("focusin", (/** @type {On<FocusEvent>} */ e) => hover(e.target.closest?.(HOUR)));
     this._pager.addEventListener("focusout", () => hover(null));
     this._pager.addEventListener("pointerleave", () => hover(null));
     // A drag picks whatever it passes over in the row it started in (the rows only scroll the page up and down).
     let row = null;
-    this._pager.addEventListener("pointerdown", (e) => {
+    this._pager.addEventListener("pointerdown", (/** @type {On<PointerEvent>} */ e) => {
       const li = e.isPrimary ? e.target.closest?.(ROW) : null, hour = !!li?.matches(HOUR);
       row = li && (!hour || e.pointerType === "touch") ? li.parentElement : null;
       if (row && !hour) pick(e);
@@ -445,10 +475,10 @@ class SolarView extends HTMLElement {
     this._pager.addEventListener("pointerup", () => { row = null; });
     this._pager.addEventListener("pointercancel", () => { row = null; });
     // Left and right move along a chart, and its one Tab stop moves along (see _rove).
-    this._pager.addEventListener("keydown", (e) => {
+    this._pager.addEventListener("keydown", (/** @type {On<KeyboardEvent>} */ e) => {
       const li = e.target.closest?.(ROW), step = { ArrowLeft: -1, ArrowRight: 1 }[e.key];
       if (li?.matches(HOUR) && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); pick(e); return; }
-      const list = step && e.target.closest?.(ROVE), all = list ? [...list.querySelectorAll("[tabindex]")] : [], next = all[all.indexOf(e.target) + step];
+      const list = step && e.target.closest?.(ROVE), all = list ? /** @type {HTMLElement[]} */ ([...list.querySelectorAll("[tabindex]")]) : [], next = all[all.indexOf(e.target) + step];
       if (next) { e.preventDefault(); e.target.tabIndex = -1; next.tabIndex = 0; next.focus(); }
     });
   }
@@ -781,9 +811,9 @@ class SolarView extends HTMLElement {
   // no export price, no weather): a line about a mark nobody can find only puzzles. Each view lists the help
   // lines its cards draw (`help`); a line is hidden when one of its texts is a help line its card does not draw.
   _applyHelp() {
-    this.shadowRoot.querySelectorAll("dialog.read :is(li,.pair)").forEach((el) => {
+    this.shadowRoot.querySelectorAll("dialog.read :is(li,.pair)").forEach((/** @type {HTMLElement} */ el) => {
       const drawn = this._help[el.closest("dialog").dataset.card];
-      el.hidden = !!drawn && [...el.querySelectorAll("[data-t]")].some((x) => x.dataset.t.startsWith("help") && !drawn.includes(x.dataset.t));
+      el.hidden = !!drawn && [...el.querySelectorAll("[data-t]")].some((/** @type {HTMLElement} */ x) => x.dataset.t.startsWith("help") && !drawn.includes(x.dataset.t));
     });
   }
 }
