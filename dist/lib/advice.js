@@ -15,6 +15,7 @@ const LATER_MIN_W = 500;  // the next 3 hours must average this much forecast su
 const LATER_TIMES = 2;    // and at least this many times this hour's forecast
 const EXPORT_W = 50;      // sending more than this to the grid shows as a flow, and counts as spare sun when the battery is nearly full
 const IMPORT_W = 50;      // importing more than this counts as "the grid is helping"
+const SOURCE_SHARE = 0.25; // a source is named as carrying the house from this share of its use up
 // Battery words by whole percent, counted from the floor (where the inverter stops discharging):
 // at the floor empty, up to 15 above it low, then good, 85 to 99 almost full, 100 full.
 const LOW_ABOVE_FLOOR = 16; // under this many percent above the floor is "low", and the low battery warning can fire
@@ -66,8 +67,13 @@ function wearOf(batt, health, now) {
 
 // The lines that fit the situation: the advice kind, narrowed by the battery word where a more
 // specific line is true. Specific lines come first, then the general ones, for more variety.
-// `sunCharging`: the battery is filling from the sun, not from the grid.
-function advicePool(t, kind, word, sunCharging, daytime) {
+// `sunCharging`: the battery is filling from the sun, not from the grid. `skip`: lines to leave out (see
+// loadLines), unless that would leave none.
+function advicePool(t, kind, word, sunCharging, daytime, skip = null) {
+  const lines = poolOf(t, kind, word, sunCharging, daytime), kept = skip ? lines.filter((l) => !skip.has(l)) : lines;
+  return kept.length ? kept : lines;
+}
+function poolOf(t, kind, word, sunCharging, daytime) {
   const high = isHigh(word);
   const general = daytime ? t.adviceOk : t.adviceOkNight;
   const fromForecast = { wait: t.adviceWait, soon: t.adviceSoon, later: t.adviceLater, short: t.adviceShort, okLasts: t.adviceOkLasts, fills: t.adviceFills }[kind];
@@ -79,6 +85,11 @@ function advicePool(t, kind, word, sunCharging, daytime) {
   // The full battery lines speak of the day ahead.
   return high && daytime ? [...t.adviceOkFull, ...general] : general;
 }
+// The built-in lines that speak of the big loads, by pool and index (the same sentence at the same index in
+// every language): beside the washer line, which says when to run them, the advice leaves them out.
+const LOAD_LINES = { adviceLow: [0, 1, 6], adviceEmpty: [8] };
+// Their texts in one language's built-in strings: matched by text, so the owner's own lines stay.
+const loadLines = (strings) => new Set(Object.entries(LOAD_LINES).flatMap(([k, ix]) => ix.map((i) => strings[k][i])));
 
 // The strings of one language with the owner's own advice lines merged in. They come from the
 // panel's `config:` in configuration.yaml (see the example in docs/setup.md), so nobody edits this file:
@@ -123,9 +134,9 @@ const gridCharging = (n) => n.batteryChargeW > MIN_FLOW_W && n.solarW < n.batter
 function sources(n) {
   const all = [["sun", Math.min(n.solarW, n.loadW)], ["battery", n.batteryDischargeW], ["grid", n.gridImportW]]
     .sort((a, b) => b[1] - a[1]);
-  const floor = Math.max(MIN_FLOW_W, n.loadW * 0.25);
+  const floor = Math.max(MIN_FLOW_W, n.loadW * SOURCE_SHARE);
   const big = all.filter((s) => s[1] >= floor).slice(0, 2);
   return (big.length ? big : all.slice(0, 1)).map((s) => s[0]);
 }
 
-export { advice, outlookAdvice, wearOf, advicePool, withOwnAdvice, outlookLastsH, batteryWord, isLow, isHigh, gridCharging, sources, MIN_FLOW_W, EXPORT_W, IMPORT_W };
+export { advice, outlookAdvice, wearOf, advicePool, loadLines, withOwnAdvice, outlookLastsH, batteryWord, isLow, gridCharging, sources, MIN_FLOW_W, EXPORT_W, IMPORT_W };

@@ -13,6 +13,7 @@ export const noonOf = (key) => Date.parse(key) + 12 * HOUR;
 // Rules both the page and the forecast part keep.
 export const FULL_SOC = 97;    // from here up the battery is full: with export capped, spare sun is held back
 export const LASTS_MAX_H = 18; // past this many hours "enough until" says nothing
+export const WHOLE_DAY_H = 23; // a day with this many hours or more counts whole (a day the clocks go forward has 23)
 
 // Days are counted in Home Assistant's time zone, not the browser's. clockOf(tz)(ms) gives the
 // calendar day there as "2026-10-02", plus hour and minute.
@@ -27,7 +28,9 @@ export function clockOf(tz) {
   let f;
   try { f = new Intl.DateTimeFormat("en-CA", { ...opts, timeZone: tz }); } catch (e) { f = new Intl.DateTimeFormat("en-CA", opts); }
   const seen = new Map();
-  const clock = (ms) => {
+  // Kept by the minute: the clock read on every update is one entry a minute, not one each time.
+  const clock = (time) => {
+    const ms = time - time % MINUTE;
     let c = seen.get(ms);
     if (!c) {
       const p = Object.fromEntries(f.formatToParts(ms).map((x) => [x.type, x.value]));
@@ -73,8 +76,14 @@ export const num = (v, min = -Infinity, max = Infinity) => {
 };
 // A state as a number, null when the entity is missing or has no value.
 export const stateNum = (hass, id) => { const v = parseFloat(hass.states[id]?.state); return Number.isFinite(v) ? v : null; };
-// A figure the owner gives as a number, a number typed as text, or the id of an entity holding one; null when none.
-export const numberOrEntity = (v, hass) => num(v) ?? (typeof v === "string" ? stateNum(hass, v) : null);
+// A price entity's value (its state, or `v` read from its statistics) per kWh: Home Assistant's Energy settings take
+// prices per MWh and per Wh too, by the entity's unit ("EUR/MWh"). null when it has no value.
+const PER_KWH = { MWh: 1e-3, Wh: 1e3 };
+export const priceOf = (hass, id, v = stateNum(hass, id)) =>
+  (Number.isFinite(v) ? v * (PER_KWH[String(hass.states[id]?.attributes?.unit_of_measurement).split("/")[1]] ?? 1) : null);
+// A figure the owner gives as a number, a number typed as text, or the id of an entity holding one (read by `read`);
+// null when none.
+export const numberOrEntity = (v, hass, read = stateNum) => num(v) ?? (typeof v === "string" ? read(hass, v) : null);
 // The sum of figures, null (unknown) when any of them is.
 export const sumKnown = (values) => (values.every(Number.isFinite) ? values.reduce((s, v) => s + v, 0) : null);
 // Energy at a price: 0 kWh costs 0 even without a price; unknown energy or price, null. The one rule for
@@ -86,6 +95,8 @@ export const selfKwh = (d) => ([d.loadKwh, d.gridImportKwh].every(Number.isFinit
 export const socShift = (soc, floor) => soc - Math.min(100, Math.max(soc, floor));
 export const clamp01 = (x) => Math.min(1, Math.max(0, x));
 export const pct = (v) => Math.round(v * 100);
+// x rounded to 1/to (100: 2 places), null when it is not a number.
+export const roundTo = (x, to) => (Number.isFinite(x) ? Math.round(x * to) / to : null);
 
 // say("{a} and {b}", { a, b }): placeholders are one letter.
 export const say = (text, parts) => text.replace(/\{(\w)\}/g, (_, k) => parts[k]);

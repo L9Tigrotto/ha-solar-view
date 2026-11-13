@@ -9,6 +9,7 @@ const [{ HOUR, sumKnown, daysIn, shiftMonth, dayHours, noonOf, clamp01, num, pri
 
 const PAYBACK_SPREAD = 0.2; // payback's likely range: every coming month this much better and worse, until a year is on record
 const PAYBACK_MAX_MONTHS = 600; // the payback walk gives up here (50 years)
+const SELF_MAX = 0.99; // a month's own share of its use is taken as at most this, so the season guess's log stays finite
 
 // Today so far in money, hour by hour, for the outlook (see lookAhead): `todayHours` is { hour start ms: { loadKwh,
 // gridImportKwh, gridExportKwh } } with loadKwh the energy balance, buyAt(t) and sellAt(t) the price of that hour.
@@ -96,9 +97,8 @@ function ledgerOf(data, key, { back, got }) {
 // without a cost.
 function paybackOf(all, pb, predicts, at = {}) {
   if (!pb) return null;
-  // The install date's month as written ("2026-11-01"), never moved by a time zone. A copy this browser
-  // remembered from an older version holds it as UTC midnight in ms, which gives the same month in UTC.
-  const since = typeof pb.since === "string" ? pb.since : Number.isFinite(pb.since) ? new Date(pb.since).toISOString().slice(0, 10) : "";
+  // The install date's month as written ("2026-11-01"), never moved by a time zone.
+  const since = typeof pb.since === "string" ? pb.since : "";
   const from = since.slice(0, 7), done = all.filter((x) => x.key >= from);
   if (done.some((x) => x.back === null)) return { incomplete: true };
   const got = pb.before + done.reduce((s, x) => s + x.back, 0), paid = got >= pb.cost;
@@ -133,7 +133,7 @@ function moneyAhead(data) {
   const o = data.outlook, key = data.monthKey, sends = data.sends;
   if (!o?.daysMoney || !o.restToday || !key) return null;
   const days = [];
-  for (const [d, saved, cost, earned] of o.daysMoney) {
+  for (const { key: d, saved, cost, earned } of o.daysMoney) {
     const back = sumKnown([saved, sends ? earned : 0]);
     if (!d.startsWith(key) || back === null || cost === null) break;
     days.push({ date: noonOf(d), back, cost });
@@ -187,7 +187,7 @@ function seasonGuess(all, lat, sell) {
   const xs = past.map((x) => sky(x.key)), ys = past.map((x) => x.load / daysIn(x.key));
   const mx = xs.reduce((s, v) => s + v, 0) / n, my = ys.reduce((s, v) => s + v, 0) / n, vx = xs.reduce((s, v) => s + (v - mx) ** 2, 0);
   const slope = n >= 3 && vx > 0 ? xs.reduce((s, v, i) => s + (v - mx) * (ys[i] - my), 0) / vx : 0, floor = Math.min(...ys) / 2;
-  const lit = past.filter((x) => x.sun > 0), b = sum(lit, (x) => (-Math.log(1 - Math.min(0.99, x.self / x.load)) * x.load) / x.sun) / lit.length;
+  const lit = past.filter((x) => x.sun > 0), b = sum(lit, (x) => (-Math.log(1 - Math.min(SELF_MAX, x.self / x.load)) * x.load) / x.sun) / lit.length;
   const self = sum(past, (x) => x.self), sent = past.filter((x) => Number.isFinite(x.out)), out = sum(sent, (x) => x.out);
   if (!Number.isFinite(scale) || !(scale >= 0) || !(self > 0) || !(b > 0)) return null;
   const perSelf = sum(past, (x) => x.saved) / self, perOut = out >= 1 ? sum(sent, (x) => x.earned) / out : sell;

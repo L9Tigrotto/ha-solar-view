@@ -4,6 +4,10 @@
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale core.js
 /** @type {typeof import("./core.js")} */
 const { num, warnOnce } = await import(`./core.js${v}`);
+// The options a warning said were ignored or misread since readConfig began, by the name it starts with: the setup
+// check lists them, as the phone app cannot show the console.
+const misread = new Set();
+const warn = (text) => { misread.add(text.slice(0, text.indexOf(":"))); warnOnce(text); };
 
 const BATTERY_FLOOR_SOC = 20; // percent where the inverter stops discharging, unless config says battery_floor
 const USUAL_DAYS = 14;    // the usual day (Energy's dashed lines) averages each hour over these many days, unless config says usual_days
@@ -73,17 +77,17 @@ const isMap = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 const configOf = (c) => {
   const out = {}, from = {}, top = isMap(c) ? c : {};
   const put = (key, value, where) => {
-    if (!KEYS.includes(key)) return warnOnce(`${where ? `${where}.` : ""}${key}: no such option, so it is ignored`);
+    if (!KEYS.includes(key)) return warn(`${where ? `${where}.` : ""}${key}: no such option, so it is ignored`);
     if (key in from) warnOnce(`${key} is given in ${from[key] || "the top level"} and in ${where}: ${where}'s is used`);
     out[key] = value; from[key] = where;
   };
   // Home Assistant adds its own keys to the panel's config (_panel_custom: name, module_url...): not the owner's.
   for (const [key, value] of Object.entries(top)) if (!CONFIG_GROUPS.includes(key) && key !== "sensors" && !key.startsWith("_")) put(key, value, "");
   for (const g of CONFIG_GROUPS) {
-    if (top[g] != null && !isMap(top[g])) warnOnce(`${g}: ${shown(top[g])} is not a group of options, so it is ignored`);
+    if (top[g] != null && !isMap(top[g])) warn(`${g}: ${shown(top[g])} is not a group of options, so it is ignored`);
     else for (const [key, value] of Object.entries(top[g] ?? {})) put(key, value, g);
   }
-  if (top.sensors != null && !isMap(top.sensors)) warnOnce(`sensors: ${shown(top.sensors)} is not a map of names to entity ids, so it is ignored`);
+  if (top.sensors != null && !isMap(top.sensors)) warn(`sensors: ${shown(top.sensors)} is not a map of names to entity ids, so it is ignored`);
   else if (top.sensors) {
     const old = isMap(out.entities) ? out.entities : {};
     for (const name of Object.keys(top.sensors)) if (name in old) warnOnce(`${name} is given in entities and in sensors: sensors' is used`);
@@ -100,25 +104,25 @@ const isEntityId = (v) => typeof v === "string" && /^[a-z0-9_]+\.[a-z0-9_]+$/.te
 function figure(v, key, min, max, otherwise = null) {
   if (v == null) return otherwise;
   const n = num(v, min, max);
-  if (n === null) warnOnce(`${key}: ${shown(v)} is not a number ${max === Infinity ? `of ${min} or more` : `from ${min} to ${max}`}, so ${otherwise == null ? "it is not used" : `${otherwise} is used`}`);
+  if (n === null) warn(`${key}: ${shown(v)} is not a number ${max === Infinity ? `of ${min} or more` : `from ${min} to ${max}`}, so ${otherwise == null ? "it is not used" : `${otherwise} is used`}`);
   return n ?? otherwise;
 }
 function entity(v, key) {
   if (v == null) return null;
-  if (!isEntityId(v)) warnOnce(`${key}: ${shown(v)} is not an entity id (such as sensor.price), so it is not used`);
+  if (!isEntityId(v)) warn(`${key}: ${shown(v)} is not an entity id (such as sensor.price), so it is not used`);
   return isEntityId(v) ? v : null;
 }
 // A figure typed as a number (or text that is one), else the id of an entity holding it.
 function numberOrId(v, key) {
   if (v == null) return null;
   const n = num(v, 0);
-  if (n === null && !isEntityId(v)) warnOnce(`${key}: ${shown(v)} is neither a number of 0 or more nor an entity id, so it is not used`);
+  if (n === null && !isEntityId(v)) warn(`${key}: ${shown(v)} is neither a number of 0 or more nor an entity id, so it is not used`);
   return n ?? (isEntityId(v) ? v : null);
 }
 function date(v, key) {
   if (v == null) return null;
   const d = calendarDate(v);
-  if (!d) warnOnce(`${key}: ${shown(v)} is not a real day written YYYY-MM-DD, so it is not used`);
+  if (!d) warn(`${key}: ${shown(v)} is not a real day written YYYY-MM-DD, so it is not used`);
   return d;
 }
 
@@ -129,7 +133,8 @@ function date(v, key) {
 //     settings unless the config names them; socWeight; the Energy settings' prices.
 //   cfg: the owner's settings, each with its default when absent or bad.
 function readConfig(prefs, config, costs = {}) {
-  if (config != null && !isMap(config)) warnOnce(`config: ${shown(config)} is not a map of options, so none is used`);
+  misread.clear();
+  if (config != null && !isMap(config)) warn(`config: ${shown(config)} is not a map of options, so none is used`);
   const c = configOf(config);
   const energySources = prefs?.energy_sources ?? [];
   // Older Home Assistant keeps a grid as lists of flows, newer as one import and export pair.
@@ -138,14 +143,14 @@ function readConfig(prefs, config, costs = {}) {
     ? { type: s.type, stat_energy_to: x.stat_energy_to, stat_compensation: x.stat_compensation, entity_energy_price_export: x.entity_energy_price, number_energy_price_export: x.number_energy_price }
     : { ...x, type: s.type })))])
     .map((s) => ({ ...s, stat_cost: s.stat_cost ?? costs?.[s.stat_energy_from], stat_compensation: s.stat_compensation ?? costs?.[s.stat_energy_to] }));
-  if (c.entities != null && !isMap(c.entities)) warnOnce(`sensors: ${shown(c.entities)} is not a map of names to entity ids, so the Energy settings are used`);
+  if (c.entities != null && !isMap(c.entities)) warn(`sensors: ${shown(c.entities)} is not a map of names to entity ids, so the Energy settings are used`);
   const own = isMap(c.entities) ? c.entities : {};
   const ids = {};
-  for (const name of Object.keys(own)) if (!(name in ENTITIES)) warnOnce(`sensors.${name}: no such name (see Names under sensors in docs/setup.md), so it is ignored`);
+  for (const name of Object.keys(own)) if (!(name in ENTITIES)) warn(`sensors.${name}: no such name (see Names under sensors in docs/setup.md), so it is ignored`);
   for (const [name, [key, type, field]] of Object.entries(ENTITIES)) {
     // One id or a list; [] switches the part off.
     const given = own[name] == null ? null : [].concat(own[name]), kept = given?.filter((id) => typeof id === "string" && id);
-    if (given && kept.length < given.length) warnOnce(`sensors.${name}: ${shown(own[name])} holds something that is not an entity id, left out`);
+    if (given && kept.length < given.length) warn(`sensors.${name}: ${shown(own[name])} holds something that is not an entity id, left out`);
     ids[key] = kept ?? flat.filter((s) => s.type === type && s[field]).map((s) => s[field]);
   }
   const batteries = energySources.filter((s) => s.type === "battery");
@@ -156,6 +161,8 @@ function readConfig(prefs, config, costs = {}) {
   // their history in the cost statistics.
   const price = (entityKey, numberKey) => flat.map((s) => s[entityKey] ?? s[numberKey]).find((x) => x != null) ?? null;
   ids.price = { buy: price("entity_energy_price", "number_energy_price"), sell: price("entity_energy_price_export", "number_energy_price_export") };
+  // A Solar Forecast in the Energy settings (for the setup check).
+  ids.hasForecast = energySources.some((s) => s.type === "solar" && s.config_entry_solar_forecast?.length > 0);
 
   // The machines the page says when to start, by type (the language's word names each), in the order
   // written: typed figures, and a sensor whose runs replace them (see machineOf). None: a washer of 1 kWh
@@ -163,8 +170,8 @@ function readConfig(prefs, config, costs = {}) {
   const machines = (MACHINE_TYPES.some((k) => k in c) ? Object.keys(c).filter((k) => MACHINE_TYPES.includes(k)) : ["washer"]).flatMap((type) => {
     const a = c[type] ?? { kwh: 1, hours: 2 };
     if (a === false) return [];
-    if (!isMap(a)) { warnOnce(`${type}: ${shown(a)} is not a map (kwh, hours, peak_kw, sensor), so it is left out`); return []; }
-    for (const k of Object.keys(a)) if (!["kwh", "hours", "peak_kw", "sensor"].includes(k)) warnOnce(`${type}.${k}: no such option, so it is ignored`);
+    if (!isMap(a)) { warn(`${type}: ${shown(a)} is not a map (kwh, hours, peak_kw, sensor), so it is left out`); return []; }
+    for (const k of Object.keys(a)) if (!["kwh", "hours", "peak_kw", "sensor"].includes(k)) warn(`${type}.${k}: no such option, so it is ignored`);
     // 0 kWh or 0 hours is no run: as if not typed.
     return [{ type, kwh: figure(a.kwh, `${type}.kwh`, 0, Infinity) || null, hours: figure(a.hours, `${type}.hours`, 0, 24) || null,
       peakKw: figure(a.peak_kw, `${type}.peak_kw`, 0, Infinity), sensor: entity(a.sensor, `${type}.sensor`) }];
@@ -172,31 +179,31 @@ function readConfig(prefs, config, costs = {}) {
   // The contract's bands and their prices: each a number or an entity, else learned from `sensor`.
   let tariff = null;
   const tf = c.tariff;
-  if (tf != null && !isMap(tf)) warnOnce(`tariff: ${shown(tf)} is not a map (type, prices, sensor), so there are no bands`);
-  else if (tf != null && !TARIFF_TYPES.includes(tf.type)) warnOnce(`tariff.type: ${shown(tf.type)} is not one of ${TARIFF_TYPES.join(", ")}, so there are no bands`);
+  if (tf != null && !isMap(tf)) warn(`tariff: ${shown(tf)} is not a map (type, prices, sensor), so there are no bands`);
+  else if (tf != null && !TARIFF_TYPES.includes(tf.type)) warn(`tariff.type: ${shown(tf.type)} is not one of ${TARIFF_TYPES.join(", ")}, so there are no bands`);
   else if (tf != null) {
-    for (const k of Object.keys(tf)) if (!["type", "prices", "sensor"].includes(k)) warnOnce(`tariff.${k}: no such option, so it is ignored`);
-    for (const b of Object.keys(isMap(tf.prices) ? tf.prices : {})) if (!["f1", "f2", "f3", "f23"].includes(b)) warnOnce(`tariff.prices.${b}: no such band (f1, f2, f3, f23), so it is ignored`);
-    if (tf.prices != null && !isMap(tf.prices)) warnOnce(`tariff.prices: ${shown(tf.prices)} is not a map of bands (f1, f2, f3, f23) to prices`);
+    for (const k of Object.keys(tf)) if (!["type", "prices", "sensor"].includes(k)) warn(`tariff.${k}: no such option, so it is ignored`);
+    for (const b of Object.keys(isMap(tf.prices) ? tf.prices : {})) if (!["f1", "f2", "f3", "f23"].includes(b)) warn(`tariff.prices.${b}: no such band (f1, f2, f3, f23), so it is ignored`);
+    if (tf.prices != null && !isMap(tf.prices)) warn(`tariff.prices: ${shown(tf.prices)} is not a map of bands (f1, f2, f3, f23) to prices`);
     const prices = Object.entries(isMap(tf.prices) ? tf.prices : {}).map(([b, p]) => [b, numberOrId(p, `tariff.prices.${b}`)]).filter(([, p]) => p != null);
     tariff = { type: tf.type, sensor: entity(tf.sensor, "tariff.sensor"), prices: Object.fromEntries(prices) };
   }
   const quiet = quietHours(c.quiet_hours);
-  if (c.quiet_hours != null && !quiet) warnOnce(`quiet_hours: ${shown(c.quiet_hours)} is not hours such as "0-7" or "23:30-6:30", so "${QUIET_HOURS}" is used`);
+  if (c.quiet_hours != null && !quiet) warn(`quiet_hours: ${shown(c.quiet_hours)} is not hours such as "0-7" or "23:30-6:30", so "${QUIET_HOURS}" is used`);
   // Fewer than USUAL_MIN days could never make a usual day.
   let usualDays = Math.round(figure(c.usual_days, "usual_days", 0, Infinity, USUAL_DAYS));
-  if (usualDays < USUAL_MIN) { warnOnce(`usual_days: ${shown(c.usual_days)} is under ${USUAL_MIN}, so ${USUAL_MIN} is used`); usualDays = USUAL_MIN; }
-  if (usualDays > USUAL_MAX) { warnOnce(`usual_days: ${shown(c.usual_days)} is over ${USUAL_MAX}, so ${USUAL_MAX} is used`); usualDays = USUAL_MAX; }
+  if (usualDays < USUAL_MIN) { warn(`usual_days: ${shown(c.usual_days)} is under ${USUAL_MIN}, so ${USUAL_MIN} is used`); usualDays = USUAL_MIN; }
+  if (usualDays > USUAL_MAX) { warn(`usual_days: ${shown(c.usual_days)} is over ${USUAL_MAX}, so ${USUAL_MAX} is used`); usualDays = USUAL_MAX; }
   // Payback: what the system cost (0 or none: no payback card), the day it started (none: the first month
   // on record), and what it saved before Home Assistant recorded.
   const cost = figure(c.system_cost, "system_cost", 0, Infinity), installed = date(c.install_date, "install_date");
   const level = c.level == null ? null : LEVELS.includes(c.level) ? c.level : LEVEL_ALIASES[c.level] ?? null;
-  if (c.level != null && !level) warnOnce(`level: ${shown(c.level)} is not one of ${LEVELS.join(", ")}, so the level is automatic`);
+  if (c.level != null && !level) warn(`level: ${shown(c.level)} is not one of ${LEVELS.join(", ")}, so the level is automatic`);
   // The clock: 12 or 24 hours for every viewer, or "system" or "language" as in the profile (see hourCycle).
   const timeFormat = c.time_format == null ? null : ["12", "24", "system", "language"].find((f) => f === String(c.time_format)) ?? null;
-  if (c.time_format != null && !timeFormat) warnOnce(`time_format: ${shown(c.time_format)} is not 12 or 24, so each viewer's profile decides`);
-  if (c.advice != null && !isMap(c.advice)) warnOnce(`advice: ${shown(c.advice)} is not a map of languages to pools of lines, so it is not used`);
-  if (c.advice_replace != null && typeof c.advice_replace !== "boolean") warnOnce(`advice_replace: ${shown(c.advice_replace)} is not true or false, so false is used`);
+  if (c.time_format != null && !timeFormat) warn(`time_format: ${shown(c.time_format)} is not 12, 24, system or language, so each viewer's profile decides`);
+  if (c.advice != null && !isMap(c.advice)) warn(`advice: ${shown(c.advice)} is not a map of languages to pools of lines, so it is not used`);
+  if (c.advice_replace != null && typeof c.advice_replace !== "boolean") warn(`advice_replace: ${shown(c.advice_replace)} is not true or false, so false is used`);
   const cfg = {
     batt: {
       kwh: figure(c.battery_kwh, "battery_kwh", 0.1, Infinity) ?? (sized ? batteries.reduce((sum, b) => sum + b.capacity, 0) : null),
@@ -226,7 +233,7 @@ function readConfig(prefs, config, costs = {}) {
     adviceReplace: c.advice_replace === true,
     timeFormat,
   };
-  return { ids, cfg };
+  return { ids, cfg, misread: [...misread] };
 }
 /** @typedef {ReturnType<typeof readConfig>["cfg"]} Config the owner's settings, each with its default */
 // The live sensors the Now page cannot do without, one list per kind (solar, battery and grid power, charge).
@@ -236,15 +243,21 @@ const requiredIds = (ids) => [ids.solarW, ids.battW, ids.gridW, ids.soc].filter(
 const optionalIds = (ids) => ids.loadW;
 
 // The setup check in the gear dialog, for admins: each feature on or off, as plain data the dialog puts in
-// words. `mode` is the level in use after any step down (see modeOf), `battery` whether there is one, `money`
-// whether Money has numbers to show. A machine without a sensor runs on its typed figures, or the assumed washer's.
-const setupCheck = (cfg, { mode, battery, money }) => [
+// words. `mode` is the level in use after any step down (see modeOf), `sensor` whether the forecast sensor is
+// fresh (see sensorOf), `battery` whether there is one, `money` whether Money has numbers to show, `forecast`
+// whether the Energy settings have a Solar Forecast, `outlook`
+// whether the page looks ahead (without, no machine line can show), `misread` the options a warning named.
+// The forecast row only where a level would use it and no fresh forecast sensor stands in for it. A machine
+// without a sensor runs on its typed figures, or the assumed washer's.
+const setupCheck = (cfg, { mode, sensor, battery, money, forecast, outlook, misread = [] }) => [
   { key: "level", asked: cfg.level, used: mode.level },
+  ...([null, "usual_days_weather", "learned_weather"].includes(cfg.level) && !sensor ? [{ key: "forecast", on: forecast }] : []),
   ...(battery ? [{ key: "battery", on: cfg.batt.kwh > 0, kwh: cfg.batt.kwh }] : []),
   { key: "money", on: money },
   { key: "payback", on: !!cfg.payback },
   { key: "bands", on: !!cfg.tariff },
-  ...cfg.machines.map((m) => ({ key: "machine", type: m.type, sensor: m.sensor, kwh: m.kwh, hours: m.hours })),
+  ...(outlook ? cfg.machines.map((m) => ({ key: "machine", type: m.type, sensor: m.sensor, kwh: m.kwh, hours: m.hours })) : []),
+  ...(misread.length ? [{ key: "misread", names: misread }] : []),
 ];
 
-export { BATTERY_FLOOR_SOC, USUAL_MIN, USUAL_MAX, readConfig, requiredIds, optionalIds, setupCheck, quietHours, calendarDate, configOf }; // the last three: for the tests
+export { BATTERY_FLOOR_SOC, USUAL_MIN, readConfig, requiredIds, optionalIds, setupCheck, quietHours, calendarDate, configOf }; // the last three: for the tests

@@ -14,6 +14,9 @@ const ROVE = ":is(ul.days,ol.week,ol.year,ol.hours24,svg.cols)";
 // ---- Rules (tune here) ----
 const REFRESH_MS = 5 * 60 * 1000; // totals come from the statistics, which move every 5 minutes
 const BIG_TEXT = 1.2;    // text enlarged more than this (see textScale) gets the big text layout
+const MIDNIGHT_SLACK_MS = 5e3; // the load after midnight waits this much more, so the clock has surely turned the day
+const RISE_MS = 900;     // .fresh comes off after this: the content's rise (.7s in styles.js) has run
+const STARS_MAX = 0.7;   // the stars' opacity in the deepest dark night
 
 // ---- Parts: helpers, texts and stylesheet live in their own files ----
 // They must load with this file's own ?v=, or under /local/ the browser keeps stale copies. All start here,
@@ -49,7 +52,7 @@ guess = supported(guess) ?? supported(document.documentElement.lang || navigator
 const [, , { CSS }, { findForecast }, { MINUTE, FIVE_MIN, DAY, clockOf, quarterPast, stateNum, say, cap, esc, warnOnce }, { formats, hourCycle },
   { readConfig, requiredIds, optionalIds, setupCheck }, { skyAt }, { withOwnAdvice }, { totals, fetchStats },
   { LAST_KEY, predict, readData, slim, remembered, placeholder, staleSince },
-  { line, SUN_RAYS }, , { nowView, nowPage, writeNow, learnGoIcons, whenSeen }, { energyView, energyPage }, { paybackView, moneyView, moneyPage },
+  { line, SUN_RAYS }, , { nowView, nowPage, writeNow, learnLines, whenSeen }, { energyView, energyPage }, { paybackView, moneyView, moneyPage },
   { PAGES, shellHtml, gearDialog, readDialog, textScale }] = await Promise.all([
   english, loadLanguage(guess), import(`./lib/styles.js${version}`), import(`./lib/forecast.js${version}`), import(`./lib/core.js${version}`),
   import(`./lib/format.js${version}`), import(`./lib/config.js${version}`), import(`./lib/sky.js${version}`), import(`./lib/advice.js${version}`),
@@ -66,6 +69,7 @@ const SHOW_KEY = "solar-view-show";
 // The whole-page messages: the inverter not answering (a crossed out wifi), and setting up (the sun).
 const OFFLINE_ICON = `<path d="M12 20h.01M8.5 16.43a5 5 0 0 1 7 0M5 12.86a10 10 0 0 1 5.17-2.69m8.83 2.69a10 10 0 0 0-2-1.52M2 8.82a15 15 0 0 1 4.18-2.64M22 8.82a15 15 0 0 0-11.29-3.76M2 2l20 20"/>`;
 const SETUP_ICON = `<circle cx="12" cy="12" r="4"/><path d="${SUN_RAYS}"/>`;
+const icon = (body) => `<svg viewBox="0 0 24 24" aria-hidden="true">${line(body)}</svg>`;
 
 // ---- Focus ----
 // What a focused control is within its page, so a redraw can focus the same one again (see _render): a
@@ -131,6 +135,8 @@ class SolarView extends HTMLElement {
     this._tVersion = 0;   // bumped with each new _t
     this._dirty = false;  // a render skipped while the tab is hidden or the panel off the page (see _asleep)
     this._force = null;   // the page a month was picked on, written in that render whatever the pager says (see _redraw)
+    this._late = false;   // the render that writes the pages out of view left behind by the one before (see _render)
+    this._lateTask = null; // its timer
     this._src = undefined;   // { ids, cfg }: which entities to read and the settings (readConfig), once the Energy settings answered
     this._stats = undefined; // totals from the statistics (totals)
     this._next = 0;          // when to load both again
@@ -358,8 +364,11 @@ class SolarView extends HTMLElement {
       bands: (r) => [t.chkBands, on(r, t.chkBandsOff)],
       machine: (r) => [cap(t[r.type]), r.sensor ? say(t.chkMachineSensor, { s: esc(r.sensor) })
         : r.kwh && r.hours ? say(t.chkMachineTyped, { k: f.num(r.kwh), h: f.num(r.hours) }) : t.chkMachineOff],
+      forecast: (r) => [t.chkForecast, on(r, t.chkForecastOff)],
+      misread: (r) => [t.chkMisread, r.names.map(esc).join(", ")],
     };
-    box.querySelector("dl").innerHTML = setupCheck(this._src.cfg, { mode: data.mode, battery: !!data.batt, money: !this._views.money?.empty })
+    const { cfg, ids, misread } = this._src;
+    box.querySelector("dl").innerHTML = setupCheck(cfg, { mode: data.mode, sensor: !!this._looked.facts, battery: !!data.batt, money: !this._views.money?.empty, forecast: ids.hasForecast, outlook: !!data.outlook, misread })
       .map((r) => said[r.key](r)).map(([dt, dd]) => `<div><dt>${dt}</dt><dd>${dd}</dd></div>`).join("");
   }
 
@@ -558,7 +567,7 @@ class SolarView extends HTMLElement {
     this._lookV++;
     this._looked = predict(hass, ids, cfg, this._stats, sensor, Date.now(), clockOf(hass.config?.time_zone));
   }
-  // For the preview harness and anyone reading the element in the console.
+  // For the preview and tests, and anyone reading the element in the console.
   get _ahead() { return this._looked.ahead ?? null; }
   get _outlook() { return this._looked.outlook ?? null; }
   get _mode() { return this._looked.mode; }
@@ -593,13 +602,30 @@ class SolarView extends HTMLElement {
       this._statsV++;
       this._lookAhead();
       // Just after midnight "today" must start from zero.
-      this._next = Math.min(this._next, now + this._stats.msToMidnight + 5e3);
+      this._next = Math.min(this._next, now + this._stats.msToMidnight + MIDNIGHT_SLACK_MS);
       this._render();
     } catch (e) {
       if (run !== this._run) return; // an older load: the newest one keeps its own schedule
       console.warn("solar-view: loading the numbers failed", e);
       this._next = Date.now() + MINUTE; // try again in a minute, not in 5
     }
+  }
+
+  // The texts, and the labels outside the pages, only again when the language or the config changes:
+  // this runs on every state change in the house.
+  _texts(lang) {
+    if (this._lang === lang && this._tConfig === this._panel?.config) return;
+    this._lang = lang;
+    this._tConfig = this._panel?.config;
+    this._cfg = readConfig(null, this._panel?.config).cfg; // what the page needs before the Energy settings answer
+    this._t = withOwnAdvice(STRINGS[lang], this._cfg, lang);
+    this._tVersion++;
+    learnLines(STRINGS[lang]);
+    const t = this._t;
+    this._pager.setAttribute("aria-label", t.pages);
+    [t.tabNow, t.tabEnergy, t.tabMoney].forEach((label, i) => { this._tabs[i].lastChild.textContent = label; });
+    this._gear.setAttribute("aria-label", t.gearLabel);
+    this._dialogTexts();
   }
 
   _render() {
@@ -615,21 +641,7 @@ class SolarView extends HTMLElement {
     // Even the same value restyles the whole panel, and this runs on every state change in the house.
     if (this.getAttribute("lang") !== locale) this.setAttribute("lang", locale);
     const dark = !!hass.themes?.darkMode;
-    // The texts, and the labels outside the pages, only again when the language or the config changes:
-    // this runs on every state change in the house.
-    if (this._lang !== lang || this._tConfig !== this._panel?.config) {
-      this._lang = lang;
-      this._tConfig = this._panel?.config;
-      this._cfg = readConfig(null, this._panel?.config).cfg; // what the page needs before the Energy settings answer
-      this._t = withOwnAdvice(STRINGS[lang], this._cfg, lang);
-      this._tVersion++;
-      learnGoIcons(STRINGS[lang].adviceGo);
-      const t = this._t;
-      this._pager.setAttribute("aria-label", t.pages);
-      [t.tabNow, t.tabEnergy, t.tabMoney].forEach((label, i) => { this._tabs[i].lastChild.textContent = label; });
-      this._gear.setAttribute("aria-label", t.gearLabel);
-      this._dialogTexts();
-    }
+    this._texts(lang);
     const t = this._t;
     const $ = (id) => this.shadowRoot.getElementById(id);
     this.toggleAttribute("dark", dark);
@@ -663,37 +675,7 @@ class SolarView extends HTMLElement {
       $(p).inert = loading;
       if (loading) $(p).setAttribute("aria-hidden", "true"); else $(p).removeAttribute("aria-hidden");
     });
-    const icon = (body) => `<svg viewBox="0 0 24 24" aria-hidden="true">${line(body)}</svg>`;
-    if (setup) {
-      // Naming the missing sensors helps the owner; to anyone else they mean nothing.
-      const message = `${icon(SETUP_ICON)}<h2>${t.setupTitle}</h2><p>${ids.solarW.length ? t.setupGone : t.setup}</p>
-          <p class="lead">${t.setupLead}</p><ol class="path">${t.setupPath.split(" › ").map((s) => `<li>${s}</li>`).join("")}</ol><p>${t.setupEnd}</p>${
-          missing.length && hass.user?.is_admin ? `<h3>${t.missing}</h3><ul class="ids">${missing.map((id) => `<li>${esc(id)}</li>`).join("")}</ul>` : ""}`;
-      if (this._drawn === message) return;
-      this._drawn = message;
-      this.removeAttribute("ready");
-      this._hint.classList.remove("on");
-      this._rain.hidden = this._snow.hidden = true; // rain from a forecast nobody can see would only distract
-      // Energy and Money have nothing to show: they and their tabs go, and Now comes into view at once, from
-      // its top, even after a swipe to another page or a scroll down this one.
-      const lost = PAGES.some((p) => $(p).contains(this.shadowRoot.activeElement));
-      PAGES.forEach((p, i) => {
-        $(p).innerHTML = p === "now" ? `<section class="card empty">${message}</section>` : "";
-        $(p).hidden = this._tabs[i].hidden = p !== "now";
-      });
-      // Said once to a screen reader (the readings just went), and focus that was on them goes to the message.
-      this._status.textContent = `${t.setupTitle}. ${ids.solarW.length ? t.setupGone : t.setup}`;
-      const head = $("now").querySelector("h2");
-      head.tabIndex = -1;
-      if (lost) head.focus({ preventScroll: true });
-      this._activatePage("now", true);
-      $("now").scrollTop = this._pager.scrollTop = 0;
-      this._html = {};
-      this._built = {};
-      this._skel.clear();
-      this._skyKey = "";
-      return;
-    }
+    if (setup) { this._message(t, ids, missing); return; }
 
     // Loading draws the real markup from placeholder numbers and .skel greys it out, so the
     // skeleton has exactly the size of what replaces it.
@@ -733,10 +715,55 @@ class SolarView extends HTMLElement {
       if (!this.hasAttribute("ready")) { // first real data: fade the veil out, let the content rise in
         this.setAttribute("ready", "");
         this._pager.classList.add("fresh");
-        setTimeout(() => this._pager.classList.remove("fresh"), 900);
+        setTimeout(() => this._pager.classList.remove("fresh"), RISE_MS);
       }
     }
 
+    const sky = this._sky(data, dark);
+
+    // The statistics and the forecast by their versions (bumped in _load and _lookAhead); while loading, the
+    // skeleton's numbers whole.
+    const base = [loading, offline, fKey, this._tVersion, day, loading ? JSON.stringify(data) : `${this._statsV}|${this._lookV}`].join("|");
+    const keys = pageKeys(data, { base, now, clock, sky });
+    const c = { data, t, f, sky, loading, day, now, clock: this._clock, pick: this._pick };
+    this._write(keys, c, offline);
+  }
+
+  // The setup message alone on Now, instead of the pages (see _render): Energy and Money go.
+  _message(t, ids, missing) {
+    const hass = this._hass, $ = (id) => this.shadowRoot.getElementById(id);
+    // Naming the missing sensors helps the owner; to anyone else they mean nothing.
+    const message = `${icon(SETUP_ICON)}<h2>${t.setupTitle}</h2><p>${ids.solarW.length ? t.setupGone : t.setup}</p>
+        <p class="lead">${t.setupLead}</p><ol class="path">${t.setupPath.split(" › ").map((s) => `<li>${s}</li>`).join("")}</ol><p>${t.setupEnd}</p>${
+        !ids.solarW.length && hass.user?.is_admin ? `<p>${t.setupOld} <code>sensors: solar_power</code></p>` : ""}${
+        missing.length && hass.user?.is_admin ? `<h3>${t.missing}</h3><ul class="ids">${missing.map((id) => `<li>${esc(id)}</li>`).join("")}</ul>` : ""}`;
+    if (this._drawn === message) return;
+    this._drawn = message;
+    this.removeAttribute("ready");
+    this._hint.classList.remove("on");
+    this._rain.hidden = this._snow.hidden = true; // rain from a forecast nobody can see would only distract
+    // Energy and Money have nothing to show: they and their tabs go, and Now comes into view at once, from
+    // its top, even after a swipe to another page or a scroll down this one.
+    const lost = PAGES.some((p) => $(p).contains(this.shadowRoot.activeElement));
+    PAGES.forEach((p, i) => {
+      $(p).innerHTML = p === "now" ? `<section class="card empty">${message}</section>` : "";
+      $(p).hidden = this._tabs[i].hidden = p !== "now";
+    });
+    // Said once to a screen reader (the readings just went), and focus that was on them goes to the message.
+    this._status.textContent = `${t.setupTitle}. ${ids.solarW.length ? t.setupGone : t.setup}`;
+    const head = $("now").querySelector("h2");
+    head.tabIndex = -1;
+    if (lost) head.focus({ preventScroll: true });
+    this._activatePage("now", true);
+    $("now").scrollTop = this._pager.scrollTop = 0;
+    this._html = {};
+    this._built = {};
+    this._skel.clear();
+    this._skyKey = "";
+  }
+
+  // The sky behind the pages, from the sun and the weather; set again only when they change.
+  _sky(data, dark) {
     // The display switches (see SHOW_KEY). Without the sun's height the sky goes straight from night to
     // day at sunrise, with no dawn or dusk: the colours of a high sun by day, of the deep night by night.
     const shown = (name) => this._show[name] !== false;
@@ -751,21 +778,26 @@ class SolarView extends HTMLElement {
       this._rain.hidden = !(data.weather.rain && shown("rain"));
       this._snow.hidden = !(data.weather.snow && shown("rain")); // the rain switch is for snow too
       this.style.setProperty("--glow", sky.colors[3]);
-      this.style.setProperty("--stars", dark ? (0.7 * (1 - sky.up)).toFixed(2) : "0");
+      this.style.setProperty("--stars", dark ? (STARS_MAX * (1 - sky.up)).toFixed(2) : "0");
     }
+    return sky;
+  }
 
-    // The statistics and the forecast by their versions (bumped in _load and _lookAhead); while loading, the
-    // skeleton's numbers whole.
-    const base = [loading, offline, fKey, this._tVersion, day, loading ? JSON.stringify(data) : `${this._statsV}|${this._lookV}`].join("|");
-    const keys = pageKeys(data, { base, now, clock, sky });
-    const c = { data, t, f, sky, loading, day, now, clock: this._clock, pick: this._pick };
-    // A view is made when its page's key moves; the HTML only for a page in view, or one that shows something
-    // older than this data could (never drawn, empty, or the skeleton), or one holding the focus; the others when
+  // The views of the pages whose keys moved, and the HTML of the ones to write (see _render).
+  _write(keys, c, offline) {
+    const { data, t, f, loading, now } = c, $ = (id) => this.shadowRoot.getElementById(id);
+    // A view is made when its page's key moves; the HTML only for a page in view, or one holding the focus. One
+    // out of view that shows something older than this data could (never drawn, empty, or the skeleton) is
+    // written in a task of its own just after (see _late), so the page in view shows first; the others when
     // they come into view.
     const fresh = PAGES.filter((p) => keys[p] !== this._keys[p]);
     // A panel not on a page has no view to go by (Home Assistant may set hass before it attaches it): all count.
     const focus = this.shadowRoot.activeElement, seen = (p) => !this.isConnected || !this._visible || this._visible.has(p) || p === this._force || $(p).contains(focus);
-    const write = PAGES.filter((p) => this._built[p] !== keys[p] && (loading || seen(p) || !this._html[p] || this._skel.has(p)));
+    const owed = (p) => this._built[p] !== keys[p] && (loading || !this._html[p] || this._skel.has(p));
+    const write = PAGES.filter((p) => this._built[p] !== keys[p] && (seen(p) || this._late && owed(p)));
+    if (!this._late && PAGES.some((p) => owed(p) && !write.includes(p))) {
+      this._lateTask ??= setTimeout(() => { this._lateTask = null; this._late = true; try { this._render(); } finally { this._late = false; } });
+    }
     const html = {};
     try {
       for (const p of fresh) {

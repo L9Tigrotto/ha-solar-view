@@ -84,6 +84,7 @@ The forecast scenarios add a mock `sensor.solar_view_forecast`, written at the t
 | `admin` | `0` views the page as a non-admin user. |
 | `extras` | `0` removes prices, payback and forecast. |
 | `payback` | `0` leaves out the payback settings. |
+| `price` | `0` removes every price but keeps the payback settings (Payback then says no price is set). |
 | `display` | `name:0,name:0` turns those display switches off on this device. Names: `sunHeight`, `clouds`, `rain`. |
 | `clock` | `24`, `12` or `language`: the viewer's time format in their profile. Without it, 24 hours. |
 | `day` | Which advice line of the pool to show, as if it were day N. |
@@ -130,7 +131,7 @@ What the load checks cover, besides the cards themselves:
 - The texts' loading: the first load fetches only `strings/en.js` and the guessed language's file. A language picked in the gear that is not loaded yet comes without a reload.
 - Every language has every text, and every advice pool has its lines.
 
-The sweep feeds the real page about 49,000 combinations of solar, battery and grid power, battery charge, sun height and forecast. It reads back what the page says and holds it against plain rules. Examples: "filling up with sun" needs sun; a battery at the floor is "Empty"; "enough until" shows the forecast's time; the washer line starts on a whole hour outside the quiet hours; no timing advice beside a washer line; no "NaN" anywhere. The page then lists every outcome it saw with a count, anything it never saw, and the first combinations that break a rule. The values and the rules are at the end of `preview/index.html`. The preview's tabs share one browser storage, so do not run the sweep beside `?check=skeleton`.
+The sweep feeds the real page about 49,000 combinations of solar, battery and grid power, battery charge, sun height and forecast. It reads back what the page says and holds it against plain rules. Examples: "filling up with sun" needs sun; a battery at the floor is "Empty"; "enough until" shows the forecast's time; the washer line starts on a whole hour outside the quiet hours; no timing advice beside a washer line, and no advice line there that speaks of big loads (washer, oven, appliances); no "NaN" anywhere. The page then lists every outcome it saw with a count, anything it never saw, and the first combinations that break a rule. The values and the rules are at the end of `preview/index.html`. The preview's tabs share one browser storage, so do not run the sweep beside `?check=skeleton`.
 
 ## Testing a local copy in Home Assistant
 

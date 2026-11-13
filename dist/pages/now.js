@@ -6,7 +6,7 @@ const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ ne
 /** @type {[typeof import("../lib/core.js"), typeof import("../lib/draw.js"), typeof import("../lib/advice.js"), typeof import("../lib/sky.js"),
  *   typeof import("../lib/data.js"), typeof import("../lib/forecast.js")]} */
 const [{ HALF_HOUR, HOUR, noonOf, hourStart, clamp01, say, cap, esc }, { skyIcon, HOUSE, PLUG, line, ADVICE_ICON, SUN_DOT, hint, big, helpButton, wxIcon, battRing, nowLabel },
-  { advice, outlookAdvice, advicePool, outlookLastsH, batteryWord, isLow, gridCharging, sources, MIN_FLOW_W, EXPORT_W, IMPORT_W },
+  { advice, outlookAdvice, advicePool, loadLines, outlookLastsH, batteryWord, isLow, gridCharging, sources, MIN_FLOW_W, EXPORT_W, IMPORT_W },
   { SKY_NIGHT_DEG, SKY_DAY_DEG, RAIN_DAY_MM, coverOf }, { fromSensor, sensorAhead, weatherOnly, staleSince }, { SOLAR_SPREAD }] = await Promise.all([
   import(`../lib/core.js${v}`), import(`../lib/draw.js${v}`), import(`../lib/advice.js${v}`), import(`../lib/sky.js${v}`), import(`../lib/data.js${v}`), import(`../lib/forecast.js${v}`)]);
 
@@ -72,7 +72,7 @@ function flowSvg(n, sky, night, t, label, hints, battery, battColor, cover, moon
 }
 // The adviceGo lines name one appliance each, in this order in every language: its icon instead of the
 // washing machine. Found by the line's text, so the owner's own lines keep the plain "go" icon.
-// GO_ICON maps each line to its icon (see learnGoIcons).
+// GO_ICON maps each line to its icon (see learnLines).
 const APPLIANCE = {
   washer: ADVICE_ICON.go,
   oven: line(`<path d="M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8M4 16s.5-1 2-1 2.5 2 4 2 2.5-2 4-2 2.5 2 4 2 2-1 2-1M2 21h20M7 8v3m5-3v3m5-3v3M7 4h.01M12 4h.01M17 4h.01"/>`),
@@ -84,14 +84,18 @@ const APPLIANCE = {
   plug: line(`<path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6l-2.3 2.3a2.4 2.4 0 0 0 0 3.4zM2 22l3-3m2.5-5.5L10 11m.5 5.5L13 14m5-11l-4 4h6l-4 4"/>`),
 };
 const GO_ORDER = ["washer", "oven", "dishes", "iron", "vacuum", "phone", "dryer", "plug", "washer", "oven", "dishes", "iron", "vacuum", "phone", "dryer", "washer"];
-const GO_ICON = new Map();
-// The adviceGo lines of every language seen so far, each with its appliance's icon (see APPLIANCE): called with a
-// language's built-in lines when it is first on screen.
-const learnGoIcons = (lines) => lines.forEach((l, i) => GO_ICON.set(l, APPLIANCE[GO_ORDER[i]]));
+const GO_ICON = new Map(), LOAD_TEXT = new Set();
+// From the built-in strings of every language seen so far, called when one is first on screen: the adviceGo lines,
+// each with its appliance's icon (see APPLIANCE), and the lines left out beside the washer line (see loadLines).
+const learnLines = (strings) => {
+  strings.adviceGo.forEach((l, i) => GO_ICON.set(l, APPLIANCE[GO_ORDER[i]]));
+  loadLines(strings).forEach((l) => LOAD_TEXT.add(l));
+};
 
-// What the Now page shows: { head, flow, wear, advice, battery, machines, coming, help }, the words picked by their
+// What the Now page shows: { head, flow, wear, advice, battery, machines, learn, coming, help }, the words picked by their
 // keys in the strings (the renderer says them). `sky` is the sky drawn (its daylight sizes the sun's halo), `day`
 // the calendar day's number (one advice line a day), `now` the time.
+/** @param {import("../lib/data.js").ViewInput} c */
 function nowView({ data, sky, day, now, clock }) {
   const n = data.now, batt = data.batt, o = data.outlook;
   const charging = n.batteryChargeW > MIN_FLOW_W, discharging = n.batteryDischargeW > MIN_FLOW_W, exporting = n.gridExportW > EXPORT_W;
@@ -124,16 +128,16 @@ function nowView({ data, sky, day, now, clock }) {
   const kind = outlookAdvice(timing ? "ok" : plain, o, word, sunCharging, daytime, evening, lastsH);
   // The battery in an hour, from the outlook's three runs, moved by a reading under the floor (see socShift; added in
   // this order, as the sweep checks the 1 point edge). Its likely range only from the sensor's forecast.
-  const sensor = sensorAhead(data), ahead = n.soc !== null && batt?.kwh && o?.inHour;
+  const sensor = sensorAhead(data), ahead = n.soc !== null && batt?.kwh && o?.socInHour;
   const hour = ahead && ahead.map((x) => x + n.soc - Math.min(100, Math.max(n.soc, batt.floor)));
   const soon = hour && Math.abs(hour[1] - n.soc) >= SOON_PCT ? hour[1] : null;
   const range = soon !== null && sensor && hour[2] - hour[0] >= SOON_PCT ? [hour[0], hour[2]] : null;
   const coming = comingView(data, now, clock);
   return {
     head: { names, sub, stale: staleSince(data, now) },
-    flow: { n, today: data.today, night, glow: sky.day, battery: !!batt, battColor, cover: data.weather.cover, moon: data.moon },
+    flow: { n, charging, discharging, today: data.today, night, glow: sky.day, battery: !!batt, battColor, cover: data.weather.cover, moon: data.moon },
     wear: data.wear,
-    advice: { kind, word, sunCharging, daytime, rests, day },
+    advice: { kind, word, sunCharging, daytime, rests, day, washer: !!o?.best },
     battery: n.soc === null ? null : { soc: n.soc, soon, range, color: battColor, word, kwh: batt?.kwh ?? null,
       state: charging ? (sunCharging ? "charging" : "chargingGrid") : lastsH === Infinity ? "untilSun" : lastsH ? "until" : discharging ? "discharging" : "resting",
       until, best: o?.best ?? [] },
@@ -142,7 +146,7 @@ function nowView({ data, sky, day, now, clock }) {
     learn: !fromSensor(data.mode) && data.usualIn > 0 ? data.usualIn : null,
     coming,
     help: {
-      battery: ["helpSolid", ...(o?.inHour ? ["helpGain", "helpUse", ...(sensor ? ["helpRange"] : []), "helpRise"] : []), "helpLow"],
+      battery: ["helpSolid", ...(o?.socInHour ? ["helpGain", "helpUse", ...(sensor ? ["helpRange"] : []), "helpRise"] : []), "helpLow"],
       days: ["helpDaysPill", ...(!weatherOnly(data) && data.usualToday?.used?.[1] > 0 ? ["helpDaysUse"] : []), ...(coming?.days.some((d) => d.cover !== null) ? ["helpDaysSky"] : [])],
     },
   };
@@ -154,7 +158,7 @@ function nowPage(v, t, f, clock, now, loading) {
   const sub = subKey ? t[subKey] : "";
   // A reading too old to be live says when it was taken (see staleSince).
   const stale = v.head.stale === null ? "" : `<p class="stale">${say(t.lastUpdate, { t: whenSeen(v.head.stale, f, clock, now) })}</p>`;
-  const charging = n.batteryChargeW > MIN_FLOW_W, discharging = n.batteryDischargeW > MIN_FLOW_W;
+  const { charging, discharging } = v.flow;
   const battW = Math.round(n.batteryChargeW || n.batteryDischargeW);
   const hints = {
     sun: say(n.solarW > 0 ? t.hSun : t.hSunOff, { w: Math.round(n.solarW), k: f.kwh(today.solarKwh) }),
@@ -164,7 +168,7 @@ function nowPage(v, t, f, clock, now, loading) {
     grid: n.gridExportW > EXPORT_W ? say(t.hGridOut, { w: Math.round(n.gridExportW), k: f.kwh(today.gridExportKwh) })
       : say(n.gridImportW > MIN_FLOW_W ? t.hGridIn : t.hGridIdle, { w: Math.round(n.gridImportW), k: f.kwh(today.gridImportKwh) }),
   };
-  const a = v.advice, lines = advicePool(t, a.kind, a.word, a.sunCharging, a.daytime);
+  const a = v.advice, lines = advicePool(t, a.kind, a.word, a.sunCharging, a.daytime, a.washer ? LOAD_TEXT : null);
   // One line per calendar day, so it stays put between redraws and changes tomorrow.
   const adviceText = lines[a.day % lines.length];
   // One string per card, each keyed by data-card, for writeNow.
@@ -262,14 +266,14 @@ const bestLine = (best, t, f, clock, now) => best.map((b) => {
   return `<div class="best" data-kind="${b.kind}"><span class="tile" aria-hidden="true"><svg viewBox="0 0 24 24">${icon}</svg></span><p><span>${what}</span>${why ? `<small>${why}</small>` : ""}</p></div>`;
 }).join("");
 
-// Up to 7 days from tomorrow, from the sensor, else from the Energy settings' solar forecast beside the
-// page's own forecast (as far as it reaches, SOLAR_SPREAD either way): the day, its weather (the day's `cloud` by
+// Up to 7 days from tomorrow, from the sensor, else from the Energy settings' solar forecast (as far as it reaches,
+// SOLAR_SPREAD either way; alone before a usual day is on record): the day, its weather (the day's `cloud` by
 // the sky's thresholds, rain from RAIN_DAY_MM; from the fresh sensor's days at every level, as the sky; none
 // without them) and its likely sun [low, mid, high]; the usual day's use beside them (`use`, null with weather
 // alone). null without a day.
 function comingView(data, now, clock) {
   const a = data.ahead, today = clock(now).key;
-  const days = (!a ? [] : fromSensor(data.mode) ? a.days : Object.entries(data.sunDays ?? {}).sort()
+  const days = (fromSensor(data.mode) ? a?.days ?? [] : data.mode?.level !== "usual_days_weather" ? [] : Object.entries(data.sunDays ?? {}).sort()
     .map(([d, x]) => ({ d, sun: [x * (1 - SOLAR_SPREAD), x, x * (1 + SOLAR_SPREAD)] })))
     .filter((d) => d.d > today && d.sun?.every(Number.isFinite)).slice(0, 7);
   if (!days.length) return null;
@@ -300,4 +304,4 @@ function comingCard(v, t, f) {
     </section>`;
 }
 
-export { nowView, nowPage, writeNow, learnGoIcons, whenSeen };
+export { nowView, nowPage, writeNow, learnLines, whenSeen };

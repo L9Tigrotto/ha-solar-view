@@ -11,6 +11,7 @@ const [{ MINUTE, FIVE_MIN, HOUR, clamp01, pct, say, cap, dayHours, hourStart, in
 
 const MIN_USE_KWH = 0.05; // under this the house has used nothing yet today, so there is no share to show
 const SENT_KWH = 0.05;    // "sent to the grid" rows stay hidden below this
+const NOTHING_KWH = 0.05; // under this a figure is nothing: no part of the ring, "nothing" from the grid in an hour
 // Share of the house use that did not come from the grid. null while nothing has been used
 // (just after midnight), or when either figure is unknown: neither 0 % nor 100 % would be true.
 function ownShare(d) { return Number.isFinite(d.loadKwh) && Number.isFinite(d.gridImportKwh) && d.loadKwh >= MIN_USE_KWH ? clamp01(1 - d.gridImportKwh / d.loadKwh) : null; }
@@ -24,11 +25,12 @@ const ringsAhead = (data) => data.outlook?.hoursAhead?.length > 0;
 
 // What the Energy page shows at `now`: { share, battday, production, help }. `pick` holds the day, hour and month
 // picked. monthAhead once for Production and its help.
+/** @param {import("../lib/data.js").ViewInput} c */
 function energyView({ data, now, clock, pick }) {
-  const coming = monthAhead(data), sensor = sensorAhead(data), noSoc = !data.batt || data.now.soc === null;
-  return { share: shareView(data, now), battday: battDayView(data, now, clock, pick), production: productionView(data, pick, coming),
+  const coming = monthAhead(data), sensor = sensorAhead(data), noSoc = !data.batt || data.now.soc === null, share = shareView(data, now);
+  return { share, battday: battDayView(data, now, clock, pick), production: productionView(data, pick, coming),
     help: {
-      share: ["helpShareSun", ...(data.batt ? ["helpShareBatt"] : []), "helpShareGrid", "helpShareNum", "helpShareTotal",
+      share: share.noUse ? [] : ["helpShareSun", ...(data.batt ? ["helpShareBatt"] : []), "helpShareGrid", "helpShareNum", "helpShareTotal",
         ...(ringsAhead(data) ? [sensor ? "helpShareAheadFc" : "helpShareAhead"] : [])],
       battday: ["helpBattDayBars", ...(data.outlook || weatherOnly(data) ? ["helpBattDayGhost"] : []),
         ...(noSoc ? [] : ["helpBattDayLine", ...(data.outlook ? ["helpBattDayAhead"] : []), "helpBattDayFloor"]), "helpBattDayPick"],
@@ -51,13 +53,14 @@ function shareView(data, now) {
   return shareOf(ahead ? onBalance(data) : data, ahead, now);
 }
 function todayCard(v, t, f) {
-  // No numbers on record today (the inverter or the connection down): only that, no zeros.
+  // No numbers on record today (the inverter or the connection down): only that, no zeros. Nothing used yet: no
+  // ring, so no "?" either.
   if (v.none) return `<section class="card today share">
       <h2>${t.todayNumbers}</h2>
       <p>${cap(t.noData)}</p>
     </section>`;
   return `<section class="card today share">
-      <h2>${t.todayNumbers}</h2>${helpButton(t, "share")}
+      <h2>${t.todayNumbers}</h2>${v.noUse ? "" : helpButton(t, "share")}
       ${shareRingHtml(v, t, f)}
     </section>`;
 }
@@ -76,7 +79,7 @@ function splitOf(d, batt) {
   const complete = parts.every((p) => Number.isFinite(p.kwh));
   const used = complete ? parts.reduce((sum, p) => sum + p.kwh, 0) : 0;
   // A part that reads 0 kWh has no place on the ring (6 - 5.6 - 0.4 is not exactly 0).
-  parts.forEach((p) => { p.frac = used > 0 && p.kwh >= 0.05 ? p.kwh / used : 0; });
+  parts.forEach((p) => { p.frac = used > 0 && p.kwh >= NOTHING_KWH ? p.kwh / used : 0; });
   return { parts, complete, sun, fromBatt, fromGrid };
 }
 const sided = (parts) => parts.forEach((p, i) => { p.side = i === 0 ? "left" : i === parts.length - 1 ? "right" : "top"; });
@@ -85,7 +88,7 @@ const sided = (parts) => parts.forEach((p, i) => { p.side = i === 0 ? "left" : i
 // entry of hoursAhead starts at now, and it holds today's hours only.
 function shareBy(d, hoursAhead, now, until) {
   const x = { loadKwh: d.loadKwh, batteryKwh: d.batteryKwh, gridImportKwh: d.gridImportKwh };
-  for (const [t, , batt, grid, use] of hoursAhead) {
+  for (const { t, batt, grid, use } of hoursAhead) {
     const from = Math.max(t, now), part = clamp01((until - from) / (t + HOUR - from));
     x.loadKwh += use * part; x.batteryKwh += batt * part; x.gridImportKwh += grid * part;
   }
@@ -95,7 +98,7 @@ function shareBy(d, hoursAhead, now, until) {
 // (`order`, part keys). Less than an hour left today: the end of the day alone. A ring whose split is not known
 // is left out.
 function aheadOf(data, now, order) {
-  const rows = data.outlook.hoursAhead, end = rows.at(-1)[0] + HOUR;
+  const rows = data.outlook.hoursAhead, end = rows.at(-1).t + HOUR;
   const ring = (until, by) => {
     const x = shareBy(data.today, rows, now, until), s = splitOf(x, data.batt), share = ownShare(x);
     if (!s.complete || share === null) return null;
@@ -151,7 +154,7 @@ function shareRingHtml(v, t, f) {
         v.sent ? [t.sent, f.kwh(v.sentKwh), "--sent"] : null,
       ])}`;
 }
-// The ring from { today, batt, sends } in one step, without the small rings.
+// The ring from { today, batt, sends } in one step, without the small rings, for the preview and tests.
 const shareRing = (data, t, f) => shareRingHtml(shareOf(data, false, 0), t, f);
 
 // ---- Today by hour ----
@@ -183,7 +186,7 @@ function battDayView(data, now, clock, pick) {
   const was = new Map(rows.map((r) => [r.t, r])), will = new Map(ahead.map(([ms, p]) => [ms - H, p]));
   // Weather alone (no outlook): the sensor's sun for the hours ahead, this one's rest by its share; no use or grid.
   const sunOnly = weatherOnly(data) ? data.ahead.hours.map((h) => ({ t: h.t, sun: h.sun[1] * clamp01((h.t + H - at5) / H), batt: null, grid: null, use: null })) : [];
-  const expect = new Map((data.outlook?.hoursAhead?.map(([t, sun, batt, grid, use]) => ({ t, sun, batt, grid, use })) ?? sunOnly).map((e) => [e.t, e]));
+  const expect = new Map((data.outlook?.hoursAhead ?? sunOnly).map((e) => [e.t, e]));
   return {
     now: at5, hours, day0, soc, floor: b?.floor, nowSoc: n.soc, runs, ahead, hasRows: rows.length > 0,
     at: pick?.battday >= 0 && pick.battday < N ? pick.battday : hours.indexOf(hourStart(at5, clock)),
@@ -235,7 +238,7 @@ function battDayCard(v, t, f, clock) {
     // One sentence an hour: the energy, then the battery's charge (its mean for an hour done, what the outlook
     // expects at the end of one ahead), either alone where the other is missing. The grid's 0 is "nothing".
     const one = (energy, batt, battOnly, val, pc) => {
-      const g = { h, a: val && f.kwh(val[0]), b: val && f.kwh(val[1]), c: val && (Number.isFinite(val[2]) && val[2] < 0.05 ? t.nothing : f.kwh(val[2])), p: pc };
+      const g = { h, a: val && f.kwh(val[0]), b: val && f.kwh(val[1]), c: val && (Number.isFinite(val[2]) && val[2] < NOTHING_KWH ? t.nothing : f.kwh(val[2])), p: pc };
       return val ? say(pc == null ? energy : batt, g) + "." : pc == null ? "" : say(battOnly, g) + ".";
     };
     const pc = soc && r?.soc != null ? Math.round(r.soc) : null;
@@ -294,26 +297,26 @@ function battDayCard(v, t, f, clock) {
 // ---- Production ----
 // This month's days still to come and where the month should end. From the page's own forecast: tomorrow
 // from the forecast's days, later days from the Energy settings' solar forecast as far as it reaches, then
-// the usual day's sun. From a fresh sensor: its days' likely sun as far as they reach, then (with its house
+// the usual day's sun; before a usual day is on record, the solar forecast's days alone, and no end. From a fresh sensor: its days' likely sun as far as they reach, then (with its house
 // use) the usual day's; with weather alone the days stop there, and the month's end shows only once they
 // reach it. { days: [{ date, kwh, usual }], end } (end null while a day of the month has no numbers on
 // record), or null without a forecast or a day to come.
 /** @param {import("../lib/data.js").Data} data */
 function monthAhead(data) {
   const a = data.ahead, list = data.monthDays, sensor = fromSensor(data.mode);
-  if (!list?.length || !a || !(sensor || Number.isFinite(data.usualSun))) return null;
+  if (!list?.length || !(a || data.mode?.level === "usual_days_weather")) return null;
   const keys = monthDayKeys(data.monthKey), n = keys.length;
   const all = keys.slice(list.length).map((key) => {
     const date = noonOf(key);
     // Tomorrow's forecast is the solar forecast where it has hours, else the usual day (see forecastOf).
-    const dayKwh = a.days.find((d) => d.d === key)?.sun?.[1] ?? (sensor ? null : data.sunDays?.[key]);
-    if (!sensor) return { date, kwh: dayKwh ?? data.usualSunDays?.[key] ?? data.usualSun, usual: !(key in (data.sunDays ?? {})) };
+    const dayKwh = a?.days.find((d) => d.d === key)?.sun?.[1] ?? (sensor ? null : data.sunDays?.[key]);
+    if (!sensor) { const kwh = dayKwh ?? data.usualSunDays?.[key] ?? data.usualSun; return Number.isFinite(kwh) ? { date, kwh, usual: !(key in (data.sunDays ?? {})) } : null; }
     const usual = weatherOnly(data) ? null : data.usualSunDays?.[key];
     return Number.isFinite(dayKwh) ? { date, kwh: dayKwh, usual: false } : Number.isFinite(usual) ? { date, kwh: usual, usual: true } : null;
   });
   const cut = all.indexOf(null), days = cut < 0 ? all : all.slice(0, cut);
   if (sensor && !days.length && list.length < n) return null;
-  const soFar = sumKnown(list.map((d) => (d.none ? null : d.solarKwh))), rest = a.left?.sun?.[1];
+  const soFar = sumKnown(list.map((d) => (d.none ? null : d.solarKwh))), rest = a?.left?.sun?.[1];
   return { days, end: soFar === null || cut >= 0 || !Number.isFinite(rest) ? null : soFar + rest + days.reduce((s, d) => s + d.kwh, 0) };
 }
 // What the sun made each of the 12 months (`totals`: the days on record, null with none) and how many of its days
