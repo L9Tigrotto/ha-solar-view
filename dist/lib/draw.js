@@ -5,12 +5,15 @@ const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ ne
 /** @type {typeof import("./core.js")} */
 const { clamp01, pct, say, cap, yearKeys, daysIn } = await import(`./core.js${v}`);
 
-// Icons drawn as lines: most are Lucide's (lucide.dev, ISC and MIT licences, at the end of this file) on its
+// Icons drawn as lines: most are Lucide's (lucide.dev, ISC and MIT licences, at the end of solar-view.js) on its
 // 24 x 24 grid; the moon with its phase and craters, the battery with its level, the house and the "fine"
 // tick are this page's own. The sun, house, grid and battery keep their colours.
 // The sky icon: the sun by day, the moon in its phase by night, each behind a cloud when it is partly
 // cloudy; a cloud alone when overcast, with slanted drops when it rains, dots when it snows.
-const SUN_ICON = `<circle class="ray" cx="12" cy="12" r="4" fill="var(--sun)"/><path class="ray" d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>`;
+const SUN_RAYS = "M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"; // the rays' path
+const SUN_DISC = `<circle class="ray" cx="12" cy="12" r="4" fill="var(--sun)"/>`;
+const SUN_ICON = `${SUN_DISC}<path class="ray" d="${SUN_RAYS}"/>`;
+const RAIN_CLOUD = `<path class="cloud rainy" d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/>`; // over the drops, or the snow
 const CLOUD = `<path class="cloud" d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>`;
 // Lucide's cloud-sun: the sun (or the moon) at 12 12, a small cloud in front of it.
 const PEEK_RAYS = `<path class="ray" d="M12 2v2m-7.07.93l1.41 1.41M20 12h2m-2.93-7.07l-1.41 1.41"/>`;
@@ -28,10 +31,10 @@ function moonSvg({ phase, south }, r) {
 }
 function skyIcon(night, cover, moon) {
   const name = night ? `moon ${moon.phase}` : "sun";
-  if (cover === "partly") return [`${name} cloud`, `${night ? moonSvg(moon, 4.5) : `${PEEK_RAYS}<circle class="ray" cx="12" cy="12" r="4" fill="var(--sun)"/>`}${PEEK_CLOUD}`];
+  if (cover === "partly") return [`${name} cloud`, `${night ? moonSvg(moon, 4.5) : `${PEEK_RAYS}${SUN_DISC}`}${PEEK_CLOUD}`];
   if (cover === "overcast") return ["cloud", CLOUD];
-  if (cover === "snow") return ["snow", `<path class="cloud rainy" d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path class="drop" d="M8 15h.01M8 19h.01M12 17h.01M12 21h.01M16 15h.01M16 19h.01"/>`];
-  if (cover === "rain") return ["rain", `<path class="cloud rainy" d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path class="drop" d="M16 14l-2 6m-6-6l-2 6m6-4l-2 6"/>`];
+  if (cover === "snow") return ["snow", `${RAIN_CLOUD}<path class="drop" d="M8 15h.01M8 19h.01M12 17h.01M12 21h.01M16 15h.01M16 19h.01"/>`];
+  if (cover === "rain") return ["rain", `${RAIN_CLOUD}<path class="drop" d="M16 14l-2 6m-6-6l-2 6m6-4l-2 6"/>`];
   return [name, night ? moonSvg(moon, 7.5) : SUN_ICON];
 }
 // The house (centred on 0 0) and Lucide's plug, on the flow and at the ends of the prices' arrows.
@@ -62,7 +65,7 @@ const big = (v) => `<span class="big">${v}<small>%</small></span>`;
 // Marks on charts and rings take the theme colour made for them (darker in the light theme, so they
 // reach 3:1 on the sky), else the plain one. "--sent" exists only as a mark: the grid colour, faded.
 const markOf = (color) => `var(${color}-mark,var(${color}))`;
-// A card's "?": opens its "How to read this" (see READ).
+// A card's "?": opens its "How to read this" (see READ in shell.js).
 const helpButton = (t, card) => `<button type="button" class="help" data-card="${card}" aria-label="${t.helpTitle}" aria-haspopup="dialog"><svg viewBox="0 0 24 24" aria-hidden="true">${HELP_ICON}</svg></button>`;
 // The small drawings in the help dialogs, 30 x 16, in the colour --c, one per kind of mark; buy and sell
 // are the prices' arrows, Grid to Home (left) and Home to Grid (right).
@@ -237,4 +240,4 @@ function monthPicker(t, f, cur, at, v, name, color, both = false, ghost = () => 
   }).join("")}</ol>`;
 }
 
-export { TRACK, nowLabel, boldDate, monthName, skyIcon, HOUSE, PLUG, line, ADVICE_ICON, HELP_ICON, SUN_DOT, hint, skBar, big, markOf, helpButton, SW, sw, wxIcon, ringAt, ringArc, ring, battRing, ringSize, splitRing, legendHtml, lineGrid, readout, steps, monthSteps, dayLine, monthTotal, monthPicker };
+export { TRACK, nowLabel, boldDate, monthName, skyIcon, SUN_RAYS, HOUSE, PLUG, line, ADVICE_ICON, SUN_DOT, hint, big, markOf, helpButton, SW, sw, wxIcon, ring, battRing, ringSize, splitRing, legendHtml, lineGrid, readout, steps, monthSteps, dayLine, monthTotal, monthPicker };

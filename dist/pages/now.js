@@ -5,9 +5,9 @@
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
 /** @type {[typeof import("../lib/core.js"), typeof import("../lib/draw.js"), typeof import("../lib/advice.js"), typeof import("../lib/sky.js"),
  *   typeof import("../lib/data.js"), typeof import("../lib/forecast.js")]} */
-const [{ HALF_HOUR, HOUR, NOON, hourStart, clamp01, say, cap, esc }, { skyIcon, HOUSE, PLUG, line, ADVICE_ICON, SUN_DOT, hint, big, helpButton, wxIcon, battRing, nowLabel },
+const [{ HALF_HOUR, HOUR, noonOf, hourStart, clamp01, say, cap, esc }, { skyIcon, HOUSE, PLUG, line, ADVICE_ICON, SUN_DOT, hint, big, helpButton, wxIcon, battRing, nowLabel },
   { advice, outlookAdvice, advicePool, outlookLastsH, batteryWord, isLow, gridCharging, sources, MIN_FLOW_W, EXPORT_W, IMPORT_W },
-  { SKY_NIGHT_DEG, SKY_DAY_DEG, RAIN_DAY_MM, coverOf }, { fromSensor, weatherOnly, staleSince }, { SOLAR_SPREAD }] = await Promise.all([
+  { SKY_NIGHT_DEG, SKY_DAY_DEG, RAIN_DAY_MM, coverOf }, { fromSensor, sensorAhead, weatherOnly, staleSince }, { SOLAR_SPREAD }] = await Promise.all([
   import(`../lib/core.js${v}`), import(`../lib/draw.js${v}`), import(`../lib/advice.js${v}`), import(`../lib/sky.js${v}`), import(`../lib/data.js${v}`), import(`../lib/forecast.js${v}`)]);
 
 const SOON_PCT = 1;       // the battery in an hour shows when it moves this many points or more, its likely range when that spans as much
@@ -124,10 +124,10 @@ function nowView({ data, sky, day, now, clock }) {
   const kind = outlookAdvice(timing ? "ok" : plain, o, word, sunCharging, daytime, evening, lastsH);
   // The battery in an hour, from the outlook's three runs, moved by a reading under the floor (see socShift; added in
   // this order, as the sweep checks the 1 point edge). Its likely range only from the sensor's forecast.
-  const sensor = !!data.ahead && fromSensor(data.mode), ahead = n.soc !== null && batt?.kwh && o?.inHour;
+  const sensor = sensorAhead(data), ahead = n.soc !== null && batt?.kwh && o?.inHour;
   const hour = ahead && ahead.map((x) => x + n.soc - Math.min(100, Math.max(n.soc, batt.floor)));
   const soon = hour && Math.abs(hour[1] - n.soc) >= SOON_PCT ? hour[1] : null;
-  const range = soon !== null && fromSensor(data.mode) && hour[2] - hour[0] >= SOON_PCT ? [hour[0], hour[2]] : null;
+  const range = soon !== null && sensor && hour[2] - hour[0] >= SOON_PCT ? [hour[0], hour[2]] : null;
   const coming = comingView(data, now, clock);
   return {
     head: { names, sub, stale: staleSince(data, now) },
@@ -138,7 +138,7 @@ function nowView({ data, sky, day, now, clock }) {
       state: charging ? (sunCharging ? "charging" : "chargingGrid") : lastsH === Infinity ? "untilSun" : lastsH ? "until" : discharging ? "discharging" : "resting",
       until, best: o?.best ?? [] },
     machines: n.soc === null && o?.best ? o.best : null,
-    // The first days (U17): how many more until the usual day, and with it the page's own predictions.
+    // The first days: how many more until the usual day, and with it the page's own predictions.
     learn: !fromSensor(data.mode) && data.usualIn > 0 ? data.usualIn : null,
     coming,
     help: {
@@ -173,7 +173,7 @@ function nowPage(v, t, f, clock, now, loading) {
     `<div class="flowbox" data-card="flow">${flowSvg(n, { day: v.flow.glow }, v.flow.night, t, sub ? `${sentence}. ${sub}` : sentence, hints, v.flow.battery, v.flow.battColor, v.flow.cover, v.flow.moon)}</div>`,
     v.wear && `<section class="card wear" data-card="wear" aria-label="${t.wearTitle}">
       <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true">${ADVICE_ICON.low}</svg></span>
-      <p><span>${esc(say(t["wear" + v.wear.kind[0].toUpperCase() + v.wear.kind.slice(1)], v.wear))}</span></p>
+      <p><span>${esc(say(t["wear" + cap(v.wear.kind)], v.wear))}</span></p>
     </section>`,
     `<section class="card advice${a.rests ? " rest" : ""}" data-card="advice" data-kind="${a.kind}" aria-label="${t.adviceTitle}">
       <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true">${(a.kind === "go" && GO_ICON.get(adviceText)) || (a.rests ? ADVICE_ICON.ok : ADVICE_ICON[a.kind])}</svg></span>
@@ -186,8 +186,8 @@ function nowPage(v, t, f, clock, now, loading) {
   ].filter(Boolean);
 }
 
-// Now written card by card (S26, P14): a card whose markup is as before stays untouched, a changed one is brought
-// to its new markup in place (see morph), so the flow's streaks keep running (P4) and a hint elsewhere stays. A
+// Now written card by card: a card whose markup is as before stays untouched, a changed one is brought
+// to its new markup in place (see morph), so the flow's streaks keep running and a hint elsewhere stays. A
 // card is matched by its data-card; anything else on the page (the error message) goes.
 function writeNow(page, cards) {
   const before = [...page.childNodes], kept = new Set(), tpl = document.createElement("template");
@@ -264,7 +264,7 @@ const bestLine = (best, t, f, clock, now) => best.map((b) => {
 
 // Up to 7 days from tomorrow, from the sensor, else from the Energy settings' solar forecast beside the
 // page's own forecast (as far as it reaches, SOLAR_SPREAD either way): the day, its weather (the day's `cloud` by
-// the sky's thresholds, rain from RAIN_DAY_MM; from the fresh sensor's days at every level, as the sky, B7; none
+// the sky's thresholds, rain from RAIN_DAY_MM; from the fresh sensor's days at every level, as the sky; none
 // without them) and its likely sun [low, mid, high]; the usual day's use beside them (`use`, null with weather
 // alone). null without a day.
 function comingView(data, now, clock) {
@@ -288,7 +288,7 @@ function comingCard(v, t, f) {
   const mark = line ? `<span class="use" aria-hidden="true"></span>` : "";
   const label = line ? nowLabel(u, t.usualUseMark) : "";
   const rows = v.days.map((d, i) => {
-    const date = new Date(Date.parse(d.d) + NOON), [lo, mid, hi] = d.sun;
+    const date = new Date(noonOf(d.d)), [lo, mid, hi] = d.sun;
     const w = d.cover === null ? "" : `${wxWord(t, d.cover)}, `;
     const name = say(near(f, lo) === near(f, hi) ? t.hDayAheadMid : t.hDayAhead, { d: f.date(date), w, a: near(f, lo), b: near(f, hi) });
     return `<li ${hint(name, "")} style="--c:${SUN_DOT}"><span>${f.weekday(date)}</span>${wxIcon(d.cover)}

@@ -4,9 +4,9 @@
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
 /** @type {[typeof import("../lib/core.js"), typeof import("../lib/draw.js"), typeof import("../lib/data.js"), typeof import("../lib/stats.js")]} */
-const [{ MINUTE, FIVE_MIN, HOUR, clamp01, pct, say, cap, dayHours, hourStart, inHour, socShift, sumKnown, daysIn, yearKeys },
+const [{ MINUTE, FIVE_MIN, HOUR, clamp01, pct, say, cap, dayHours, hourStart, inHour, socShift, sumKnown, selfKwh, noonOf, monthDayKeys, yearKeys },
   { hint, big, markOf, helpButton, TRACK, ringSize, splitRing, legendHtml, lineGrid, readout, monthSteps, steps, dayLine, monthTotal, monthPicker, nowLabel, boldDate, monthName },
-  { fromSensor, weatherOnly }, { balanceKwh }] = await Promise.all([
+  { fromSensor, sensorAhead, weatherOnly }, { balanceKwh }] = await Promise.all([
   import(`../lib/core.js${v}`), import(`../lib/draw.js${v}`), import(`../lib/data.js${v}`), import(`../lib/stats.js${v}`)]);
 
 const MIN_USE_KWH = 0.05; // under this the house has used nothing yet today, so there is no share to show
@@ -25,7 +25,7 @@ const ringsAhead = (data) => data.outlook?.hoursAhead?.length > 0;
 // What the Energy page shows at `now`: { share, battday, production, help }. `pick` holds the day, hour and month
 // picked. monthAhead once for Production and its help.
 function energyView({ data, now, clock, pick }) {
-  const coming = monthAhead(data), sensor = !!data.ahead && fromSensor(data.mode), noSoc = !data.batt || data.now.soc === null;
+  const coming = monthAhead(data), sensor = sensorAhead(data), noSoc = !data.batt || data.now.soc === null;
   return { share: shareView(data, now), battday: battDayView(data, now, clock, pick), production: productionView(data, pick, coming),
     help: {
       share: ["helpShareSun", ...(data.batt ? ["helpShareBatt"] : []), "helpShareGrid", "helpShareNum", "helpShareTotal",
@@ -128,11 +128,11 @@ function shareOf(data, ahead, now) {
 function shareRingHtml(v, t, f) {
   if (v.noUse) return `<p>${t.noUseYet}</p>`;
   const { share, parts, complete } = v;
-  const label = share === null ? cap(t.noData) : say(t.hShare, { p: f.num(pct(share)), a: f.kwh(Math.max(0, v.loadKwh - v.gridImportKwh)), b: f.kwh(v.loadKwh) });
+  const label = share === null ? cap(t.noData) : say(t.hShare, { p: f.num(pct(share)), a: f.kwh(selfKwh(v)), b: f.kwh(v.loadKwh) });
   const names = { sun: t.sun, batt: t.battery, grid: t.colGrid };
   const smallOne = (r) => {
     const when = r.by ? f.time(new Date(r.until)) : t.endOfDay;
-    const text = say(r.by ? t.hShareBy : t.hShareEnd, { h: when, p: f.num(pct(r.share)), a: f.kwh(Math.max(0, r.loadKwh - r.gridImportKwh)), b: f.kwh(r.loadKwh) });
+    const text = say(r.by ? t.hShareBy : t.hShareEnd, { h: when, p: f.num(pct(r.share)), a: f.kwh(selfKwh(r)), b: f.kwh(r.loadKwh) });
     return `<li><div class="ring-box">${splitRing(r.parts, text, "")}<div class="ring-mid" aria-hidden="true">${big(pct(r.share))}</div></div><span>${when} · ${f.kwh(r.loadKwh)}</span></li>`;
   };
   const small = v.ahead.length ? `<ul class="rings-ahead">${v.ahead.map(smallOne).join("")}</ul>` : "";
@@ -166,7 +166,7 @@ const shareRing = (data, t, f) => shareRingHtml(shareOf(data, false, 0), t, f);
 const SERIES = [["sun", "--sun"], ["use", "--home"], ["grid", "--grid"]]; // a row's or an outlook hour's field, its colour
 function battDayView(data, now, clock, pick) {
   // With an outlook the house's use is the balance, so far as ahead (see onBalance).
-  const hasOutlook = data.outlook?.hoursAhead?.length > 0, b = data.batt, n = data.now;
+  const hasOutlook = ringsAhead(data), b = data.batt, n = data.now;
   const rows = (data.battDay ?? []).map((r) => ({ ...r, use: hasOutlook && "balance" in r ? r.balance : r.house }));
   // Now to the 5 minutes, so the page is not redrawn every few seconds for a line that barely moves.
   const H = HOUR, at5 = Math.floor(now / FIVE_MIN) * FIVE_MIN;
@@ -302,9 +302,9 @@ function battDayCard(v, t, f, clock) {
 function monthAhead(data) {
   const a = data.ahead, list = data.monthDays, sensor = fromSensor(data.mode);
   if (!list?.length || !a || !(sensor || Number.isFinite(data.usualSun))) return null;
-  const [y, m] = data.monthKey.split("-").map(Number), n = daysIn(data.monthKey);
-  const all = Array.from({ length: n - list.length }, (_, i) => {
-    const date = Date.UTC(y, m - 1, list.length + i + 1, 12), key = new Date(date).toISOString().slice(0, 10);
+  const keys = monthDayKeys(data.monthKey), n = keys.length;
+  const all = keys.slice(list.length).map((key) => {
+    const date = noonOf(key);
     // Tomorrow's forecast is the solar forecast where it has hours, else the usual day (see forecastOf).
     const dayKwh = a.days.find((d) => d.d === key)?.sun?.[1] ?? (sensor ? null : data.sunDays?.[key]);
     if (!sensor) return { date, kwh: dayKwh ?? data.usualSunDays?.[key] ?? data.usualSun, usual: !(key in (data.sunDays ?? {})) };
@@ -368,4 +368,4 @@ function picked(t, f, x, lead) {
   ]);
 }
 
-export { energyView, energyPage, shareView, shareRing, battDayView, battDayCard, productionView, monthAhead, ownShare };
+export { energyView, energyPage, shareRing, battDayView, battDayCard, monthAhead, ownShare };

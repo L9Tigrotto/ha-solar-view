@@ -9,6 +9,11 @@ const [{ pct, say, cap, sumKnown, shiftMonth, yearKeys }, { ADVICE_ICON, HOUSE, 
   { moneyOf, ledgerOf, paybackOf, bandRuns }, { paybackPredicts }, { bandOf }] = await Promise.all([
   import(`../lib/core.js${v}`), import(`../lib/draw.js${v}`), import(`../lib/money.js${v}`), import(`../lib/data.js${v}`), import(`../lib/forecast.js${v}`)]);
 
+// Money to 10 cents: what is still to come is no finer than that.
+const cents = (f, n) => f.money(Math.round(n * 10) / 10);
+// The balance as a readout figure, in the low colour below 0.
+const netRow = (t, f, net) => [t.netBenefit, f.money(net), net < 0 ? "--low" : "--batt", net < 0];
+
 // Payback for this month (see paybackOf): its own step, as it walks up to 50 years of months. The page asks for it
 // once per change of the numbers, not on every redraw of Money (a month picked).
 function paybackView(data, now, clock) {
@@ -22,7 +27,7 @@ function moneyView({ data, now, clock, pick }, payback = paybackView(data, now, 
   const p = data.price, c = clock(now), key = c.key.slice(0, 7), lastKey = shiftMonth(key, -1);
   const { onRecord, got, back, net, end, coming, ownEnd } = moneyOf(data, key), months = data.sensorMonths;
   // The price now: the tariff's band now when it has bands, else the sensor's present hour while it is fresh (at
-  // every level, B7), else the Energy settings' one. Selling only while export is on.
+  // every level), else the Energy settings' one. Selling only while export is on.
   const hour = data.priceNow, bd = data.bands, bandNow = bd && bandOf(c.key, c.hour, bd.type);
   const buy = bd ? bd.prices[bandNow] : hour?.buy ?? p.buy, sell = hour?.sell ?? p.sell, selling = data.sends && sell !== null;
   // With two or three bands, one box each under buying: its name, its runs of hours today, the share of this month's
@@ -47,7 +52,7 @@ function moneyView({ data, now, clock, pick }, payback = paybackView(data, now, 
   if (shown) {
     const cost = x && got("cost", x, at), brought = x && back(x, at);
     const endCost = at !== key ? null : ownEnd ? end.cost?.[1] ?? null : coming?.cost != null && cost !== null ? cost + coming.cost : null;
-    const endBack = at !== key ? null : ownEnd ? (end.saved ? end.saved[1] + (data.sends ? end.earned?.[1] ?? 0 : 0) : null) : coming?.back != null && brought !== null ? brought + coming.back : null;
+    const endBack = at !== key ? null : ownEnd ? end.back : coming?.back != null && brought !== null ? brought + coming.back : null;
     month = { key, at, sends: data.sends, endNet: end.net,
       months: Object.fromEntries(yearKeys(key).map((mk) => [mk, { net: row(mk) ? net(row(mk), mk) : null, known: !!row(mk) }])),
       picked: x && { cost, saved: got("saved", x, at), earned: got("earned", x, at), brought, net: net(x, at), endCost, endBack } };
@@ -112,9 +117,9 @@ function monthCard(v, sign, t, f) {
       ${readout("", [
         [t.savedLabel, f.money(x.saved), "--sun"],
         v.sends ? [t.exportLabel, f.money(x.earned), "--sent"] : null,
-        [t.netBenefit, f.money(x.net), x.net < 0 ? "--low" : "--batt", x.net < 0],
+        netRow(t, f, x.net),
       ])}
-      ${at === key && v.endNet !== null ? `<p class="note">${say(t.balEnd, { v: f.money(Math.round(v.endNet * 10) / 10) })}</p>` : ""}` : `<p class="note">${t.noData}</p>`}
+      ${at === key && v.endNet !== null ? `<p class="note">${say(t.balEnd, { v: cents(f, v.endNet) })}</p>` : ""}` : `<p class="note">${t.noData}</p>`}
     </section>`;
 }
 
@@ -122,16 +127,13 @@ function monthCard(v, sign, t, f) {
 // and balance under the chart (the month's total is on Month balance). A cost nobody can price leaves the
 // balance unknown too. The days still to come (see moneyAhead) dashed on, each with its sentence, to 10 cents.
 function recentCard(v, sign, t, f) {
-  const cents = (n) => f.money(Math.round(n * 10) / 10);
   const ahead = v.coming.map((d) => {
-    const date = f.date(new Date(d.date)), plain = cap(say(t.hDayMoney, { d: date, v: cents(d.back), c: cents(d.cost) }));
+    const date = f.date(new Date(d.date)), plain = cap(say(t.hDayMoney, { d: date, v: cents(f, d.back), c: cents(f, d.cost) }));
     return [d.back, plain, boldDate(plain, t.hDayMoney, date)];
   });
   const day = (x, n, lead) => {
     if (n === null) return readout(lead, [[x.none ? t.noData : t.noPrice, "—"]]);
-    const net = x.cost == null ? null : n - x.cost;
-    return readout(lead, [[t.returns, f.money(n), "--sun"], [t.gridCost, f.money(x.cost), "--grid"],
-      [t.netBenefit, f.money(net), net < 0 ? "--low" : "--batt", net < 0]]);
+    return readout(lead, [[t.returns, f.money(n), "--sun"], [t.gridCost, f.money(x.cost), "--grid"], netRow(t, f, x.cost == null ? null : n - x.cost)]);
   };
   return `<section class="card recent" data-pick="recent">
       <h2><span>${t.recentTitle}</span> <span class="num">${sign}</span></h2>${helpButton(t, "recent")}

@@ -2,7 +2,7 @@
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
 /** @type {typeof import("./core.js")} */
-const { DAY, HOUR, LASTS_MAX_H, warnOnce } = await import(`./core.js${v}`);
+const { DAY, HOUR, LASTS_MAX_H, cap, warnOnce } = await import(`./core.js${v}`);
 
 // ---- Rules (tune here) ----
 const POOR_SHARE = 0.55;      // a forecast for today under this share of a usual day is a poor day
@@ -90,7 +90,7 @@ function withOwnAdvice(strings, cfg, lang) {
   if (!own) return strings;
   const t = { ...strings };
   for (const [name, lines] of Object.entries(own)) {
-    const key = "advice" + name[0].toUpperCase() + name.slice(1);
+    const key = "advice" + cap(name);
     // An empty YAML entry arrives as null.
     const clean = [].concat(lines).filter((s) => s != null).map(String).filter((s) => s.trim());
     if (!Array.isArray(strings[key])) warnOnce(`advice.${lang}.${name}: no such pool (see Your own advice lines in docs/setup.md)`);

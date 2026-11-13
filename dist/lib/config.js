@@ -62,10 +62,10 @@ const KEYS = ["battery_kwh", "battery_floor", "battery_max_charge_kw", "battery_
   "export_max_kw", "standby_w", "grid_max_kw", "system_cost", "install_date", "saved_before", "level", "usual_days", "quiet_hours",
   ...MACHINE_TYPES, "bill_fixed", "tariff", "time_format", "advice", "advice_replace", "entities"];
 const TARIFF_TYPES = ["single", "two", "three"];
-// How far the page predicts (docs/audit/06-fix-plan.md, decision 1); no level is auto. What each level uses,
+// How far the page predicts (the table in docs/how-it-works.md); no level is auto. What each level uses,
 // and the step down when its data is missing: modeOf in data.js.
 const LEVELS = ["none", "usual_days", "weather", "usual_days_weather", "learned_weather"];
-const LEVEL_ALIASES = { usual: "usual_days_weather" }; // the names before decision 1
+const LEVEL_ALIASES = { usual: "usual_days_weather" }; // the name before the five levels
 const isMap = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 // The config as flat keys. A key given twice says so once: a group's wins over the top level, and the
 // later group of CONFIG_GROUPS over an earlier one. `sensors` (a group) and `entities` (flat) merge name by
@@ -235,7 +235,7 @@ const requiredIds = (ids) => [ids.solarW, ids.battW, ids.gridW, ids.soc].filter(
 // Read while they have a value, else left out: the load sensor (house use is then the balance).
 const optionalIds = (ids) => ids.loadW;
 
-// The setup check in the gear dialog, for admins (U18): each feature on or off, as plain data the dialog puts in
+// The setup check in the gear dialog, for admins: each feature on or off, as plain data the dialog puts in
 // words. `mode` is the level in use after any step down (see modeOf), `battery` whether there is one, `money`
 // whether Money has numbers to show. A machine without a sensor runs on its typed figures, or the assumed washer's.
 const setupCheck = (cfg, { mode, battery, money }) => [

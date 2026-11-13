@@ -291,8 +291,8 @@ advice:
 | `goFull` | Spare sun, and the battery is at 100 percent. These lines come before the `go` ones. |
 | `soon` | Spare sun now, but the forecast says it fades within 3 hours. Only without a battery charge reading. |
 | `later` | No spare sun now, but the forecast says clearly more within 3 hours. |
-| `low` | Battery low (less than 16 percent above `battery_floor`) and no real sun. |
-| `empty` | Battery at `battery_floor` and no real sun. |
+| `low` | Battery low (less than 16 percent above `battery_floor`), and no real sun or the grid is helping. |
+| `empty` | Battery at `battery_floor`, and no real sun or the grid is helping. |
 | `wait` | Little sun forecast today, clearly more tomorrow. |
 | `ok` | Nothing to do, by day. |
 | `okNight` | Nothing to do, by night. |
