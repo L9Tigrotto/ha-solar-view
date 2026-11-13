@@ -39,16 +39,9 @@
 </head>
 <body>
 <!-- Preview of the real panel (../dist/solar-view.js)
-     driven by a fake `hass` object: states, Energy settings, statistics and forecast. ?scenario= ?lang=en|it|es|fr|de|pt|nl|pl ?dark=0|1 ?admin=0 ?extras=0 ?first=1
-     ?day=N picks the advice line as if it were day N (0, 1, 2...), instead of today's.
-     ?loading=2 starts with 2 seconds of "Home Assistant is still starting"; the button replays it.
-     ?page=now|energy|money opens on that page, ?shot=1 hides this tool's controls.
-     ?check=skeleton compares the loading skeleton with the loaded page, ?sweep=1 tries every combination of sensor values.
-     ?visible=all|now|null has every panel count those pages in view, whatever its pager says.
-     ?display=rain:0,clouds:0 turns those display switches off on this device, as the gear would.
-     ?text=1.5 (or 2, about a phone's largest font) shows the panel as a phone app that enlarges text that much.
-     The "preview" drawer sets all of this live, plus the time (?at=2026-10-25T11:00), the forecast and
-     the live values on top of the scenario; every change goes into the URL, so a link reproduces it.
+     driven by a fake `hass` object: states, Energy settings, statistics and forecast. The scenarios, the URL
+     parameters and the drawer are listed in docs/development.md; every change in the drawer goes into the URL,
+     so a link reproduces it.
      The checks are the console.assert calls below: the console must stay free of assertion failures. -->
 <script>
   // Home Assistant puts the viewer's language on the page, which the panel reads to guess which texts to load.
@@ -542,7 +535,7 @@ const form = document.querySelector("#dev form");
   <label title="the phone's font size, as the panel measures it in an app; 2 is about the largest">text <select name="text">${opt([["1"], ["1.5"], ["2"]])}</select></label>
   <br>display: ${SWITCH_NAMES.map((n) => check("sw", n, n)).join("")}</fieldset>
 <p><button type="button" data-do="checks">run checks</button> <button type="button" data-do="skeleton">skeleton check</button>
-  <button type="button" data-do="sweep" title="about 49,000 combinations: the page is busy for about five minutes">sweep (slow)</button> <button type="button" data-do="loading">loading 2s</button></p>
+  <button type="button" data-do="sweep" title="about 49,000 combinations: the page is busy for three to four minutes">sweep (slow)</button> <button type="button" data-do="loading">loading 2s</button></p>
 <output name="status"></output>`;
 }
 const el = form.elements, pad = (n) => String(n).padStart(2, "0");
@@ -765,7 +758,7 @@ for (const [k, s] of Object.entries(SCENARIOS)) {
   const kind = $(p, ".advice").dataset.kind;
   // By day "ok" turns "fills" while the battery still fills later today (see outlookAdvice), and how much
   // sun is left depends on the hour the checks run: "fills" passes for "ok" when the panel's outlook fills.
-  // With the sensor in use its own hours say "later" (B5): passes for "ok" when they do, and no washer line keeps
+  // With the sensor in use its own hours say "later": passes for "ok" when they do, and no washer line keeps
   // to the house (a battery of unknown size has none). The mock's sun is a bell from 10:00 to 15:00.
   const fc = p._looked.forecast, sensorLater = !!s.ahead && s.ahead !== "stale" && !p._outlook?.best && fc && fc.fade.next >= 500 && fc.fade.next >= 2 * fc.fade.now;
   const expect = !extras && { wait: "ok", soon: "go", later: "ok" }[s.expect] || (s.expect === "ok" && kind === "fills" && p._outlook?.fills ? "fills"
@@ -781,7 +774,7 @@ for (const [k, s] of Object.entries(SCENARIOS)) {
   if (s.ahead && s.battKwh !== null) console.assert(p._outlook?.hoursAhead?.length && p._outlook.hoursAhead.every((r) => r.every(Number.isFinite)) && p._outlook.restToday && (p._outlook.inHour === null || range(p._outlook.inHour)), `forecast for ${k}: no hours, money or ranges ahead`, p._outlook);
   if (s.battKwh === null) console.assert(p._outlook && p._outlook.hoursAhead === null && p._outlook.best === null, `forecast for ${k}: figures with a battery of unknown size`, p._outlook);
   if (s.firstDays) console.assert(p._outlook === null && !/\d/.test($(p, ".batt-say p").textContent), `forecast for ${k}: an outlook, or a lasts until without one`, p._outlook);
-  // The first days say when predictions start (U17); a page with a usual day says nothing of the kind.
+  // The first days say when predictions start; a page with a usual day says nothing of the kind.
   const learn = $(p, ".learn")?.textContent ?? "";
   if (s.firstDays) console.assert([p._t.learningOne, say(p._t.learning, { n: learn.match(/\d+/)?.[0] })].includes(learn), `first days for ${k}: no learning line`, learn);
   if (p._data?.usualToday) console.assert(!learn, `first days for ${k}: a learning line beside a usual day`, learn);
@@ -1967,7 +1960,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   console.assert(!snows(p), "sky: snow without the weather entity saying so");
 }
 
-// Check: the gear dialog's setup check (U18): an admin sees a row per feature, the level and the washer assumed
+// Check: the gear dialog's setup check: an admin sees a row per feature, the level and the washer assumed
 // among them; anyone else does not see it.
 {
   const p = await draw(fakeHass(SCENARIOS.midday), { ...en, user: { is_admin: true } });
@@ -2001,7 +1994,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
     let p = await draw(fakeHass(SCENARIOS.sunny), en);
     attach(p); // showModal needs a connected dialog
     const gear = $(p, "button.gear");
-    console.assert(!$(p, "dialog"), "dialogs: built before they open (P19)");
+    console.assert(!$(p, "dialog"), "dialogs: built before they open");
     console.assert(gear?.getAttribute("aria-label")?.trim() && gear.querySelector("svg[aria-hidden=true]"), "switches: the gear is not a button with a name", gear?.outerHTML);
     gear?.focus(); gear?.click();
     const dialog = $(p, "dialog"), switches = [...p.shadowRoot.querySelectorAll("dialog input[type=checkbox][role=switch]")];
@@ -2373,7 +2366,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
 }
 
 // Check: offline, Now holds the message alone, with when the inverter was last heard, and Energy and Money keep
-// their numbers and tabs (U8); back online the flow returns. A reading 30 minutes old says its time under the
+// their numbers and tabs; back online the flow returns. A reading 30 minutes old says its time under the
 // headline; a fresh one does not. A redraw puts focus back on the same control (a "?", a
 // month, an hour), and Escape hides a hint without moving focus until the viewer leaves it. The language
 // picker changes the page's language at once and is no switch.

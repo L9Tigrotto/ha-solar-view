@@ -4,13 +4,11 @@
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
 /** @type {[typeof import("./core.js"), typeof import("./sky.js"), typeof import("./forecast.js")]} */
-const [{ HOUR, sumKnown, daysIn, shiftMonth, dayHours, clamp01, num, pricedEnergy }, { monthSun }, { bandOf }] = await Promise.all([
+const [{ HOUR, sumKnown, daysIn, shiftMonth, dayHours, noonOf, clamp01, num, pricedEnergy, selfKwh }, { monthSun }, { bandOf }] = await Promise.all([
   import(`./core.js${v}`), import(`./sky.js${v}`), import(`./forecast.js${v}`)]);
 
 const PAYBACK_SPREAD = 0.2; // payback's likely range: every coming month this much better and worse, until a year is on record
 const PAYBACK_MAX_MONTHS = 600; // the payback walk gives up here (50 years)
-// Money not spent on the grid. null without a price or with an unknown figure.
-const savedMoney = (d, price) => (![d.loadKwh, d.gridImportKwh].every(Number.isFinite) ? null : pricedEnergy(Math.max(0, d.loadKwh - d.gridImportKwh), price.buy));
 
 // Today so far in money, hour by hour, for the outlook (see lookAhead): `todayHours` is { hour start ms: { loadKwh,
 // gridImportKwh, gridExportKwh } } with loadKwh the energy balance, buyAt(t) and sellAt(t) the price of that hour.
@@ -40,10 +38,10 @@ function moneySoFar(todayHours, buyAt, sellAt, standbyKwhPerHour, now) {
 // - fixedAt(mk): the bill's fixed part in a month: that month's mean of its entity, else the nearest month before
 //   with one, else the first on record (the month is older than the entity), else its value now; null (unknown)
 //   when the entity has neither. No bill_fixed at all is 0.
-// - got(k, x, mk): the sensor's figure for a finished month when it has one (fresh, at every level, B7), else
+// - got(k, x, mk): the sensor's figure for a finished month when it has one (fresh, at every level), else
 //   onRecord; the fixed part on every month's cost whole, as the bill charges it. back: saved plus earned. net:
 //   back less cost. Each null when any part is.
-// - end: this month's end ({ saved, earned, cost } as [low, mid, high], net its mid): the sensor's while it is the
+// - end: this month's end ({ saved, earned, cost } as [low, mid, high]; back and net from their mids): the sensor's while it is the
 //   forecast in use with house use, else this month so far plus what the outlook expects (see moneyAhead).
 // - coming: see moneyAhead.
 // ponytail: a month whose cost statistic started part way through counts only that part.
@@ -52,8 +50,7 @@ function moneyOf(data, key) {
   const onRecord = {
     cost: (x) => num(x.costMoney) ?? pricedEnergy(x.gridImportKwh, p.buy),
     earned: (x) => (!data.sends ? 0 : num(x.earnedMoney) ?? pricedEnergy(x.gridExportKwh, p.sell)),
-    saved: (x) => (![x.loadKwh, x.gridImportKwh].every(Number.isFinite) ? null
-      : num(x.costMoney) !== null && x.gridImportKwh > 0 ? Math.max(0, x.loadKwh - x.gridImportKwh) * x.costMoney / x.gridImportKwh : savedMoney(x, p)),
+    saved: (x) => { const self = selfKwh(x); return self !== null && num(x.costMoney) !== null && x.gridImportKwh > 0 ? self * x.costMoney / x.gridImportKwh : pricedEnergy(self, p.buy); },
   };
   const fx = data.billFixed ?? {}, fxKeys = Object.keys(fx.months ?? {}).sort();
   const fixedAt = (mk) => fx.months?.[mk] ?? fx.months?.[fxKeys.filter((k) => k < mk).at(-1) ?? fxKeys[0]] ?? (fx.now === undefined ? 0 : fx.now);
@@ -66,7 +63,9 @@ function moneyOf(data, key) {
   const fee = fixedAt(key), s = ownEnd ? months[key]?.money : null;
   const r = (j) => (Array.isArray(s?.[j]) && s[j].every(Number.isFinite) && (j !== "cost" || fee !== null) ? s[j].map((y) => y + (j === "cost" ? fee : 0)) : null);
   const end = { saved: r("saved"), earned: r("earned"), cost: r("cost") };
-  end.net = end.saved && end.cost ? end.saved[1] + (data.sends ? end.earned?.[1] ?? 0 : 0) - end.cost[1] : null;
+  // What the month should bring back: saved, plus earned while export is on.
+  end.back = end.saved ? end.saved[1] + (data.sends ? end.earned?.[1] ?? 0 : 0) : null;
+  end.net = end.back !== null && end.cost ? end.back - end.cost[1] : null;
   const coming = moneyAhead(data), m = data.month, soFarNet = m && !m.none ? net(m, key) : null;
   if (!ownEnd && coming?.rest != null && soFarNet !== null) end.net = soFarNet + coming.rest;
   return { ownEnd, onRecord, fixedAt, got, back, net, end, coming };
@@ -83,7 +82,7 @@ function ledgerOf(data, key, { back, got }) {
     const x = mk === key ? data.month : have.get(mk) ?? (mk === lastKey ? data.lastMonth : null);
     ledger.push({ key: mk, back: x ? back(x, mk) : null, ...(x && {
       sun: x.solarKwh, load: x.loadKwh, out: x.gridExportKwh,
-      self: [x.loadKwh, x.gridImportKwh].every(Number.isFinite) ? Math.max(0, x.loadKwh - x.gridImportKwh) : null,
+      self: selfKwh(x),
       saved: got("saved", x, mk), earned: got("earned", x, mk) }) });
   }
   return ledger;
@@ -137,7 +136,7 @@ function moneyAhead(data) {
   for (const [d, saved, cost, earned] of o.daysMoney) {
     const back = sumKnown([saved, sends ? earned : 0]);
     if (!d.startsWith(key) || back === null || cost === null) break;
-    days.push({ date: Date.parse(`${d}T12:00:00Z`), back, cost });
+    days.push({ date: noonOf(d), back, cost });
   }
   const r = o.restToday, back = sumKnown([r.saved, sends ? r.earned : 0]), cost = r.cost ?? null;
   const reach = days.length ? new Date(days.at(-1).date).getUTCDate() : data.monthDays?.length;
@@ -202,4 +201,4 @@ function seasonGuess(all, lat, sell) {
   };
 }
 
-export { savedMoney, moneySoFar, moneyOf, ledgerOf, paybackOf, bandRuns, moneyAhead, paybackLeft, seasonGuess };
+export { moneySoFar, moneyOf, ledgerOf, paybackOf, bandRuns, moneyAhead, paybackLeft, seasonGuess };

@@ -7,7 +7,7 @@ const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ ne
 /** @type {[typeof import("./core.js"), typeof import("./sky.js"), typeof import("./advice.js"),
  *   typeof import("./config.js"), typeof import("./forecast.js"), typeof import("./stats.js"),
  *   typeof import("./money.js")]} */
-const [{ HOUR, NOON, FULL_SOC, clockOf, dayHours, hourStart, inHour, shiftKey, stateNum, numberOrEntity, warnOnce },
+const [{ HOUR, FULL_SOC, clockOf, dayHours, hourStart, inHour, shiftKey, noonOf, monthDayKeys, stateNum, numberOrEntity, warnOnce },
   { SKY_LOW_DEG, weatherOf, cloudNow, raining, snowing, dawnOf, greyOf, coverOf, moonPhase }, { wearOf }, { BATTERY_FLOOR_SOC },
   { sensorOf, forecastOf, lookAhead, bandOf, bandPrices }, { ENERGY }, { moneySoFar }] = await Promise.all([
   import(`./core.js${v}`), import(`./sky.js${v}`), import(`./advice.js${v}`), import(`./config.js${v}`), import(`./forecast.js${v}`), import(`./stats.js${v}`), import(`./money.js${v}`)]);
@@ -15,9 +15,9 @@ const [{ HOUR, NOON, FULL_SOC, clockOf, dayHours, hourStart, inHour, shiftKey, s
 const SUN = "sun.sun";
 const WATTS = { W: 1, kW: 1e3, MW: 1e6 };
 const SOLAR_NOISE_W = 15; // an inverter can report a few watts all night (7 to 8 W measured)
-const STALE_MS = 10 * 60 * 1000; // no live state written for this long: the page says when the last one was (U8)
+const STALE_MS = 10 * 60 * 1000; // no live state written for this long: the page says when the last one was
 
-// ---- How far the page predicts (decision 1 in docs/audit/06-fix-plan.md) ----
+// ---- How far the page predicts (the table in docs/how-it-works.md) ----
 // none: nothing. usual_days: the usual day's sun (the season scaling it, see usualDay) and use, no Solar
 // Forecast. weather: the sensor's sun, no house use. usual_days_weather: the Energy settings' Solar Forecast for
 // the sun, the usual day for use once one is on record. learned_weather: the sensor's sun and use. The last three without their data
@@ -37,9 +37,8 @@ function modeOf(level, { usual = false, solar = false } = {}, sensor, now) {
   const s = sensorOf(sensor, now), sensorFresh = !!s;
   const has = { none: true, usual_days: usual, weather: sensorFresh, usual_days_weather: solar, learned_weather: sensorFresh && s.withUse };
   if (level == null) return { level: has.learned_weather ? "learned_weather" : sensorFresh ? "weather" : solar ? "usual_days_weather" : usual ? "usual_days" : "none", sensorFresh };
-  const NOUSUAL = "no usual day yet (it needs 3 days on record)";
   const why = { weather: "no fresh forecast sensor (sensor.solar_view_forecast)", learned_weather: "no fresh forecast sensor with house use",
-    usual_days_weather: "no Solar Forecast in the Energy settings", usual_days: NOUSUAL };
+    usual_days_weather: "no Solar Forecast in the Energy settings", usual_days: "no usual day yet (it needs 3 days on record)" };
   let l = level;
   while (!has[l]) { warnOnce(`level ${l}: ${why[l]}, so ${STEP[l]} is used`); l = STEP[l]; }
   return { level: l, sensorFresh };
@@ -47,6 +46,9 @@ function modeOf(level, { usual = false, solar = false } = {}, sensor, now) {
 // The sensor is the forecast in use: its days, hours and ranges, not the page's own.
 /** @param {Mode} mode */
 const fromSensor = (mode) => mode?.level === "weather" || mode?.level === "learned_weather";
+// The sensor's forecast is the one drawn: there is a forecast, and it is the sensor's.
+/** @param {Data} data */
+const sensorAhead = (data) => !!data.ahead && fromSensor(data.mode);
 // The forecast sensor without house use (its mode Weather): sun and sky only. Nothing from the usual day
 // shows beside it (the coming days' use line, payback's time left), nor money it cannot know (month end).
 /** @param {Data} data */
@@ -56,7 +58,7 @@ const weatherOnly = (data) => data.mode?.level === "weather" && !!data.ahead;
 const paybackPredicts = (data) => !weatherOnly(data) && !!(data.outlook || data.usualToday);
 
 // The figures the advice reads for "soon", "later" and "wait" (see advice): the sensor's hours and days when it is
-// the forecast in use (B5), the Energy settings' Solar Forecast at usual_days_weather (see totals), else none
+// the forecast in use, the Energy settings' Solar Forecast at usual_days_weather (see totals), else none
 // (usual_days has the usual day's sun only, no forecast of it). fade in W: this hour's sun and the next 3 hours'
 // mean; today and tomorrow in kWh; usual the usual day's sun (see sunUsual in totals).
 function adviceForecast(mode, stats, ahead, now, clock) {
@@ -72,7 +74,7 @@ function adviceForecast(mode, stats, ahead, now, clock) {
 // number or an entity), else learned from the price sensor's hour means and its value now. A band left without
 // one: no bands, and prices are left out of the advice. share: what part of this month's grid energy was bought
 // in each band (null with nothing bought yet). Worked out apart from the forecast: a sensor that cannot be read
-// must not take the prices card with it (B11).
+// must not take the prices card with it.
 // ponytail: from the hour rows, so the hour under way is not in the share yet; add todayHours if that ever matters.
 function bandsOf(hass, ids, cfg, stats, now, clock) {
   const tf = cfg.tariff;
@@ -91,7 +93,7 @@ function bandsOf(hass, ids, cfg, stats, now, clock) {
 
 // The forecast and what follows from it (ghosts, lasts until, best time, money, month end), worked out when the
 // statistics load and when the sensor writes, not on every redraw.
-// facts: the fresh sensor (see sensorOf), whose sky, prices and months are facts used at every level (B7); null
+// facts: the fresh sensor (see sensorOf), whose sky, prices and months are facts used at every level; null
 // when it is not fresh. A sensor that cannot be read leaves the page without a forecast, nothing else.
 /** @typedef {import("./forecast.js").Ahead} Ahead */
 /** @typedef {import("./forecast.js").Outlook} Outlook */
@@ -162,7 +164,7 @@ const staleSince = (data, now) => (data.seen !== null && now - data.seen > STALE
 const pricesOf = (hass, ids) => ({ buy: numberOrEntity(ids.price.buy, hass), sell: numberOrEntity(ids.price.sell, hass) });
 
 // What `hass` says now: the reading, the sun, the sky (the fresh sensor's present hour wins for cloud and rain,
-// at every level, B7), the moon, the battery's wear, the prices, and the settings the cards read.
+// at every level), the moon, the battery's wear, the prices, and the settings the cards read.
 function live(hass, ids, cfg, facts, now) {
   const sun = hass.states[SUN];
   const elevation = parseFloat(sun?.attributes?.elevation); // NaN while sun.sun has no value
@@ -188,7 +190,7 @@ function live(hass, ids, cfg, facts, now) {
     payback: cfg.payback,
     lat: hass.config?.latitude ?? null, // payback's seasons
     price: pricesOf(hass, ids),
-    // The fresh sensor's prices this hour (B7): the prices card's sell price, and its buy price without bands.
+    // The fresh sensor's prices this hour: the prices card's sell price, and its buy price without bands.
     priceNow: hour && { buy: hour.buy ?? null, sell: hour.sell ?? null },
     billFixedNow: numberOrEntity(cfg.billFixed, hass),
   };
@@ -229,7 +231,7 @@ function readData(hass, ids, cfg, stats, looked = {}, now = Date.now()) {
     mode: looked.mode ?? NO_MODE, ahead: looked.ahead ?? null, outlook: looked.outlook ?? null, forecast: looked.forecast ?? null,
     // The tariff's bands and their prices ({ type, prices: { f1, ... } }), or null.
     bands: looked.bands ?? null,
-    // The fresh sensor's months (B7): finished months' money as it counted it, and this month's end.
+    // The fresh sensor's months: finished months' money as it counted it, and this month's end.
     sensorMonths: looked.facts?.months ?? null,
     // The fresh sensor's sky by day, { "2026-11-10": { cloud, rain } }, for the coming days' icons at every level.
     sensorSky: looked.facts ? Object.fromEntries(looked.facts.days.filter((d) => Number.isFinite(d.cloud)).map((d) => [d.d, { cloud: d.cloud, rain: d.rain }])) : null,
@@ -237,7 +239,7 @@ function readData(hass, ids, cfg, stats, looked = {}, now = Date.now()) {
 }
 
 // ---- The copy kept for the next visit ----
-// The skeleton's copy (P10): every card's shape, not every figure behind it. The forecast's hours go (no card
+// The skeleton's copy: every card's shape, not every figure behind it. The forecast's hours go (no card
 // draws an hour ahead from them while loading), and each of the 11 past months' days become one entry holding the
 // month's sun on record and its days missing (Production's bars; a month's days are drawn only once it is picked).
 const slim = (data) => ({ ...data,
@@ -285,7 +287,7 @@ function placeholder(hass, ids, cfg, last, now = Date.now()) {
     today: day(8, 6), month: day(200, 190, 5), lastMonth: day(400, 390, 10),
     usualToday: null, monthKey: month,
     // Whole days, not the present moment: a date that moved would redraw the skeleton on every update.
-    monthDays: Array.from({ length: +today.slice(8) }, (_, i) => ({ ...day(12, 14), date: Date.parse(`${month}-${String(i + 1).padStart(2, "0")}`) + NOON })),
+    monthDays: monthDayKeys(month, +today.slice(8)).map((key) => ({ ...day(12, 14), date: noonOf(key) })),
     batt: battery ? { kwh: 10, floor: cfg?.batt.floor ?? BATTERY_FLOOR_SOC } : null, sends: cfg?.exportMaxKw !== 0, forecast: null,
     price: { buy: ids?.price.buy != null ? 0.25 : null, sell: ids?.price.sell != null ? 0.08 : null }, payback: cfg?.payback ?? null,
     // The hours done since midnight and this one so far (its figures show under the charts, with no charge mean
@@ -295,4 +297,4 @@ function placeholder(hass, ids, cfg, last, now = Date.now()) {
   };
 }
 
-export { LAST_KEY, NO_MODE, lastSeen, staleSince, modeOf, fromSensor, weatherOnly, paybackPredicts, adviceForecast, bandsOf, predict, reading, live, project, readData, slim, remembered, placeholder };
+export { LAST_KEY, NO_MODE, lastSeen, staleSince, modeOf, fromSensor, sensorAhead, weatherOnly, paybackPredicts, adviceForecast, bandsOf, predict, reading, live, project, readData, slim, remembered, placeholder };

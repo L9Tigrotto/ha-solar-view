@@ -98,6 +98,9 @@ export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar
   const withUse = !fresh || (a.withUse && !sunOnly);
   const given = fresh && !withUse ? a.hours.map((h) => ({ ...h, use: null })) : a?.hours;
   if (!fresh && !usual) return null;
+  // The usual day's sun in the hour starting at t, kWh, as the season moves it (usual.scale, see usualDay in stats.js).
+  const usualSun = (t) => (usual.solarW[clock(t).hour] / 1000) * (usual.scale?.(t) ?? 1);
+  const nextMonth = shiftMonth(today.slice(0, 7), 1) + "-01";
   // guessed: no solar forecast for tomorrow, so tomorrow's sun is the usual day's.
   let all, days, guessed = false;
   if (fresh) {
@@ -106,7 +109,7 @@ export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar
   } else {
     // From the first hour of today on to the end of tomorrow, or of the month when that is later (the
     // money of the days to come, see lookAhead): walking by the hour, so a 23 or 25 hour day needs nothing special.
-    const end = [shiftKey(today, 2), shiftMonth(today.slice(0, 7), 1) + "-01"].sort()[1], first = dayHours(now, clock)[0];
+    const end = [shiftKey(today, 2), nextMonth].sort()[1], first = dayHours(now, clock)[0];
     // A day the solar forecast has any hour of is the forecast's, its missing hours no sun (a forecast
     // leaves out the night); a day it has none of is the usual day's.
     const covered = new Set(Object.keys(solarWh ?? {}).map((t) => clock(+t).key));
@@ -117,8 +120,6 @@ export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar
     // By now means by the end of the statistics behind sunSoFar (sunUntil): they lag a few minutes.
     const upTo = Math.min(now, sunUntil ?? now);
     let usualByNow = 0;
-    // The usual day's sun moves with the season (usual.scale, see usualDay in solar-view.js).
-    const usualSun = (t) => (usual.solarW[clock(t).hour] / 1000) * (usual.scale?.(t) ?? 1);
     for (let t = first; t < upTo; t += HOUR) usualByNow += usualSun(t) * Math.min(1, (upTo - t) / HOUR);
     // throttled: export is capped and the battery was full today, so the sun so far was held back, not
     // clouded: it may only raise the rest of today.
@@ -141,10 +142,9 @@ export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar
   // moves it, see usual.scale; prices flat), for the days to come on Production and Daily returns. Not with weather
   // alone: it has no use to go on with.
   if (fresh && withUse && usual && all.length) {
-    const monthEnd = shiftMonth(today.slice(0, 7), 1) + "-01";
     all = [...all];
-    for (let t = all.at(-1).t + HOUR; clock(t).key < monthEnd; t += HOUR) {
-      const c = clock(t), sun = (usual.solarW[c.hour] / 1000) * (usual.scale?.(t) ?? 1), use = usual.loadW[c.hour] / 1000;
+    for (let t = all.at(-1).t + HOUR; clock(t).key < nextMonth; t += HOUR) {
+      const sun = usualSun(t), use = usual.loadW[clock(t).hour] / 1000;
       all.push({ t, sun: [sun, sun, sun], use: [use, use, use], cloud: null, rain: null, buy: price?.buy ?? null, sell: price?.sell ?? null });
     }
   }
@@ -270,6 +270,15 @@ const NO_BATTERY = { kwh: 0, floor: 0, maxChargeKw: null, efficiency: 1 };
 const FILLS_MIN_KWH = 1;   // "fills": the mid run reaches FULL_SOC today, then sends or loses this much or more
 const TIE = 1e-9;
 
+// One simulated hour's money added to m { saved, cost, earned }: what the grid gave at `buy`, the house's own use
+// (`ownUse`, standby taken off) less the grid's part at `buy`, what was sent at `sell`. null + a number is a
+// number in JS: a figure whose price is unknown must stay unknown (null).
+const addMoney = (m, st, ownUse, price) => {
+  const { buy, sell } = price ?? {}, plus = (sum, kwh, rate) => (rate == null || sum == null ? null : sum + kwh * rate);
+  m.cost = plus(m.cost, st.fromGrid, buy);
+  m.saved = plus(m.saved, Math.max(0, ownUse - st.fromGrid), buy);
+  m.earned = plus(m.earned, st.toGrid, sell);
+};
 // [low, mid, high] over the bad, mid and good runs; null when any run has no value.
 const range3 = (v) => (v.some((x) => x == null) ? null : [Math.min(...v), v[1], Math.max(...v)]);
 
@@ -419,28 +428,22 @@ export function lookAhead(ahead, now, clock, n, battery, settings, soFar) {
   const money = { saved: soFar.saved, cost: soFar.cost, earned: soFar.earned };
   sims[1].forEach((st, i) => {
     if (clock(st.t).key !== today) return;
-    const share = i ? 1 : firstShare, use = rows[i].use * share, { buy, sell } = price.get(st.t) ?? {};
-    // null + a number is a number in JS: an unknown price must stay unknown.
-    money.cost = buy == null || money.cost == null ? null : money.cost + st.fromGrid * buy;
-    money.saved = buy == null || money.saved == null ? null : money.saved + Math.max(0, use - standby * share - st.fromGrid) * buy;
-    money.earned = sell == null || money.earned == null ? null : money.earned + st.toGrid * sell;
+    const share = i ? 1 : firstShare;
+    addMoney(money, st, rows[i].use * share - standby * share, price.get(st.t));
   });
   // The mid run's money for the rest of today, and on through every whole day the forecast has after today
   // (with a usual day at least to the month's end, see forecastOf), the battery carried from hour to hour:
-
   // [[date, saved, cost, earned]], a figure null where a price is unknown.
   const minus = (a, b) => (a == null || b == null ? null : a - b);
   const restToday = { saved: minus(money.saved, soFar.saved), cost: minus(money.cost, soFar.cost), earned: minus(money.earned, soFar.earned) };
   const long = ahead.hours.filter((h) => h.t + HOUR > now && Array.isArray(h.use)).map((h, i) => present({ t: h.t, sun: h.sun[1], use: h.use[1] }, i));
   const byDay = new Map();
   simulate(long, n.soc, batt, settings.exportMaxKw, firstShare).forEach((st, i) => {
-    const key = clock(st.t).key, { buy, sell } = price.get(st.t) ?? {};
+    const key = clock(st.t).key;
     if (key === today) return;
-    const d = byDay.get(key) ?? byDay.set(key, { hours: 0, saved: 0, cost: 0, earned: 0 }).get(key), use = long[i].use;
+    const d = byDay.get(key) ?? byDay.set(key, { hours: 0, saved: 0, cost: 0, earned: 0 }).get(key);
     d.hours++;
-    d.saved = buy == null || d.saved == null ? null : d.saved + Math.max(0, use - standby - st.fromGrid) * buy;
-    d.cost = buy == null || d.cost == null ? null : d.cost + st.fromGrid * buy;
-    d.earned = sell == null || d.earned == null ? null : d.earned + st.toGrid * sell;
+    addMoney(d, st, long[i].use - standby, price.get(st.t));
   });
   // A day the forecast stops inside (fewer than 23 hours) is left out, and every day after it.
   const whole = [...byDay].sort(([a], [b]) => (a < b ? -1 : 1)), cut = whole.findIndex(([, d]) => d.hours < 23);
@@ -475,7 +478,6 @@ export function lookAhead(ahead, now, clock, n, battery, settings, soFar) {
     socAhead: battery ? sims[1].filter((st) => clock(st.t).key === today).map((st) => [st.t + HOUR, Math.round(st.soc * 10) / 10]) : null,
     // The mid run's hours left today, for Today by hour and Power origin's small rings: [start, sun made,
     // battery gave, grid gave, house used], in kWh; this hour's from now on only.
-
     hoursAhead: sims[1].map((st, i) => [st.t, st.made, st.fromBatt, st.fromGrid, rows[i].use * (i ? 1 : firstShare)]).filter(([t]) => clock(t).key === today),
     restToday, daysMoney,
   };

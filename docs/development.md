@@ -114,12 +114,12 @@ The round sliders button beside the gear opens a drawer that changes the page li
 
 Run all of these before a commit that changes `dist/`.
 
-- **Unit tests:** `node --test test/` must end with 0 failures. The `test/` folder is kept outside the repository.
+- **Unit tests:** `node --test test/` must end with 0 failures. The `test/` folder is not in git: it exists only in the maintainer's working copy.
 - **Types:** `npx -p typescript@5.6.3 tsc -p jsconfig.json --noEmit` must give 0 errors. It checks the JSDoc types of `dist/`, non-strict.
 - **Preview:** open `/preview/?at=2026-11-09T09:30` and then the real clock. The browser console must stay free of assertion failures. `window.failed` lists them too, for tools that cannot read the console.
 - **Skeleton:** after any change to markup, CSS or text length, run `/preview/?check=skeleton` at phone width (375 x 812), also with `&text=1.5` and `&text=2`. It must log "0 differ": the loading skeleton has to sit where the loaded page puts things, so nothing jumps when the numbers arrive.
 - **Words:** every load runs `wordCheck`. No word may break over two lines or stick out of its card. Try 375 x 812 with `?text=1.5` and `?text=2`, in Italian and German, on every page. `window.wordCheck()` runs it again in the console.
-- **Sweep:** after a change to Now's words or rules, run `/preview/?sweep=1` alone in its tab. It takes about two minutes and must end with "0 rule breaks, never seen: nothing".
+- **Sweep:** after a change to Now's words or rules, run `/preview/?sweep=1` alone in its tab. It takes three to four minutes and must end with "0 rule breaks, never seen: nothing".
 
 The preview checks are `console.assert` calls in `preview/index.html`. Warnings that say "loading the numbers failed Error: check" come from the tool's own failure test and are expected.
 

@@ -276,7 +276,7 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .part.left{right:110%;top:58.5%;translate:0 -50%}
 .part.right{left:110%;top:58.5%;translate:0 -50%}
 .part.top{left:50%;bottom:106%;translate:-50% 0}
-/* With a forecast (see aheadRings): the same split in an hour and at the end of the day, small and
+/* With a forecast (see ringsAhead): the same split in an hour and at the end of the day, small and
    without labels, under the big ring and its sentence; beside them once there is room for its side labels. */
 .share{container:share / inline-size}
 .rings{display:flex;flex-direction:column;align-items:center}
@@ -457,8 +457,10 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .month-total{margin:14px 0;padding:12px 0;border-bottom:1px solid var(--track)}
 .month-total .readout{margin:0}
 .month-total dd{font-size:calc(28px / var(--zt));font-weight:300;white-space:normal}
-/* Where the month should end: an estimate, set smaller than the total on record beside it. */
+/* Where the month should end: an estimate, set smaller than the total on record beside it; under it at big
+   text, so neither figure is cut from its unit. */
 .month-total .est dd{font-size:var(--t-l);font-weight:400}
+:host([big]) .month-total dl > div{flex-basis:100%}
 .battday .ticks{position:relative;height:16px;margin-top:4px;font-size:var(--t-xs);color:var(--ink-2)}
 .battday .ticks span{position:absolute}
 /* Payback once paid: a check in the full ring. */
@@ -660,7 +662,7 @@ dialog form > button{display:block;min-height:44px;margin:16px 0 0 auto;padding:
   /* Same clock as the streak, whose front reaches the end of the path at 78 % of each run. */
   .flow .lit{animation:tip 2.8s linear infinite}
   @keyframes tip{0%,74%{opacity:0}80%,95%{opacity:1}100%{opacity:0}}
-  /* Paused while their page is out of view (P4); they go on from there when it comes back. */
+  /* Paused while their page is out of view; they go on from there when it comes back. */
   .page[data-out] .flow *{animation-play-state:paused}
   .hint{transition:opacity .2s var(--ease),visibility .2s}
   @keyframes breathe{50%{transform:scale(1.12);opacity:.75}}

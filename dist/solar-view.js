@@ -3,13 +3,8 @@
    Served WITHOUT login, under /hacsfiles/ (HACS) or /local/ (copied by hand): never put a secret here.
    /local/ is cached hard: there, bump ?v= in configuration.yaml after every edit of any file. /hacsfiles/ tells the browser not to cache.
 
-   Files: this one (the element: loading, the render, focus and hints). In lib/: core.js (time, numbers and text helpers
-   shared by all), format.js (numbers, money and dates as written), config.js (the panel config and the entities to read),
-   sky.js (the sky's colours, cloud and rain now, the sun's path), advice.js (the advice card's rules), forecast.js (the day
-   simulation and what follows from the forecast), stats.js (the statistics as numbers), data.js (what the page shows, and
-   the skeleton's numbers), money.js (the money rules), draw.js (rings, charts and icons shared by the pages), shell.js (the
-   frame: sky, gear, tabs, dialogs), styles.js (the CSS). In pages/: now.js, energy.js and money.js (one per page). In
-   strings/: en.js and one xx.js per language (every text). Sections here: rules, parts, the gear, the element. */
+   This file is the element: loading, the render, focus and hints. What each other file holds: docs/development.md.
+   Sections here: rules, parts, the gear, focus, the element. */
 
 // The charts and lists the arrow keys move along, each one Tab stop (see _rove).
 const ROVE = ":is(ul.days,ol.week,ol.year,ol.hours24,svg.cols)";
@@ -51,10 +46,10 @@ guess = supported(guess) ?? supported(document.documentElement.lang || navigator
  *   typeof import("./lib/stats.js"), typeof import("./lib/data.js"), typeof import("./lib/draw.js"), typeof import("./lib/money.js"),
  *   typeof import("./pages/now.js"), typeof import("./pages/energy.js"), typeof import("./pages/money.js"),
  *   typeof import("./lib/shell.js")]} */
-const [, , { CSS }, { findForecast }, { MINUTE, FIVE_MIN, HOUR, DAY, clockOf, stateNum, say, cap, esc, warnOnce }, { formats, hourCycle },
+const [, , { CSS }, { findForecast }, { MINUTE, FIVE_MIN, DAY, clockOf, quarterPast, stateNum, say, cap, esc, warnOnce }, { formats, hourCycle },
   { readConfig, requiredIds, optionalIds, setupCheck }, { skyAt }, { withOwnAdvice }, { totals, fetchStats },
   { LAST_KEY, predict, readData, slim, remembered, placeholder, staleSince },
-  { line }, , { nowView, nowPage, writeNow, learnGoIcons, whenSeen }, { energyView, energyPage }, { paybackView, moneyView, moneyPage },
+  { line, SUN_RAYS }, , { nowView, nowPage, writeNow, learnGoIcons, whenSeen }, { energyView, energyPage }, { paybackView, moneyView, moneyPage },
   { PAGES, shellHtml, gearDialog, readDialog, textScale }] = await Promise.all([
   english, loadLanguage(guess), import(`./lib/styles.js${version}`), import(`./lib/forecast.js${version}`), import(`./lib/core.js${version}`),
   import(`./lib/format.js${version}`), import(`./lib/config.js${version}`), import(`./lib/sky.js${version}`), import(`./lib/advice.js${version}`),
@@ -70,9 +65,9 @@ const SHOW_KEY = "solar-view-show";
 
 // The whole-page messages: the inverter not answering (a crossed out wifi), and setting up (the sun).
 const OFFLINE_ICON = `<path d="M12 20h.01M8.5 16.43a5 5 0 0 1 7 0M5 12.86a10 10 0 0 1 5.17-2.69m8.83 2.69a10 10 0 0 0-2-1.52M2 8.82a15 15 0 0 1 4.18-2.64M22 8.82a15 15 0 0 0-11.29-3.76M2 2l20 20"/>`;
-const SETUP_ICON = `<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>`;
+const SETUP_ICON = `<circle cx="12" cy="12" r="4"/><path d="${SUN_RAYS}"/>`;
 
-// ---- Pages: each returns the HTML of one page from c = { data, t, f, sky, loading, day, clock, pick } ----
+// ---- Focus ----
 // What a focused control is within its page, so a redraw can focus the same one again (see _render): a
 // card's "?" by its card, a month by its key, a flow node by its key, a day or hour by its card, chart row
 // and place, any other hint target by its card and place among that card's hint targets.
@@ -101,7 +96,7 @@ function focusTarget(page, key) {
 }
 let zoom; // textScale's answer, measured once per load: it forces a layout of the whole document
 
-// One key per page, from what that page reads, so a live update builds Now alone (S4, P5): `base` (loading, the
+// One key per page, from what that page reads, so a live update builds Now alone: `base` (loading, the
 // formats, the texts, the day, and the versions of the statistics and the forecast), then the live values each page
 // draws, as themselves (a few hundred bytes). A picked day or hour changes its page in place (see _wireWeek); a
 // picked month draws again whatever the keys (see _redraw). payback: what payback reads (see paybackView).
@@ -209,19 +204,19 @@ class SolarView extends HTMLElement {
     this._wake();
   }
   // Taken off the page: a load still on its way is dropped (see the run check in _load), and nothing is drawn
-  // or saved until it is back (B17), so a page nobody sees neither draws nor overwrites the copy this browser
+  // or saved until it is back, so a page nobody sees neither draws nor overwrites the copy this browser
   // remembers.
   disconnectedCallback() {
-    this._run = (this._run || 0) + 1;
+    this._run++;
     this._dropped = true;
     document.removeEventListener("visibilitychange", this._onVisible);
   }
-  // While the tab is hidden or the panel off the page, Home Assistant's updates are only kept (P6, B17): the
+  // While the tab is hidden or the panel off the page, Home Assistant's updates are only kept: the
   // last one is worked through when the panel is seen again.
   _asleep() { return !!this._dropped || (this.isConnected && document.hidden); }
   _wake() { if (this._dirty && this._hass && !this._asleep()) { this._dirty = false; this.hass = this._hass; } }
 
-  // A page out of view pauses its animations (see .page[data-out] in styles.js, P4).
+  // A page out of view pauses its animations (see .page[data-out] in styles.js).
   _markOut() { PAGES.forEach((p) => this.shadowRoot.getElementById(p).toggleAttribute("data-out", !!this._visible && !this._visible.has(p))); }
 
   _paint(prefix, colors) { colors.slice(0, 3).forEach((c, i) => this.style.setProperty(`--${prefix}${i + 1}`, c)); }
@@ -250,7 +245,7 @@ class SolarView extends HTMLElement {
       // 3 kW" splits after "PM"); a dot in the mark's colour when it has one (--c).
       const [, title, body] = el.dataset.hint.match(/^(?:(.+?)\s?:\s)?(.+)$/s);
       const line = (tag, text) => Object.assign(document.createElement(tag), { textContent: text });
-      tip.replaceChildren(...(title ? [line("small", title)] : []), line("b", body[0].toUpperCase() + body.slice(1)));
+      tip.replaceChildren(...(title ? [line("small", title)] : []), line("b", cap(body)));
       const dot = el.style.getPropertyValue("--c");
       tip.classList.toggle("dot", !!dot);
       tip.style.setProperty("--dot", dot);
@@ -326,7 +321,7 @@ class SolarView extends HTMLElement {
   }
 
   // The gear opens the display switches, a card's "?" how to read it. Each dialog is built the first time it
-  // opens (P19): until then it is not in the panel, so it costs no restyle.
+  // opens: until then it is not in the panel, so it costs no restyle.
   _wireShow() {
     this._gear.addEventListener("click", () => { const d = this._gearDialog(); this._fillCheck(d); d.showModal(); });
     // The "?" button is redrawn with its page, so focus goes back to the one on screen now.
@@ -339,7 +334,7 @@ class SolarView extends HTMLElement {
       d.setAttribute("aria-label", help.getAttribute("aria-label"));
       d.showModal();
     });
-    // The gear steps aside while the page in view is scrolled down, so it never covers a card's "?" (U7); it is
+    // The gear steps aside while the page in view is scrolled down, so it never covers a card's "?"; it is
     // back at the top. Scroll events do not bubble: caught on the way down, from a page or the pager itself.
     const pages = /** @type {HTMLElement[]} */ ([...this._pager.children]);
     this._pager.addEventListener("scroll", (/** @type {On<Event>} */ e) => {
@@ -348,7 +343,7 @@ class SolarView extends HTMLElement {
     }, { capture: true, passive: true });
   }
 
-  // The gear dialog's setup check (U18), for admins only: each feature on or off and what it needs, from the data
+  // The gear dialog's setup check, for admins only: each feature on or off and what it needs, from the data
   // drawn last (see setupCheck).
   _fillCheck(d) {
     const box = /** @type {HTMLElement} */ (d.querySelector(".check")), t = this._t, f = this._f, data = this._data;
@@ -524,7 +519,7 @@ class SolarView extends HTMLElement {
 
   // Home Assistant's menu button is the only way out whenever its sidebar is not on screen:
   // on a narrow screen, or on any screen when the user chose to always hide the sidebar.
-  // It gets hass only while shown (P20).
+  // It gets hass only while shown.
   _showMenu() {
     this._menu.hidden = !(this._narrow || this._hass?.dockedSidebar === "always_hidden");
     if (!this._menu.hidden && this._menu.hass !== this._hass) this._menu.hass = this._hass;
@@ -572,9 +567,8 @@ class SolarView extends HTMLElement {
   // its answer for its own lifetime (see fetchStats): most loads ask only today's newest 5 minute rows. The
   // Energy settings are kept until a quarter past the hour, except while they are not set up.
   async _load() {
-    const hass = this._hass, now = Date.now(), run = (this._run = (this._run || 0) + 1), clock = clockOf(hass.config?.time_zone);
+    const hass = this._hass, now = Date.now(), run = ++this._run, clock = clockOf(hass.config?.time_zone);
     this._next = now + REFRESH_MS;
-    const quarter = Math.floor(now / HOUR) * HOUR + 15 * MINUTE, until = quarter > now ? quarter : quarter + HOUR;
     try {
       let setup = this._setup && now < this._setup.until ? this._setup : null;
       if (!setup) {
@@ -582,7 +576,7 @@ class SolarView extends HTMLElement {
         const [prefs, info] = await Promise.all([hass.callWS({ type: "energy/get_prefs" }).catch((e) => { if (e?.code === "not_found") return null; throw e; }),
           hass.callWS({ type: "energy/info" }).catch(() => ({}))]);
         // Not set up: asked again on the next load, so the page follows the owner setting it up.
-        setup = { prefs, info, until: prefs ? until : 0 };
+        setup = { prefs, info, until: prefs ? quarterPast(now) : 0 };
       }
       const src = readConfig(setup.prefs, this._panel?.config, setup.info?.cost_sensors), { ids, cfg } = src;
       // The skeleton takes its shape from the settings while the statistics load (see placeholder).
@@ -645,7 +639,7 @@ class SolarView extends HTMLElement {
     // have not answered, or Home Assistant is starting and the sensors are not there yet.
     // Not set up: no solar power sensor, or a required sensor that does not exist. Offline: every sensor
     // of a required kind exists but has no value: Now says so instead of drawing zeros (they would read as
-    // "battery empty"), Energy and Money still draw from the statistics (U8). An optional sensor never
+    // "battery empty"), Energy and Money still draw from the statistics. An optional sensor never
     // blanks the page (see requiredIds).
     const src = this._src, ids = src?.ids, kinds = ids ? requiredIds(ids) : [];
     const missing = kinds.flat().filter((id) => !hass.states[id]);
@@ -705,13 +699,13 @@ class SolarView extends HTMLElement {
     // skeleton has exactly the size of what replaces it.
     // A first visit draws nothing for up to a second, until the Energy settings answer (see _load): they say
     // which pages there are, and a skeleton without one would jump when it comes.
-    // The copy kept last time is read once a visit, not on every update while loading (P18).
+    // The copy kept last time is read once a visit, not on every update while loading.
     if (this._last === undefined) this._last = remembered();
     if (loading && !src && !this._last && Date.now() < (this._holdUntil ??= Date.now() + 1000)) {
       this._held ??= setTimeout(() => this._render(), 1000);
       return;
     }
-    // One read of the clock per render, handed to everything drawn (S21).
+    // One read of the clock per render, handed to everything drawn.
     const now = Date.now(), clock = clockOf(hass.config?.time_zone);
     const data = loading ? placeholder(hass, ids, src?.cfg, this._last, now) : readData(hass, ids, src.cfg, this._stats, this._looked, now);
     const day = this.testDay ?? Date.parse(clock(now).key) / DAY; // testDay: preview harness only (?day=)
@@ -730,7 +724,7 @@ class SolarView extends HTMLElement {
     if (loading) this.removeAttribute("ready");
     else {
       this._data = data; // for the setup check (see _fillCheck)
-      // The skeleton's copy needs the shape, not every watt (see slim): kept once a load, with its first data (P10).
+      // The skeleton's copy needs the shape, not every watt (see slim): kept once a load, with its first data.
       if (this._saved !== this._stats && !offline) {
         this._saved = this._stats;
         this._last = slim(data);
@@ -767,7 +761,7 @@ class SolarView extends HTMLElement {
     const c = { data, t, f, sky, loading, day, now, clock: this._clock, pick: this._pick };
     // A view is made when its page's key moves; the HTML only for a page in view, or one that shows something
     // older than this data could (never drawn, empty, or the skeleton), or one holding the focus; the others when
-    // they come into view (P15).
+    // they come into view.
     const fresh = PAGES.filter((p) => keys[p] !== this._keys[p]);
     // A panel not on a page has no view to go by (Home Assistant may set hass before it attaches it): all count.
     const focus = this.shadowRoot.activeElement, seen = (p) => !this.isConnected || !this._visible || this._visible.has(p) || p === this._force || $(p).contains(focus);
@@ -775,7 +769,7 @@ class SolarView extends HTMLElement {
     const html = {};
     try {
       for (const p of fresh) {
-        // Payback walks its months once per change of the numbers, not again for a month picked (P16).
+        // Payback walks its months once per change of the numbers, not again for a month picked.
         if (p === "money" && this._paybackKey !== keys.payback) { this._paybackKey = keys.payback; this._payback = paybackView(data, now, this._clock); }
         this._views[p] = p === "now" ? nowView(c) : p === "energy" ? energyView(c) : moneyView(c, this._payback);
         this._keys[p] = keys[p];
@@ -825,7 +819,7 @@ class SolarView extends HTMLElement {
       this._built[p] = keys[p];
       if (loading) this._skel.add(p); else this._skel.delete(p);
     }
-    // Each card's help lines, from the views made now (S3).
+    // Each card's help lines, from the views made now.
     if (fresh.length) {
       for (const p of fresh) Object.assign(this._help, this._views[p].help);
       this._applyHelp();
@@ -865,12 +859,11 @@ if (!customElements.get("solar-view")) customElements.define("solar-view", Solar
 export { STRINGS, LANGUAGES, loadLanguage, pageKeys }; // for the preview harness and the tests
 
 /*
- * Most icons in solar-view.js are taken from Lucide (https://lucide.dev): sun, cloud, cloud-sun,
+ * Most icons of the panel (lib/draw.js, lib/shell.js, pages/now.js and this file) are taken from Lucide (https://lucide.dev): sun, cloud, cloud-sun,
  * cloud-rain (drops slanted), cloud-snow, plug, plug-zap, zap, chart-column, coins,
  * circle-question-mark, washing-machine, cake, utensils, shirt, sparkle, smartphone-charging, wind,
  * wifi-off, move-left, move-right, triangle-alert and clock. The moon, battery, house, gear and tick
  * are drawn by this project.
-
  *
  * ISC License
  *

@@ -7,7 +7,8 @@ export const FIVE_MIN = 5 * MINUTE;
 export const HALF_HOUR = 30 * MINUTE;
 export const HOUR = 60 * MINUTE;
 export const DAY = 24 * HOUR;
-export const NOON = 12 * HOUR; // a day key's noon UTC is Date.parse(key) + NOON
+// A day key's noon UTC in ms: the page formats days in UTC, so every viewer sees the same day.
+export const noonOf = (key) => Date.parse(key) + 12 * HOUR;
 
 // Rules both the page and the forecast part keep.
 export const FULL_SOC = 97;    // from here up the battery is full: with export capped, spare sun is held back
@@ -50,6 +51,8 @@ export function dayHours(ms, clock) {
   for (; clock(t).key === key; t += HOUR) hours.push(t);
   return hours;
 }
+// The next quarter past the hour after `now`: Home Assistant's new hour rows are in by then.
+export const quarterPast = (now) => { const q = Math.floor(now / HOUR) * HOUR + 15 * MINUTE; return q > now ? q : q + HOUR; };
 // The hour starting at ms holds now.
 export const inHour = (ms, now) => ms <= now && now < ms + HOUR;
 // A day key moved by whole days. Plain calendar arithmetic, so daylight saving cannot bend it.
@@ -58,6 +61,8 @@ export const shiftKey = (key, days) => new Date(Date.parse(key) + days * DAY).to
 export const shiftMonth = (key, n) => { const [y, m] = key.split("-").map(Number), d = new Date(Date.UTC(y, m - 1 + n, 1)); return d.toISOString().slice(0, 7); };
 // Days in month "YYYY-MM".
 export function daysIn(key) { const [y, m] = key.split("-").map(Number); return new Date(Date.UTC(y, m, 0)).getUTCDate(); }
+// The day keys of month `key` ("2026-10-01", ...), all of them or the first `n`.
+export const monthDayKeys = (key, n = daysIn(key)) => Array.from({ length: n }, (_, i) => `${key}-${String(i + 1).padStart(2, "0")}`);
 // The months Production and Month balance show: the 12 up to this month (`key`, "2026-10"), oldest first.
 export const yearKeys = (key) => Array.from({ length: 12 }, (_, i) => shiftMonth(key, i - 11));
 
@@ -75,6 +80,8 @@ export const sumKnown = (values) => (values.every(Number.isFinite) ? values.redu
 // Energy at a price: 0 kWh costs 0 even without a price; unknown energy or price, null. The one rule for
 // money from kWh: the Money page's days and months, and today's money so far (moneySoFar).
 export const pricedEnergy = (kwh, rate) => (!Number.isFinite(kwh) ? null : kwh === 0 ? 0 : Number.isFinite(rate) ? kwh * rate : null);
+// What the house used that the grid did not give, in kWh, never below 0; null when either figure is unknown.
+export const selfKwh = (d) => ([d.loadKwh, d.gridImportKwh].every(Number.isFinite) ? Math.max(0, d.loadKwh - d.gridImportKwh) : null);
 // The outlook's battery runs start from the floor at the lowest: a reading under it moves them by this much.
 export const socShift = (soc, floor) => soc - Math.min(100, Math.max(soc, floor));
 export const clamp01 = (x) => Math.min(1, Math.max(0, x));

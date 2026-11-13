@@ -4,7 +4,7 @@
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
 /** @type {[typeof import("./core.js"), typeof import("./sky.js"), typeof import("./forecast.js"),
  *   typeof import("./config.js")]} */
-const [{ MINUTE, FIVE_MIN, HOUR, DAY, NOON, shiftKey, shiftMonth, daysIn, yearKeys, dayHours, hourStart, clamp01, sumKnown }, { clearSky }, { efficiencyOf, machineOf }, { USUAL_MIN }] = await Promise.all([
+const [{ MINUTE, FIVE_MIN, HOUR, DAY, noonOf, quarterPast, shiftKey, shiftMonth, monthDayKeys, yearKeys, dayHours, hourStart, clamp01, sumKnown }, { clearSky }, { efficiencyOf, machineOf }, { USUAL_MIN }] = await Promise.all([
   import(`./core.js${v}`), import(`./sky.js${v}`), import(`./forecast.js${v}`), import(`./config.js${v}`)]);
 
 const ENERGY = ["solarKwh", "batteryKwh", "chargeKwh", "gridImportKwh", "gridExportKwh", "loadKwh"];
@@ -201,23 +201,20 @@ function totals(ids, cfg, rows, clock, now, geo) {
     return d;
   };
   // Every day of a month (this one up to today), so a day missing from the statistics leaves its total unknown.
-  const of = (prefix) => {
-    const length = prefix === month ? +today.slice(8) : daysIn(prefix);
-    return Array.from({ length }, (_, i) => `${prefix}-${String(i + 1).padStart(2, "0")}`);
-  };
+  const of = (prefix) => monthDayKeys(prefix, prefix === month ? +today.slice(8) : undefined);
   const before = [7, 6, 5, 4, 3, 2, 1].map((back) => shiftKey(today, -back));
   // This month day by day, today last (from its 5 minute rows), each at noon UTC of its day: the page
   // formats these dates in UTC, so every viewer sees the same day. The rest of a day's figures show when
   // its day is picked (see productionCard), its money on Money (see moneyHtml).
   /** @returns {Record<string, any>} */
-  const dayOf = (key) => ({ date: Date.parse(key) + NOON, ...sum([key]) });
-  const monthDays = Array.from({ length: +today.slice(8) }, (_, i) => dayOf(`${month}-${String(i + 1).padStart(2, "0")}`));
+  const dayOf = (key) => ({ date: noonOf(key), ...sum([key]) });
+  const monthDays = of(month).map(dayOf);
   // The other 11 months Production shows, day by day, with only what a picked day says (see picked),
   // rounded: the copy this browser remembers stays small.
   const r2 = (v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : null);
   const pastDays = Object.fromEntries(yearKeys(month).filter((k) => k !== month).map((k) => {
-    return [k, Array.from({ length: daysIn(k) }, (_, i) => {
-      const d = dayOf(`${k}-${String(i + 1).padStart(2, "0")}`);
+    return [k, monthDayKeys(k).map((key) => {
+      const d = dayOf(key);
       return d.none ? { date: d.date, none: true } : { date: d.date, ...Object.fromEntries(["solarKwh", "loadKwh", "gridImportKwh", "gridExportKwh"].map((p) => [p, r2(d[p])])) };
     })];
   }));
@@ -271,7 +268,7 @@ function totals(ids, cfg, rows, clock, now, geo) {
     months: [...byDay(monthly, ids, clock)].map(([key, d]) => [key.slice(0, 7), { ...d, loadKwh: houseKwh(d, ids) }])
       .filter(([key]) => key < month).sort((a, b) => (a[0] < b[0] ? -1 : 1)),
     usualToday: usual && { used: usualBy(usual.loadW) },
-    // The days until there is a usual day (U17), while the level asks for one and too few are on record; else null.
+    // The days until there is a usual day, while the level asks for one and too few are on record; else null.
     usualIn: draws(cfg.level) && day?.onRecord !== undefined ? USUAL_MIN - day.onRecord : null,
     month: sum(of(month)),
     // The Energy settings' solar forecast for the advice ("soon", "later", "wait"; the level picks it, see
@@ -305,14 +302,14 @@ function totals(ids, cfg, rows, clock, now, geo) {
 }
 
 // ---- What a load asks ----
-// Each statistics call with its own lifetime (P8), so a load asks only what may have changed:
+// Each statistics call with its own lifetime, so a load asks only what may have changed:
 //   day: rows that change once a day (finished days and months, the usual day's hours, machines, prices), kept
 //     until the next midnight. Asked in a day's first hour and a quarter, only until a quarter past the hour:
 //     Home Assistant writes each hour row about 12 minutes past the hour, yesterday's last one too.
 //   hour: rows that grow by the hour (the charge means, this month's grid hours, the solar forecast), kept until
 //     a quarter past the hour.
 //   new: today's 5 minute rows: kept, and only the rows from the newest kept on are asked (see toAsk).
-// `when(level)`: the levels that draw what the call gives (null is auto, which may need any of them, P9). A call
+// `when(level)`: the levels that draw what the call gives (null is auto, which may need any of them). A call
 // not asked, or with no ids, gives {}.
 const draws = (l) => l !== "none" && l !== "weather";      // the usual day, the machines' runs (the washer line)
 const solarFc = (l) => l == null || l === "usual_days_weather" || l === "learned_weather"; // the Energy settings' Solar Forecast
@@ -342,8 +339,6 @@ const FETCHES = [
   { name: "solarForecast", life: "hour", when: solarFc, ask: () => null },
   { name: "recent", life: "new", ask: (ids, cfg, now, clock) => ["5minute", allIds(ids), recentSince(now, clock)] },
 ];
-// A quarter past the hour, from now: Home Assistant's new hour rows are in.
-const quarterPast = (now) => { const q = Math.floor(now / HOUR) * HOUR + 15 * MINUTE; return q > now ? q : q + HOUR; };
 // Until when what is asked at `now` is kept, by its lifetime.
 function untilOf(life, now, clock) {
   if (life === "new") return now; // asked on every load, from the newest row kept

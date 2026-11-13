@@ -50,7 +50,7 @@ const READ = {
 };
 
 // The shadow root's markup: the stylesheet, the sky and its rain and snow, the gear, one empty section per
-// page and the tab bar. Texts come later (see _render). The dialogs are added when first opened (P19).
+// page and the tab bar. Texts come later (see _render). The dialogs are added when first opened.
 // Rain is a few drops at fixed places across the width, each started at another point of its fall.
 const shellHtml = (css) => `<style>${css}</style>
 <div class="sky"></div><div class="stars"></div><div class="rain" aria-hidden="true" hidden>${[[6, 0], [19, 1.3], [31, 0.6], [44, 1.9], [56, 0.3], [68, 1.6], [81, 0.9], [93, 2.1]]
