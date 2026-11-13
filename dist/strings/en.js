@@ -5,7 +5,8 @@
    Every language needs every key that `en` has. `untilOne` is extra: `until` for an end time at one
    o'clock, only where the language says it differently. An advice pool can have its own lines in each
    language (two or more), except adviceGo: the same number as in `en`, in the same order, each line
-   naming the same appliance, whose icon it gets (see GO_ORDER). */
+   naming the same appliance, whose icon it gets (see GO_ORDER). In adviceLow and adviceEmpty, the lines
+   that speak of the big loads sit at the same indexes in every language (see LOAD_LINES). */
 
 export const STRINGS = {
   en: {
@@ -149,7 +150,7 @@ export const STRINGS = {
     adviceShort: [ // the evening or night, the battery carries the house, and the forecast says it runs out before the sun takes over
       "The battery won't quite last the night: the grid will step in later",
       "The battery runs out before the sun is back, then the grid takes over",
-      "Not enough battery for the whole night: big jobs can wait for the sun",
+      "Not enough battery for the whole night: the grid helps before sunrise",
       "The grid will cover the end of the night. Nothing to do",
     ],
     adviceOkLasts: [ // the evening or night, the battery carries the house, and the forecast says it lasts until the sun takes over
@@ -178,6 +179,7 @@ export const STRINGS = {
     whyBestNow: "No cheaper time today or tomorrow",
     whySun: "The sun covers it then",
     whySunTomorrow: "Today's sun and battery are not enough",
+    whySunTomorrowNoBatt: "Today's sun is not enough",
     whyBatt: "The battery covers it then",
     whyCheaper: "Cheaper hours ({a})",
     whyGrid: "It takes the least from the grid then",
@@ -223,6 +225,7 @@ export const STRINGS = {
     setupLead: "To start, open Home Assistant and go to:",
     setupPath: "Settings › Dashboards › Energy",
     setupEnd: "Add the solar panels and set up the sensor they need.",
+    setupOld: "On an older Home Assistant without power sensors in Energy, set it in configuration.yaml:",
     missing: "Sensors not found:",
     gearLabel: "Display settings", showTitle: "Show on this device", showDone: "Done",
     showNote: "Only this device. Others keep their own choice.",
@@ -233,6 +236,8 @@ export const STRINGS = {
     chkPaybackOff: "off: set system_cost", chkBands: "Price bands", chkBandsOff: "off: set tariff",
     chkOn: "ok", chkMachineSensor: "learned from {s}", chkMachineTyped: "assumed: {k} kWh over {h} h",
     chkMachineOff: "off: set its kwh and hours",
+    chkForecast: "Solar forecast", chkForecastOff: "none: add one in the Energy settings for the coming days and timing advice",
+    chkMisread: "Options not used",
     showSky: "Sky", swSunHeight: "Sun height", swClouds: "Clouds", swRain: "Rain and snow",
     tabEnergy: "Energy", tabMoney: "Money",
     wxSunny: "sunny", wxPartly: "partly cloudy", wxCloudy: "cloudy", wxRain: "rain",
@@ -243,6 +248,7 @@ export const STRINGS = {
     paybackLeft: "About {d} left",
     // Under the payback ring: what this month brought back so far (savings, and sales while export is on).
     paybackMonth: "This month: {v} saved",
+    paybackMonthSold: "This month: {v} saved and sold",
     paybackRange: "{a} to {b}",
     paidBack: "Paid back",
     helpRecentBar: "Line: what the sun and the battery saved each day of this month, a dot a day",
@@ -322,6 +328,7 @@ export const STRINGS = {
     netBenefit: "Balance",
     nowMark: "Now", homeUse: "Home use", selfSupplied: "Self-supplied", battAvg: "Battery avg.", returns: "Savings", exportLabel: "Export",
     shareIncomplete: "Some of today's numbers are not on record", paybackIncomplete: "Some months' numbers are not on record, so what came back is not known", language: "Language", languageAuto: "Automatic",
+    paybackNoPrice: "No price is set, so what came back is not known",
     helpPricesBuy: "Buy: what each kWh taken from the grid costs, so the arrow points from Grid to Home",
     helpPricesBands: "Boxes: each time band's price, its hours today and the share of this month's grid energy bought in it; the band in force now is outlined",
     helpPricesSell: "Sell: what each kWh sent to the grid earns, so the arrow points from Home to Grid",

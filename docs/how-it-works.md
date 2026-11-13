@@ -6,7 +6,7 @@ How the page gets each figure, forecast and advice line. To install and set it u
 
 - Live values come from the power sensors named in the Energy settings (or under `sensors`).
 - Hour, day and month totals come from the long-term statistics of the energy sensors named there.
-- Prices and the solar forecast come from the same place, when they are set.
+- Prices and the solar forecast come from the same place, when they are set. A price entity per MWh or per Wh is turned into a price per kWh.
 - The money of past months comes from the cost statistics Home Assistant keeps for a grid with a price. A new price therefore leaves past months as they were. A month without them counts at today's price.
 
 The page asks for today's 5 minute statistics every 5 minutes. The rest (the Energy settings, the hour, day and month rows, the solar forecast) only changes when Home Assistant writes its hourly statistics. The page asks for it again a quarter past each hour, and the day rows once a day.
@@ -119,7 +119,7 @@ The advice card shows one line a day from a pool that fits the moment. The pools
 - **`later`** needs the next 3 hours at 500 W or more on average, and twice this hour's forecast.
 - **`wait`** needs today's forecast under 55 percent of a usual day, and tomorrow's at least 1.5 times today's.
 - **`soon`, `later` and `wait`** read the Solar Forecast at `usual_days_weather`, and the forecast sensor at `weather` and `learned_weather`.
-- **One voice for timing.** While the washer line shows, it alone says when to run something. The card then drops `go`, `soon`, `later` and `wait`, and shows `ok` or a battery line (`okLasts`, `short`, `fills`).
+- **One voice for timing.** While the washer line shows, it alone says when to run something. The card then drops `go`, `soon`, `later` and `wait`, and shows `ok` or a battery line (`okLasts`, `short`, `fills`). The built-in `low` and `empty` lines that speak of big loads are left out too.
 - At night with the battery at its floor and the grid carrying the house, the battery rests as it should: no alarm colours.
 
 ## Now
@@ -127,44 +127,48 @@ The advice card shows one line a day from a pool that fits the moment. The pools
 - **Headline:** the one or two sources that really carry the house right now, biggest first, with a line under it for what else flows.
 - **Battery words:** "Empty" (Scarica) at `battery_floor`, "Low" up to 15 points above it, "Good" from there, "Almost full" from 85 percent, "Full" at 100.
 - **Battery warning:** above the advice, a red card when the battery nears its end. A `battery_health` sensor under 70 percent decides alone when it reads. Without one, the card shows 9.5 years after `battery_install_date`.
+- **Big text:** at about the largest text on a phone, the battery card comes before the flow, with a smaller ring, so the charge shows without a scroll.
 - **Battery in an hour:** the ring shows where the charge should be in an hour, from the likely run. On a wide screen, a thin outer line shows the low to high range from the forecast sensor.
-- **Coming days:** up to 7 days from tomorrow. At `weather` and `learned_weather` they come from the forecast sensor. At `usual_days_weather` they come from the Solar Forecast, as far as it reaches, 20 percent either way. Each day has a bar from 0 to its likely sun, a thin line from the low to the high, and its figure. An upright line marks a usual day's house use (not at `weather`): a bar past it is a day the sun can cover the house. The weather icons come from the fresh forecast sensor, at every level.
+- **Coming days:** up to 7 days from tomorrow. At `weather` and `learned_weather` they come from the forecast sensor. At `usual_days_weather` they come from the Solar Forecast, as far as it reaches, 20 percent either way, also before a usual day is on record. Each day has a bar from 0 to its likely sun, a thin line from the low to the high, and its figure. An upright line marks a usual day's house use (not at `weather`, nor before a usual day is on record): a bar past it is a day the sun can cover the house. The weather icons come from the fresh forecast sensor, at every level.
 - **Offline:** when every sensor of one kind (solar, battery or grid power, or the charge) has no value, Now shows "Inverter not reachable" with the time of the last reading. Energy and Money still show what is on record.
-- **Frozen:** when no live sensor has been updated for 10 minutes, the headline gets "Last update: 14:05" under it.
+- **Frozen:** when no live sensor has been updated for 20 minutes, the headline gets "Last update: 14:05" under it.
 
 ## Energy
 
 - **Power origin:** a ring of where today's power came from (sun, battery, grid). The share from the sun and the battery is in its middle. Under it, each source's kWh so far, and what was sent when there was any. On a wide screen with a forecast that has house use, two small rings sit beside it: the same split in an hour and at the end of the day, as the likely run expects.
 - **Today by hour:** today from midnight to 23:59, on two charts with one timeline. On top, with a battery, the charge in percent hour by hour, and dashes for where it should go until midnight. The red dashed line is `battery_floor`. Under it, a line each for what the sun made, what the house used and what came from the grid: solid for the hours done, dashed for the hours to come. Tap or point at an hour to see its figures under the charts.
-- **Production:** a bar for each of the last 12 months, oldest on the left, this month on the right. The year mark ('25) sits where the year changes. A month with days not on record shows the total of the days it has, marked as partial. Under the bars, the picked month's days as a line, a dot a day. With a forecast, this month's days to come continue the line as dashes: tomorrow as the forecast expects it, later days from the Solar Forecast as far as it reaches, then the usual day's sun. This month's bar gets a faded block up to where the month should end. A month with a day of no numbers on record has no month end. At `weather`, the days to come stop where the sensor's forecast stops, and the month end shows only once they reach the month's last day.
+- **Production:** a bar for each of the last 12 months, oldest on the left, this month on the right. The year mark ('25) sits where the year changes. A month with days not on record shows the total of the days it has, marked as partial. Under the bars, the picked month's days as a line, a dot a day. With a forecast, this month's days to come continue the line as dashes: tomorrow as the forecast expects it, later days from the Solar Forecast as far as it reaches, then the usual day's sun. This month's bar gets a faded block up to where the month should end. A month with a day of no numbers on record has no month end. Before a usual day is on record, the dashes at `usual_days_weather` are the Solar Forecast's days alone, with no month end. At `weather`, the days to come stop where the sensor's forecast stops, and the month end shows only once they reach the month's last day.
 
 ## Money
 
-Three names carry the money, on every card:
+The money has these names:
 
-- **Savings** (Risparmi): what the sun and the battery saved. The house's own energy (its use less what came from the grid) at the month's average grid price, from the cost statistics. Without them, at today's price. With export on, it also includes what was sold.
+- **Saved** (Risparmiati): what the sun and the battery saved. The house's own energy (its use less what came from the grid) at the month's average grid price, from the cost statistics. Without them, at today's price.
+- **Export** (Vendita): what was sold to the grid, while export is on.
 - **Grid cost** (Costo della rete): what the grid cost, from the cost statistics, else the imported kWh at today's price. On Month balance, with `bill_fixed` set, it includes the bill's fixed part.
-- **Balance** (Saldo): savings plus what was sold, less the grid cost. Below zero it is red, with a minus. It is the household's energy balance, not the plant's gain.
+- **Balance** (Saldo): saved plus export, less the grid cost. Below zero it is red, with a minus. It is the household's energy balance, not the plant's gain.
+
+Each card counts sales once: Payback's line and Daily returns' **Savings** (Risparmi) hold saved plus export; Month balance shows Saved and Export apart.
 
 A figure nobody can price says "no price on record". A day or month with no numbers on record says so. Neither ever shows as a zero.
 
-- **Payback:** with `system_cost` set, a ring of how much of the cost has come back since `install_date`, plus `saved_before`. Under it: "This month: 18 € saved" (Questo mese: 18 € risparmiati), and about how long is left. Once paid back, the month it happened and what came back since.
+- **Payback:** with `system_cost` set, a ring of how much of the cost has come back since `install_date`, plus `saved_before`. Under it: "This month: 18 € saved" (Questo mese: 18 € risparmiati), or "saved and sold" while export is on, and about how long is left. Once paid back, the month it happened and what came back since. With no price set, it says so instead of a ring.
   - The time left counts each coming month like the same month last year. While there is less than a year on record, it guesses from the months so far and the sun at Home Assistant's latitude. Summer brings more sun, but the house uses less of it, so most of the extra goes out at the selling price. Until a year is on record, the time left is a range: every coming month 20 percent better and worse.
   - The rest of this month counts first: what such a month brings, less what this one brought so far.
-- **Daily returns:** a line of what the system brought back each day of this month (savings, without the bill's fixed part), a dot a day. Tap a day to see its Savings, Grid cost and Balance. With a forecast that has house use, the days left this month continue the line as dashes. They are priced at the Energy settings' price, or at the forecast sensor's hour prices at `learned_weather`.
+- **Daily returns:** a line of what the system brought back each day of this month (savings, without the bill's fixed part), a dot a day. Tap a day to see its Savings (saved plus export), Grid cost and Balance. With a forecast that has house use, the days left this month continue the line as dashes. They are priced at the Energy settings' price, or at the forecast sensor's hour prices at `learned_weather`.
 - **Electricity prices:** the price now of a kWh bought from the grid and, while export is on, sold to it. The buy price is the tariff's band now when there are bands, else the forecast sensor's present hour while it is fresh, else the Energy settings' price. With two or three bands, a box per band shows its hours today, the share of this month's grid energy bought in it, and its price.
-- **Month balance:** each of the last 12 months' Balance as a bar, oldest on the left, the same months as Production. A bar goes down, in red, when the grid cost more. Under the bars, the picked month: its grid cost on the left of a middle line, its savings and sales on the right, then Saved, Export (while export is on) and Balance. For this month, faded bars show where each should end. That end is the forecast sensor's at `learned_weather`, else this month so far plus the rest of today and every day to come.
+- **Month balance:** each of the last 12 months' Balance as a bar, oldest on the left, the same months as Production. A bar goes down, in red, when the grid cost more. Under the bars, the picked month: its grid cost on the left of a middle line, its savings and sales on the right ("Saved + export", Risparmio + vendita, while export is on), then Saved, Export (while export is on) and Balance. For this month, faded bars show where each should end. That end is the forecast sensor's at `learned_weather`, else this month so far plus the rest of today and every day to come.
 
 ## The sky
 
 - **Colours** follow the sun's height: night, dawn or dusk, then day. The day keeps a little of the dawn or dusk colours while the sun is low, and turns its deepest blue only from 50 degrees up. The night is darkest once the sun is 18 degrees down.
-- **Clouds** grey the sky from 50 percent cloud, fully grey at 90. The cloud comes from the fresh forecast sensor's present hour, else from the `cloud_coverage` of a `weather` entity (not every weather integration has it).
+- **Clouds** grey the sky from 50 percent cloud, fully grey at 90. The cloud comes from the fresh forecast sensor's present hour, else (no fresh sensor, or one without this hour) from the `cloud_coverage` of a `weather` entity (not every weather integration has it).
 - **Rain** falls when the fresh sensor forecasts more than 0.2 mm this hour, else when the weather entity says it is raining.
 - **Snow** falls when the weather entity says `snowy` or `snowy-rainy`. The sensor knows no snow.
 - The gear's switches turn off the sun height (the sky then jumps from night to day at sunrise), the clouds, and the rain and snow.
 
 ## Gaps in the records
 
-No numbers on record (the inverter, the power or the connection was down) never show as zeros. A day, an hour or a month without them keeps its place, empty, and says "no numbers on record".
+No numbers on record (the inverter, the power or the connection was down) never show as zeros. A day, an hour or a month without them keeps its place, empty, and says "no numbers on record". A meter that only counts up puts a missing day's energy into the next day on record, so a month with a day missing between two others still has its total.
 
 A sensor added later beside another of the same kind (a second inverter's solar sensor, say) counts as nothing before its first numbers. The days and months before it keep the first sensor's figures, and the usual day goes on.

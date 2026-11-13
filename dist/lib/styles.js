@@ -478,7 +478,7 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .side.cost .track{justify-content:flex-end}
 .side .track{position:relative}
 .side i{position:relative;width:var(--w);background:var(--c);border-radius:var(--pill)}
-/* Where this month should end: a faded bar from the middle line, behind the solid one (see moneyHtml). */
+/* Where this month should end: a faded bar from the middle line, behind the solid one (see monthCard). */
 .side i.ghost{position:absolute;inset-block:0;background:color-mix(in srgb,var(--c) 30%,transparent);border:1.5px solid var(--c)}
 .side.cost i.ghost{right:0}
 .side.back i.ghost{left:0}
@@ -604,6 +604,14 @@ dialog form > button{display:block;min-height:44px;margin:16px 0 0 auto;padding:
 :host([big]) .now .sub{display:none}
 :host([big]) .now h1{font-size:calc(20px / var(--zt))}
 :host([big]) .now :is(.wear,.advice){order:-1}
+/* Bigger text still (about 1.8 and up on a phone): the battery card comes next, before the flow, with a
+   smaller ring and its title for screen readers only, so the ring and its word show without a scroll. */
+@container (max-height:560px) and (max-width:1003px){
+  :host([big]) .now .battery{order:-1}
+  :host([big]) .battery h2{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+  :host([big]) .battery .ring-box{width:110px}
+  :host([big]) .battery .ring-mid .big{font-size:calc(33px / var(--zt))}
+}
 /* The flow as tall as its width gives it, at most 150px: its row grows to it (min-height:auto). */
 :host([big]) .flowbox{min-height:auto}
 :host([big]) .flowfit{height:auto;max-height:150px}

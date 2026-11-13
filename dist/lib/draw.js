@@ -128,7 +128,7 @@ const ringSize = (size) => (size ? `${skBar(100, 166, size, 14)}<text class="siz
 // label (beside the ring on the left or right, or above it; see .part) round the outside of the ring
 // to the middle of its part, so no line crosses the ring whatever the shares.
 // The top line runs further out than the side ones, so with a tiny part at an end the two never merge.
-// No line runs past another label's point while the middle part is the largest (see shareRing).
+// No line runs past another label's point while the middle part is the largest (see shareOf).
 const SIDES = { left: [1 / 6, "-16 103", 98], top: [0.5, "100 -8", 106], right: [5 / 6, "216 103", 98] }; // where the line meets the ring, its label, its radius
 function splitRing(parts, label, size) {
   const END = 0.022, GAP = 0.012; // a round end (8 of the 377 units round the ring), the room between parts

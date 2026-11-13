@@ -61,11 +61,11 @@ The page hides what it cannot fill. Nothing shows as a zero that is really "unkn
 | Now: coming days | A solar forecast, or the forecast sensor | Energy settings |
 | Battery warning | A state of health sensor, or the battery's install date | `battery_health`, `battery_install_date` |
 | Energy: Power origin, Today by hour, Production | The energy sensors | Energy settings |
-| Money page | A price on the grid connection | Energy settings |
-| Money: Payback | What the system cost | `system_cost` |
+| Money page | A price on the grid connection, or the band prices of `tariff`, or `system_cost` alone | Energy settings, `tariff`, `system_cost` |
+| Money: Payback | What the system cost. Without any price it says that no price is set. | `system_cost` |
 | Money: price bands | Your contract's time bands (Italy) | `tariff` |
 
-As an admin, open the gear at the top right. Its **Setup check** lists each of these parts, on or off, and what to set for the ones that are off. It also names the prediction level in use, and the machine the washer line assumes.
+As an admin, open the gear at the top right. Its **Setup check** lists the main parts, on or off, and what to set for the ones that are off: the prediction level asked for and in use, the solar forecast (where the level would use it), the battery size, Money, Payback, the price bands, and each machine the washer line plans (while the page looks ahead). A last row, "Options not used" (Opzioni non usate), names the options the page ignored or could not read.
 
 ## Prediction levels
 
@@ -80,7 +80,7 @@ A level without its data steps down to the next one that has it, and says so onc
 
 ## Options
 
-Everything is optional. It goes under `config:` in the same `panel_custom` entry, in groups. The groups only keep things tidy: every key works in any group, or at the top with no group. A key the page does not know, or a value it cannot read, is ignored and named once in the browser console. Remember the [restart](#every-change-needs-a-restart).
+Everything is optional. It goes under `config:` in the same `panel_custom` entry, in groups. The groups only keep things tidy: every key works in any group, or at the top with no group. A key the page does not know, or a value it cannot read, is ignored and named once in the browser console, and in the Setup check's "Options not used" row. Remember the [restart](#every-change-needs-a-restart).
 
 To keep the options out of `configuration.yaml`, put them in a file of their own:
 
@@ -217,7 +217,7 @@ Your own advice lines: `advice` and `advice_replace`. See [Your own advice lines
 
 Prices and the bill's fixed part change from month to month, so they are not in the options. They live in Home Assistant, which keeps their history.
 
-- **Prices:** set them on the grid connection in the Energy settings, as an entity that holds the price per kWh. Home Assistant then records what each kWh cost when it was used, and the page reads that. A fixed number works too, but then every month counts at it.
+- **Prices:** set them on the grid connection in the Energy settings, as an entity that holds the price per kWh (per MWh or per Wh works too, by the entity's unit). Home Assistant then records what each kWh cost when it was used, and the page reads that. A fixed number works too, but then every month counts at it.
 - **Fixed part:** a sensor named by `bill_fixed`, with `state_class: measurement`, so Home Assistant keeps its monthly mean. Each month counts with the value it had then. The simplest way is a number helper (Settings, Devices and services, Helpers, Create helper, Number) and a template sensor that copies it:
 
 ```yaml
@@ -302,7 +302,7 @@ advice:
 | `okLasts` | In the evening or at night: the battery carries the house until the sun is back. |
 | `fills` | By day: the battery fills later today, and 1 kWh or more of sun is left over. |
 
-`soon`, `later` and `wait` need a solar forecast. `short`, `okLasts` and `fills` need a level with house use. While the washer line shows, it alone says when to run something: the card then shows no `go`, `soon`, `later` or `wait` line.
+`soon`, `later` and `wait` need a solar forecast. `short`, `okLasts` and `fills` need a level with house use. While the washer line shows, it alone says when to run something: the card then shows no `go`, `soon`, `later` or `wait` line, and none of the built-in `low` and `empty` lines that speak of big loads.
 
 With `advice_replace: true`, a pool that has lines of yours shows only those. Keep a line short enough for two rows on a phone.
 
@@ -318,7 +318,7 @@ Each device keeps its own choice, so a wall tablet can show less than a phone. C
 
 ## Who sees what
 
-Every user sees the same pages, in the language and time format of their profile, unless they pick another language in the gear. Money shows only when something can be priced. Only admin users see the Setup check and the names of missing sensors. That is tidiness, not security: any user can read the sensors anyway.
+Every user sees the same pages, in the language and time format of their profile, unless they pick another language in the gear. Money shows only when one of its cards has something to show. Only admin users see the Setup check and the names of missing sensors. That is tidiness, not security: any user can read the sensors anyway.
 
 ## FAQ
 
@@ -332,7 +332,7 @@ Every user sees the same pages, in the language and time format of their profile
 
 **Why is the Balance red?** In that day or month the grid cost more than the sun saved and sold.
 
-**Where is the Money page?** It needs a price on the grid connection in the Energy settings, or `system_cost`.
+**Where is the Money page?** It needs a price on the grid connection in the Energy settings, the band prices of `tariff`, or `system_cost`.
 
 **Why does Now say "Learning your usual day"?** The page needs 3 days on record before it can predict. It counts the days down.
 
@@ -340,10 +340,10 @@ Every user sees the same pages, in the language and time format of their profile
 
 | What you see | What it means |
 |---|---|
-| "Let's set up the solar panels" | The Energy settings have no solar power sensor, or a named sensor does not exist. Admin users also see the names of the missing sensors. |
+| "Let's set up the solar panels" | The Energy settings have no solar power sensor, or a named sensor does not exist. Admin users also see the names of the missing sensors, and without a solar power sensor the `sensors: solar_power` line for an older Home Assistant. |
 | "Inverter not reachable" on Now | Every sensor of one kind (solar, battery or grid power, or the charge) exists but has no value. Energy and Money still show what is on record. It clears by itself. |
-| "Last update: 14:05" under the headline | No live sensor has been updated for 10 minutes. The inverter or its integration may be frozen. |
-| A part of the page is missing | Open the gear's Setup check (admins). Then look in the browser console for a line that starts with `solar-view`. |
+| "Last update: 14:05" under the headline | No live sensor has been updated for 20 minutes. The inverter or its integration may be frozen. |
+| A part of the page is missing | Open the gear's Setup check (admins): a part that is off says what to set, and "Options not used" names a misspelt key or a value it could not read. The browser console has the same, in lines that start with `solar-view`. |
 | A grey loading skeleton that stays | Home Assistant is still starting, or the statistics have not answered. |
 | The old page after an update | Installed by hand: raise `?v=` and restart. On a phone, close the app fully and open it again. |
 

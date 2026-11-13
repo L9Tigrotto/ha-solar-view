@@ -91,8 +91,10 @@ function textScale() {
   const page = box.firstElementChild.getBoundingClientRect().width, chart = box.querySelector("text").getComputedTextLength();
   box.remove();
   const ctx = document.createElement("canvas").getContext("2d");
+  if (!ctx) return [1, 1]; // no canvas (blocked): nothing to measure against
   ctx.font = font;
   const plain = ctx.measureText(word).width;
+  if (!(plain > 0)) return [1, 1];
   // Small differences are font rounding, not a setting.
   return [page, chart].map((w) => (w / plain > 1.05 ? Math.round((w / plain) * 100) / 100 : 1));
 }

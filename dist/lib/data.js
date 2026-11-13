@@ -7,7 +7,7 @@ const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ ne
 /** @type {[typeof import("./core.js"), typeof import("./sky.js"), typeof import("./advice.js"),
  *   typeof import("./config.js"), typeof import("./forecast.js"), typeof import("./stats.js"),
  *   typeof import("./money.js")]} */
-const [{ HOUR, FULL_SOC, clockOf, dayHours, hourStart, inHour, shiftKey, noonOf, monthDayKeys, stateNum, numberOrEntity, warnOnce },
+const [{ HOUR, FULL_SOC, roundTo, clockOf, dayHours, hourStart, inHour, shiftKey, noonOf, monthDayKeys, stateNum, numberOrEntity, priceOf, warnOnce },
   { SKY_LOW_DEG, weatherOf, cloudNow, raining, snowing, dawnOf, greyOf, coverOf, moonPhase }, { wearOf }, { BATTERY_FLOOR_SOC },
   { sensorOf, forecastOf, lookAhead, bandOf, bandPrices }, { ENERGY }, { moneySoFar }] = await Promise.all([
   import(`./core.js${v}`), import(`./sky.js${v}`), import(`./advice.js${v}`), import(`./config.js${v}`), import(`./forecast.js${v}`), import(`./stats.js${v}`), import(`./money.js${v}`)]);
@@ -15,7 +15,8 @@ const [{ HOUR, FULL_SOC, clockOf, dayHours, hourStart, inHour, shiftKey, noonOf,
 const SUN = "sun.sun";
 const WATTS = { W: 1, kW: 1e3, MW: 1e6 };
 const SOLAR_NOISE_W = 15; // an inverter can report a few watts all night (7 to 8 W measured)
-const STALE_MS = 10 * 60 * 1000; // no live state written for this long: the page says when the last one was
+const STALE_MS = 20 * 60 * 1000; // no live state written for this long: the page says when the last one was (cloud
+// inverter integrations poll every 5 to 15 minutes, and a value that stays the same is not written again)
 
 // ---- How far the page predicts (the table in docs/how-it-works.md) ----
 // none: nothing. usual_days: the usual day's sun (the season scaling it, see usualDay) and use, no Solar
@@ -23,25 +24,25 @@ const STALE_MS = 10 * 60 * 1000; // no live state written for this long: the pag
 // the sun, the usual day for use once one is on record. learned_weather: the sensor's sun and use. The last three without their data
 // step down (STEP), again while data is missing; each step is said once in the console, nothing on screen.
 /** @typedef {"none" | "usual_days" | "weather" | "usual_days_weather" | "learned_weather"} Level */
-/** @typedef {{ level: Level, sensorFresh: boolean }} Mode the level in use after any step down; the sensor is fresh (see sensorOf) */
+/** @typedef {{ level: Level }} Mode the level in use after any step down */
 /** @type {Record<string, Level>} */
 const STEP = { weather: "none", learned_weather: "usual_days_weather", usual_days_weather: "usual_days", usual_days: "none" };
 /** @type {Mode} */
-const NO_MODE = { level: "none", sensorFresh: false };
+const NO_MODE = { level: "none" };
 // `level` is the config's (null: auto, which says nothing when it settles lower: the fresh sensor, else the page's own
 // forecast, else none). The Solar Forecast alone is enough for usual_days_weather, at auto and when set: it gives
 // the advice its "soon", "later" and "wait" before a usual day is on record. `usual`: a usual day is on record
 // (3 days); `solar`: the Solar Forecast answered.
 /** @param {Level | null} level @returns {Mode} */
 function modeOf(level, { usual = false, solar = false } = {}, sensor, now) {
-  const s = sensorOf(sensor, now), sensorFresh = !!s;
-  const has = { none: true, usual_days: usual, weather: sensorFresh, usual_days_weather: solar, learned_weather: sensorFresh && s.withUse };
-  if (level == null) return { level: has.learned_weather ? "learned_weather" : sensorFresh ? "weather" : solar ? "usual_days_weather" : usual ? "usual_days" : "none", sensorFresh };
+  const s = sensorOf(sensor, now), fresh = !!s;
+  const has = { none: true, usual_days: usual, weather: fresh, usual_days_weather: solar, learned_weather: fresh && s.withUse };
+  if (level == null) return { level: has.learned_weather ? "learned_weather" : fresh ? "weather" : solar ? "usual_days_weather" : usual ? "usual_days" : "none" };
   const why = { weather: "no fresh forecast sensor (sensor.solar_view_forecast)", learned_weather: "no fresh forecast sensor with house use",
     usual_days_weather: "no Solar Forecast in the Energy settings", usual_days: "no usual day yet (it needs 3 days on record)" };
   let l = level;
   while (!has[l]) { warnOnce(`level ${l}: ${why[l]}, so ${STEP[l]} is used`); l = STEP[l]; }
-  return { level: l, sensorFresh };
+  return { level: l };
 }
 // The sensor is the forecast in use: its days, hours and ranges, not the page's own.
 /** @param {Mode} mode */
@@ -79,8 +80,8 @@ function adviceForecast(mode, stats, ahead, now, clock) {
 function bandsOf(hass, ids, cfg, stats, now, clock) {
   const tf = cfg.tariff;
   if (!tf) return null;
-  const prices = bandPrices(tf.type, Object.fromEntries(Object.entries(tf.prices).map(([k, p]) => [k, numberOrEntity(p, hass)])),
-    tf.sensor ? [...(stats.priceRows ?? []), { start: now, mean: stateNum(hass, tf.sensor) }] : [], clock);
+  const prices = bandPrices(tf.type, Object.fromEntries(Object.entries(tf.prices).map(([k, p]) => [k, numberOrEntity(p, hass, priceOf)])),
+    tf.sensor ? [...(stats.priceRows ?? []).map((r) => ({ ...r, mean: priceOf(hass, tf.sensor, r.mean) })), { start: now, mean: priceOf(hass, tf.sensor) }] : [], clock);
   if (!prices) { warnOnce("tariff needs a type (single, two, three) and a price for each of its bands, from prices or sensor"); return null; }
   const used = {}, month = clock(now).key.slice(0, 7);
   for (const id of ids.gridImportKwh) for (const r of stats.gridMonth?.[id] ?? []) {
@@ -158,10 +159,11 @@ const lastSeen = (hass, ids) => {
   const t = ids.map((id) => Date.parse(hass.states[id]?.last_updated)).filter(Number.isFinite);
   return t.length ? Math.max(...t) : null;
 };
-// The time of the last reading when it is too old to be live (see lastSeen), else null.
+// The time of the last reading when it is too old to be live (see lastSeen), else null. A time ahead of this clock
+// (the phone's clock behind Home Assistant's) is never frozen.
 const staleSince = (data, now) => (data.seen !== null && now - data.seen > STALE_MS ? data.seen : null);
-// The Energy settings' prices now: text is an entity id, unless it is a number typed as text.
-const pricesOf = (hass, ids) => ({ buy: numberOrEntity(ids.price.buy, hass), sell: numberOrEntity(ids.price.sell, hass) });
+// The Energy settings' prices now: text is an entity id (see priceOf), unless it is a number typed as text.
+const pricesOf = (hass, ids) => ({ buy: numberOrEntity(ids.price.buy, hass, priceOf), sell: numberOrEntity(ids.price.sell, hass, priceOf) });
 
 // What `hass` says now: the reading, the sun, the sky (the fresh sensor's present hour wins for cloud and rain,
 // at every level), the moon, the battery's wear, the prices, and the settings the cards read.
@@ -169,8 +171,9 @@ function live(hass, ids, cfg, facts, now) {
   const sun = hass.states[SUN];
   const elevation = parseFloat(sun?.attributes?.elevation); // NaN while sun.sun has no value
   const raw = watts(hass, ids.solarW);
-  // The fresh sensor's hour holding now ({} when it has none), null without a fresh sensor.
-  const hour = facts ? facts.hours.find((h) => inHour(h.t, now)) ?? {} : null;
+  // The fresh sensor's hour holding now, null without one (a fresh sensor whose hours start later): the sky then
+  // comes from the weather entity.
+  const hour = facts?.hours.find((h) => inHour(h.t, now)) ?? null;
   const weather = weatherOf(hass), wx = weather?.state, cloud = cloudNow(hour, weather?.attributes?.cloud_coverage), rain = raining(hour, wx), snow = snowing(wx);
   const battery = hasBattery(ids);
   return {
@@ -199,16 +202,17 @@ function live(hass, ids, cfg, facts, now) {
 // ---- What the statistics give ----
 // The part of the statistics (see totals) the cards draw: an allow-list, so what only the forecast reads (its
 // inputs, a month of grid hours, the price sensor's rows) stays out of the redraw key and the saved copy.
+/** @param {ReturnType<typeof import("./stats.js").totals>} stats */
 function project(stats) {
   const { today, lastMonth, month, monthDays, pastDays, monthKey, months, usualToday, usualIn, sunDays, usualSun, usualSunDays, fixedMonths, socDay, todayHours } = stats;
-  const round = (x, to) => (Number.isFinite(x) ? Math.round(x * to) / to : null), socAt = new Map(socDay);
+  const socAt = new Map(socDay);
   return { today, lastMonth, month, monthDays, pastDays, monthKey, months, usualToday, usualIn: usualIn ?? null, sunDays, usualSun, usualSunDays, fixedMonths,
     // Today by the hour, oldest first: { t: hour start, soc: mean charge %, then in kWh what the battery took in
     // (charge) and gave back (batt), the sun made, the house used, the grid gave, and the house's use as the balance
     // (as the forecast counts it) }, rounded; null where the statistics have no row.
     battDay: [...new Set([...socAt.keys(), ...Object.keys(todayHours).map(Number)])].sort((a, b) => a - b).map((t) => {
-      const p = socAt.get(t), h = todayHours[t], kwh = (k) => (h ? round(h[k], 100) : null);
-      return { t, soc: p === undefined ? null : round(p, 10), charge: kwh("chargeKwh"), batt: kwh("batteryKwh"), sun: kwh("solarKwh"),
+      const p = socAt.get(t), h = todayHours[t], kwh = (k) => (h ? roundTo(h[k], 100) : null);
+      return { t, soc: p === undefined ? null : roundTo(p, 10), charge: kwh("chargeKwh"), batt: kwh("batteryKwh"), sun: kwh("solarKwh"),
         house: kwh("houseKwh"), grid: kwh("gridImportKwh"), balance: kwh("loadKwh") };
     }),
   };
@@ -222,6 +226,11 @@ const projected = new WeakMap();
 const projectOnce = (stats) => projected.get(stats) ?? projected.set(stats, project(stats)).get(stats);
 /** Everything the page shows: its fields are readData's, live's and project's.
  * @typedef {ReturnType<typeof readData>} Data */
+/** What each page's view is made from (see _render): the data, the texts, the formats, the sky drawn, whether it is
+ * the skeleton, the day's number, the time, Home Assistant's clock and the months picked.
+ * @typedef {{ data: Data, t: Record<string, any>, f: ReturnType<typeof import("./format.js").formats>,
+ *   sky: ReturnType<typeof import("./sky.js").skyAt>, loading: boolean, day: number, now: number,
+ *   clock: ReturnType<typeof import("./core.js").clockOf>, pick: Record<string, any> }} ViewInput */
 /** @param {import("./config.js").Config} cfg @param {Partial<Looked>} [looked] */
 function readData(hass, ids, cfg, stats, looked = {}, now = Date.now()) {
   const { billFixedNow, ...state } = live(hass, ids, cfg, looked.facts, now), { fixedMonths, ...drawn } = projectOnce(stats);
@@ -229,7 +238,8 @@ function readData(hass, ids, cfg, stats, looked = {}, now = Date.now()) {
     // The bill's fixed part: its month means (see fixedAt), and its value now.
     billFixed: { months: fixedMonths ?? {}, now: billFixedNow },
     mode: looked.mode ?? NO_MODE, ahead: looked.ahead ?? null, outlook: looked.outlook ?? null, forecast: looked.forecast ?? null,
-    // The tariff's bands and their prices ({ type, prices: { f1, ... } }), or null.
+    // The tariff's bands, their prices and this month's share of each ({ type, prices: { f1, ... }, share }, see
+    // bandsOf), or null.
     bands: looked.bands ?? null,
     // The fresh sensor's months: finished months' money as it counted it, and this month's end.
     sensorMonths: looked.facts?.months ?? null,
@@ -257,8 +267,9 @@ const LAST_KEY = "solar-view-last";
 function remembered() {
   try {
     const last = JSON.parse(localStorage.getItem(LAST_KEY));
-    // A copy from before the hour rows had names holds them as lists.
-    if (last && last.now && last.monthDays && "batt" in last && "sends" in last && !Array.isArray(last.battDay?.[0])) return last;
+    // A copy from before the hour and day rows had names holds them as lists.
+    const lists = [last?.battDay, last?.outlook?.hoursAhead, last?.outlook?.daysMoney].some((rows) => Array.isArray(rows?.[0]));
+    if (last && last.now && last.monthDays && "batt" in last && "sends" in last && !lists) return last;
   } catch (e) { /* no storage, or an old shape: use typical numbers */ }
   return null;
 }

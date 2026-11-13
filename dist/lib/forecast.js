@@ -4,7 +4,7 @@
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale core.js
 /** @type {typeof import("./core.js")} */
-const { HOUR, FIVE_MIN, FULL_SOC, LASTS_MAX_H, hourStart, dayHours, shiftKey, shiftMonth, sumKnown } = await import(`./core.js${v}`);
+const { HOUR, FIVE_MIN, FULL_SOC, LASTS_MAX_H, WHOLE_DAY_H, hourStart, dayHours, shiftKey, shiftMonth, sumKnown } = await import(`./core.js${v}`);
 
 // ---- Rules (tune here) ----
 const EFFICIENCY = 0.95;   // battery round trip until there are enough days to measure it
@@ -83,6 +83,9 @@ export function sensorOf(sensor, now) {
     withUse: Array.isArray(a.left?.use) && hours.every((h) => Array.isArray(h.use)) } : null;
 }
 
+// The usual day's sun in the hour starting at t, W, as the season moves it (usual.scale, see usualDay in stats.js).
+export const usualSunAt = (usual, t, clock) => usual.solarW[clock(t).hour] * (usual.scale?.(t) ?? 1);
+
 // The sensor as it is when fresh (see sensorOf), else what the page can build from the solar forecast (solarWh,
 // hour start in ms to Wh) and the usual day; null without a usual day. Hours start at the present
 // hour, `left` is the rest of today from now.
@@ -98,8 +101,7 @@ export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar
   const withUse = !fresh || (a.withUse && !sunOnly);
   const given = fresh && !withUse ? a.hours.map((h) => ({ ...h, use: null })) : a?.hours;
   if (!fresh && !usual) return null;
-  // The usual day's sun in the hour starting at t, kWh, as the season moves it (usual.scale, see usualDay in stats.js).
-  const usualSun = (t) => (usual.solarW[clock(t).hour] / 1000) * (usual.scale?.(t) ?? 1);
+  const usualSun = (t) => usualSunAt(usual, t, clock) / 1000; // kWh
   const nextMonth = shiftMonth(today.slice(0, 7), 1) + "-01";
   // guessed: no solar forecast for tomorrow, so tomorrow's sun is the usual day's.
   let all, days, guessed = false;
@@ -387,7 +389,7 @@ function advise(rows, bad, now, n, battery, settings, firstShare, clock) {
     const c = clock(pick.t), band = settings.bandAt?.(pick.t) ?? null, bandNow = settings.bandAt?.(now) ?? null;
     const free = pick.free, onBatt = pick.fromBatt > m.kwh / 2;
     const why = pick === first ? (free ? (onBatt ? "battNow" : "sunNow") : "bestNow")
-      : free ? (onBatt ? "batt" : c.key === today ? "sun" : "sunTomorrow")
+      : free ? (onBatt ? "batt" : c.key === today ? "sun" : batt.kwh > 0 ? "sunTomorrow" : "sunTomorrowNoBatt")
         : band && bandNow && band.buy < bandNow.buy - TIE ? "cheaper" : "grid";
     // The meter: only for now, the forecast knows hour means, not peaks.
     const room = batt.kwh > 0 && n.soc > batt.floor ? batt.maxDischargeKw ?? Infinity : 0;
@@ -400,19 +402,20 @@ function advise(rows, bad, now, n, battery, settings, firstShare, clock) {
 }
 
 // The rest of today simulated for the bad, mid and good runs: when the battery runs to its floor, the
-// best time for each machine, the state of charge in an hour (inHour, [low, mid, high] over the runs),
+// best time for each machine, the state of charge in an hour (socInHour, [low, mid, high] over the runs),
 // whether the mid run fills the battery later today with spare sun left over (fills), and the mid run's
 // charge, hours and money ahead. n is the present reading { soc, loadW, solarW }; battery null is no
 // battery; soFar is today's money so far { saved, cost, earned }. A battery of unknown size hides all of
 // it: every figure would be a guess.
 /** @typedef {{ saved: number | null, cost: number | null, earned: number | null }} Money */
-/** What follows from the forecast (see lookAhead); [t, ...] rows as its comments below say.
+/** What follows from the forecast (see lookAhead); socAhead's [t, %] rows as its comment below says.
  * @typedef {{ lastsUntil: number | null, best: { type: string, kind: string, t: number, why: string, band: string | null,
- *   kw: number | null }[] | null, inHour: number[] | null, fills: boolean, socAhead: number[][] | null,
- *   hoursAhead: number[][] | null, restToday: Money | null, daysMoney: (string | number | null)[][] | null }} Outlook */
+ *   kw: number | null }[] | null, socInHour: number[] | null, fills: boolean, socAhead: number[][] | null,
+ *   hoursAhead: { t: number, sun: number, batt: number, grid: number, use: number }[] | null, restToday: Money | null,
+ *   daysMoney: ({ key: string } & Money)[] | null }} Outlook */
 /** @param {Ahead} ahead @returns {Outlook} */
 export function lookAhead(ahead, now, clock, n, battery, settings, soFar) {
-  const none = { lastsUntil: null, best: null, inHour: null, fills: false, socAhead: null, hoursAhead: null, restToday: null, daysMoney: null };
+  const none = { lastsUntil: null, best: null, socInHour: null, fills: false, socAhead: null, hoursAhead: null, restToday: null, daysMoney: null };
   if (battery && !battery.kwh) return none;
   const batt = battery || NO_BATTERY, today = clock(now).key, standby = settings.standbyKwhPerHour;
   // The present hour at whichever is worse, the present reading or the forecast hour: an oven switched
@@ -445,9 +448,9 @@ export function lookAhead(ahead, now, clock, n, battery, settings, soFar) {
     d.hours++;
     addMoney(d, st, long[i].use - standby, price.get(st.t));
   });
-  // A day the forecast stops inside (fewer than 23 hours) is left out, and every day after it.
-  const whole = [...byDay].sort(([a], [b]) => (a < b ? -1 : 1)), cut = whole.findIndex(([, d]) => d.hours < 23);
-  const daysMoney = (cut < 0 ? whole : whole.slice(0, cut)).map(([key, d]) => [key, d.saved, d.cost, d.earned]);
+  // A day the forecast stops inside (not whole, see WHOLE_DAY_H) is left out, and every day after it.
+  const whole = [...byDay].sort(([a], [b]) => (a < b ? -1 : 1)), cut = whole.findIndex(([, d]) => d.hours < WHOLE_DAY_H);
+  const daysMoney = (cut < 0 ? whole : whole.slice(0, cut)).map(([key, d]) => ({ key, saved: d.saved, cost: d.cost, earned: d.earned }));
   // Now + 60 minutes falls inside the second hour, by the part of the first already gone. Read in a
   // straight line across that hour.
   // ponytail: a battery that fills or empties inside that hour reads a little off; split the hour if that ever shows.
@@ -472,13 +475,14 @@ export function lookAhead(ahead, now, clock, n, battery, settings, soFar) {
   return {
     lastsUntil: battery ? lastsUntil(rows, now, n, batt, firstShare) : null,
     best: advise(night, nightBad, now, n, batt, settings, firstShare, clock),
-    inHour: battery && Number.isFinite(n.soc) ? range3(sims.map(inHour)) : null,
+    socInHour: battery && Number.isFinite(n.soc) ? range3(sims.map(inHour)) : null,
     fills: !!battery && spare >= FILLS_MIN_KWH - TIE,
     // The mid run's charge at the end of each hour left today, for Today by hour's charge chart: [end, %].
     socAhead: battery ? sims[1].filter((st) => clock(st.t).key === today).map((st) => [st.t + HOUR, Math.round(st.soc * 10) / 10]) : null,
-    // The mid run's hours left today, for Today by hour and Power origin's small rings: [start, sun made,
-    // battery gave, grid gave, house used], in kWh; this hour's from now on only.
-    hoursAhead: sims[1].map((st, i) => [st.t, st.made, st.fromBatt, st.fromGrid, rows[i].use * (i ? 1 : firstShare)]).filter(([t]) => clock(t).key === today),
+    // The mid run's hours left today, for Today by hour and Power origin's small rings: { t: start, sun made,
+    // batt: battery gave, grid gave, use: house used }, in kWh; this hour's from now on only.
+    hoursAhead: sims[1].map((st, i) => ({ t: st.t, sun: st.made, batt: st.fromBatt, grid: st.fromGrid, use: rows[i].use * (i ? 1 : firstShare) }))
+      .filter(({ t }) => clock(t).key === today),
     restToday, daysMoney,
   };
 }
