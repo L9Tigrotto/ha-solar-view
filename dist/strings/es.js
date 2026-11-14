@@ -312,7 +312,6 @@ export const STRINGS = {
     netBenefit: "Saldo",
     nowMark: "Ahora", homeUse: "Consumo de casa", selfSupplied: "Autoabastecido", battAvg: "Batería media", returns: "Ahorro", exportLabel: "Venta",
     shareIncomplete: "Faltan algunos números de hoy", paybackIncomplete: "Faltan los números de algunos meses, así que no se sabe cuánto se ha recuperado", language: "Idioma", languageAuto: "Automático",
-    paybackNoPrice: "No hay precio, así que no se sabe cuánto se ha recuperado",
     helpPricesBuy: "Compra: lo que cuesta cada kWh tomado de la red, por eso la flecha va de la Red a la Casa",
     helpPricesBands: "Recuadros: el precio de cada franja horaria, sus horas de hoy y la parte de la energía tomada de la red este mes en esa franja; la franja vigente ahora está resaltada",
     helpPricesSell: "Venta: lo que se cobra por cada kWh enviado a la red, por eso la flecha va de la Casa a la Red",

@@ -84,7 +84,7 @@ The forecast scenarios add a mock `sensor.solar_view_forecast`, written at the t
 | `admin` | `0` views the page as a non-admin user. |
 | `extras` | `0` removes prices, payback and forecast. |
 | `payback` | `0` leaves out the payback settings. |
-| `price` | `0` removes every price but keeps the payback settings (Payback then says no price is set). |
+| `price` | `0` removes every price but keeps the payback settings (Payback then hides). |
 | `display` | `name:0,name:0` turns those display switches off on this device. Names: `sunHeight`, `clouds`, `rain`. |
 | `clock` | `24`, `12` or `language`: the viewer's time format in their profile. Without it, 24 hours. |
 | `day` | Which advice line of the pool to show, as if it were day N. |

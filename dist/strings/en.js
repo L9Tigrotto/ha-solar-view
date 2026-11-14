@@ -328,7 +328,6 @@ export const STRINGS = {
     netBenefit: "Balance",
     nowMark: "Now", homeUse: "Home use", selfSupplied: "Self-supplied", battAvg: "Battery avg.", returns: "Savings", exportLabel: "Export",
     shareIncomplete: "Some of today's numbers are not on record", paybackIncomplete: "Some months' numbers are not on record, so what came back is not known", language: "Language", languageAuto: "Automatic",
-    paybackNoPrice: "No price is set, so what came back is not known",
     helpPricesBuy: "Buy: what each kWh taken from the grid costs, so the arrow points from Grid to Home",
     helpPricesBands: "Boxes: each time band's price, its hours today and the share of this month's grid energy bought in it; the band in force now is outlined",
     helpPricesSell: "Sell: what each kWh sent to the grid earns, so the arrow points from Home to Grid",

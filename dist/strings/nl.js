@@ -312,7 +312,6 @@ export const STRINGS = {
     netBenefit: "Saldo",
     nowMark: "Nu", homeUse: "Huisverbruik", selfSupplied: "Zelf opgewekt", battAvg: "Batterij gem.", returns: "Besparing", exportLabel: "Verkoop",
     shareIncomplete: "Sommige cijfers van vandaag ontbreken", paybackIncomplete: "Van sommige maanden ontbreken cijfers, dus is niet bekend hoeveel er terug is", language: "Taal", languageAuto: "Automatisch",
-    paybackNoPrice: "Geen prijs ingesteld, dus is niet bekend hoeveel er terug is",
     helpPricesBuy: "Kopen: wat elke kWh van het net kost, daarom wijst de pijl van Net naar Huis",
     helpPricesBands: "Vakjes: de prijs van elk tijdvak, zijn uren vandaag en het deel van de netstroom van deze maand in dat tijdvak; het tijdvak dat nu geldt is omlijnd",
     helpPricesSell: "Verkopen: wat elke kWh naar het net oplevert, daarom wijst de pijl van Huis naar Net",
