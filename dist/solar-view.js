@@ -886,8 +886,10 @@ class SolarView extends HTMLElement {
 for (const i of [1, 2, 3]) try { window.CSS.registerProperty({ name: `--sv-sky${i}`, syntax: "<color>", inherits: false, initialValue: "transparent" }); } catch (e) { /* registered already, by an older copy of this file */ }
 
 // A tab left open across an update loads the new version beside the old one: keep the old
-// element until the page is refreshed instead of throwing.
-if (!customElements.get("solar-view")) customElements.define("solar-view", SolarView);
+// element until the page is refreshed instead of throwing. A second copy beside the installed one
+// (a test panel) takes its element name from its module_url: ?v=1&name=solar-view-test.
+const elementName = new URL(import.meta.url).searchParams.get("name") || "solar-view";
+if (!customElements.get(elementName)) customElements.define(elementName, SolarView);
 export { STRINGS, LANGUAGES, loadLanguage, pageKeys }; // for the preview harness and the tests
 
 /*
