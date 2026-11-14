@@ -138,8 +138,7 @@ The sweep feeds the real page about 49,000 combinations of solar, battery and gr
 To try your changes on a real Home Assistant beside the installed page:
 
 1. Copy `dist/` to `config/www/<folder>/`, for example `config/www/solar-view-test/`.
-2. In the copy's `solar-view.js`, rename the element on the `customElements.define` line at the end: `solar-view` becomes `solar-view-test`, in `customElements.get` on the same line too. Two panels cannot share one element name: the second would show the first one's code.
-3. Add a second `panel_custom` entry:
+2. Add a second `panel_custom` entry. Its `module_url` ends in `&name=` with the same name as `name:`, so the copy defines its own element. Two panels cannot share one element name: without it the copy defines `solar-view` again, which the installed page already holds, and the test panel stays blank with no error.
 
    ```yaml
    panel_custom:
@@ -147,10 +146,10 @@ To try your changes on a real Home Assistant beside the installed page:
        url_path: solar-test
        sidebar_title: Solar test
        sidebar_icon: mdi:flask
-       module_url: /local/solar-view-test/solar-view.js?v=1
+       module_url: /local/solar-view-test/solar-view.js?v=1&name=solar-view-test
    ```
 
-4. Restart Home Assistant fully.
+3. Restart Home Assistant fully.
 
 For each new copy, raise `?v=` in its `module_url` and restart Home Assistant again. Clearing the app's cache is not enough: browsers and the phone app keep `/local/` files, and Home Assistant reads `module_url` only when it starts.
 
