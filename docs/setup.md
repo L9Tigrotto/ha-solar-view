@@ -62,7 +62,7 @@ The page hides what it cannot fill. Nothing shows as a zero that is really "unkn
 | Battery warning | A state of health sensor, or the battery's install date | `battery_health`, `battery_install_date` |
 | Energy: Power origin, Today by hour, Production | The energy sensors | Energy settings |
 | Money page | A price on the grid connection, or the band prices of `tariff`, or `system_cost` alone | Energy settings, `tariff`, `system_cost` |
-| Money: Payback | What the system cost. Without any price it says that no price is set. | `system_cost` |
+| Money: Payback | What the system cost. Hidden while no price is set, like the other Money cards. | `system_cost` |
 | Money: price bands | Your contract's time bands (Italy) | `tariff` |
 
 As an admin, open the gear at the top right. Its **Setup check** lists the main parts, on or off, and what to set for the ones that are off: the prediction level asked for and in use, the solar forecast (where the level would use it), the battery size, Money, Payback, the price bands, and each machine the washer line plans (while the page looks ahead). A last row, "Options not used" (Opzioni non usate), names the options the page ignored or could not read.

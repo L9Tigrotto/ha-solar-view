@@ -314,7 +314,6 @@ export const STRINGS = {
     netBenefit: "Saldo",
     nowMark: "Teraz", homeUse: "Zużycie domu", selfSupplied: "Własna energia", battAvg: "Bateria śr.", returns: "Oszczędności", exportLabel: "Sprzedaż",
     shareIncomplete: "Brakuje części dzisiejszych danych", paybackIncomplete: "Brakuje danych z niektórych miesięcy, więc nie wiadomo, ile już wróciło", language: "Język", languageAuto: "Automatycznie",
-    paybackNoPrice: "Brak ceny, więc nie wiadomo, ile już wróciło",
     helpPricesBuy: "Zakup: ile kosztuje każda kWh pobrana z sieci, dlatego strzałka biegnie od Sieci do Domu",
     helpPricesBands: "Pola: cena każdej strefy czasowej, jej godziny dziś i udział energii pobranej z sieci w tym miesiącu w tej strefie; strefa obowiązująca teraz jest obramowana",
     helpPricesSell: "Sprzedaż: ile przynosi każda kWh wysłana do sieci, dlatego strzałka biegnie od Domu do Sieci",

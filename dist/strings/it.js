@@ -314,7 +314,6 @@ export const STRINGS = {
     netBenefit: "Saldo",
     nowMark: "Ora", homeUse: "Consumo casa", selfSupplied: "Autoprodotto", battAvg: "Batteria media", returns: "Risparmi", exportLabel: "Vendita",
     shareIncomplete: "Alcuni numeri di oggi non sono registrati", paybackIncomplete: "Mancano i numeri di alcuni mesi, quindi non si sa quanto è rientrato", language: "Lingua", languageAuto: "Automatica",
-    paybackNoPrice: "Nessun prezzo impostato, quindi non si sa quanto è rientrato",
     helpPricesBuy: "Acquisto: quanto costa ogni kWh preso dalla rete, quindi la freccia va dalla Rete alla Casa",
     helpPricesBands: "Riquadri: il prezzo di ogni fascia oraria, le sue ore di oggi e la quota dell'energia presa dalla rete questo mese in quella fascia; la fascia in vigore ora è evidenziata",
     helpPricesSell: "Vendita: quanto rende ogni kWh mandato alla rete, quindi la freccia va dalla Casa alla Rete",

@@ -313,7 +313,6 @@ export const STRINGS = {
     netBenefit: "Saldo",
     nowMark: "Jetzt", homeUse: "Hausverbrauch", selfSupplied: "Eigenversorgt", battAvg: "Batterie Ø", returns: "Ersparnis", exportLabel: "Verkauf",
     shareIncomplete: "Einige Zahlen von heute fehlen", paybackIncomplete: "Für einige Monate fehlen Zahlen, daher ist unklar, wie viel zurückgekommen ist", language: "Sprache", languageAuto: "Automatisch",
-    paybackNoPrice: "Kein Preis eingetragen, daher ist unklar, wie viel zurückgekommen ist",
     helpPricesBuy: "Kauf: was jede kWh aus dem Netz kostet, darum zeigt der Pfeil vom Netz zum Haus",
     helpPricesBands: "Kästchen: der Preis jedes Zeitbands, seine Stunden heute und der Anteil des Netzbezugs dieses Monats in diesem Band; das jetzt geltende Band ist umrandet",
     helpPricesSell: "Verkauf: was jede kWh ins Netz einbringt, darum zeigt der Pfeil vom Haus zum Netz",

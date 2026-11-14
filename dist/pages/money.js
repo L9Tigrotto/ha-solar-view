@@ -21,11 +21,11 @@ const priced = (data, rows) => data.price.buy != null || data.price.sell != null
 
 // Payback for this month (see paybackOf): its own step, as it walks up to 50 years of months. The page asks for it
 // once per change of the numbers, not on every redraw of Money (a month picked). Unknown because nothing prices the
-// numbers: `noPrice`.
+// numbers: null, so the card goes like the other unpriced Money cards (and the skeleton, which draws from this too).
 function paybackView(data, now, clock) {
   const key = clock(now).key.slice(0, 7);
   const v = paybackOf(ledgerOf(data, key, moneyOf(data, key)), data.payback, paybackPredicts(data), { lat: data.lat, sell: data.sends ? data.price.sell ?? 0 : 0 });
-  return v?.incomplete && !priced(data, [data.month, data.lastMonth, ...(data.months ?? []).map(([, x]) => x)]) ? { ...v, noPrice: true } : v;
+  return v?.incomplete && !priced(data, [data.month, data.lastMonth, ...(data.months ?? []).map(([, x]) => x)]) ? null : v;
 }
 
 // What the Money page shows at `now`: { empty, payback, recent, prices, month, help }. `pick` holds the month and
@@ -157,7 +157,7 @@ function paybackHtml(v, t, f, sends) {
   if (!v) return "";
   if (v.incomplete) return `<section class="card payback">
       <h2>${t.paybackTitle}</h2>${helpButton(t, "payback")}
-      <p class="note">${v.noPrice ? t.paybackNoPrice : t.paybackIncomplete}</p>
+      <p class="note">${t.paybackIncomplete}</p>
     </section>`;
   const { got, paid, left } = v;
   // The range names the unit once, in the main figure: "About 7.5 years left (6.3 to 9.3)".

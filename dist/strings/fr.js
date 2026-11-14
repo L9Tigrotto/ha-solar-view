@@ -319,7 +319,6 @@ export const STRINGS = {
     netBenefit: "Solde",
     nowMark: "Maintenant", homeUse: "Conso. maison", selfSupplied: "Autoproduit", battAvg: "Batterie moy.", returns: "Économies", exportLabel: "Vente",
     shareIncomplete: "Certains chiffres d'aujourd'hui ne sont pas enregistrés", paybackIncomplete: "Il manque les chiffres de certains mois, on ne sait donc pas combien est revenu", language: "Langue", languageAuto: "Automatique",
-    paybackNoPrice: "Aucun prix n'est réglé, on ne sait donc pas combien est revenu",
     helpPricesBuy: "Achat : ce que coûte chaque kWh pris au réseau, d'où la flèche du Réseau vers la Maison",
     helpPricesBands: "Cases : le prix de chaque plage horaire, ses heures aujourd'hui et la part de l'énergie prise au réseau ce mois-ci dans cette plage ; la plage en cours est entourée",
     helpPricesSell: "Vente : ce que rapporte chaque kWh envoyé au réseau, d'où la flèche de la Maison vers le Réseau",
