@@ -1,0 +1,53 @@
+{
+  "config": {
+    "abort": {
+      "single_instance_allowed": "Solar view is already set up."
+    },
+    "step": {
+      "user": {
+        "title": "Solar view",
+        "description": "Where the panels are, and what can hold their production back. Production and export come from the Energy settings.",
+        "data": {
+          "latitude": "Latitude",
+          "longitude": "Longitude",
+          "soc_entity": "Battery charge sensor (%)",
+          "export_limit_kw": "Export limit (kW)"
+        },
+        "data_description": {
+          "soc_entity": "Leave empty without a battery.",
+          "export_limit_kw": "0 when nothing may go to the grid, empty when there is no limit."
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Solar view",
+        "data": {
+          "latitude": "Latitude",
+          "longitude": "Longitude",
+          "soc_entity": "Battery charge sensor (%)",
+          "export_limit_kw": "Export limit (kW)",
+          "weather_model": "Weather model"
+        },
+        "data_description": {
+          "soc_entity": "Leave empty without a battery.",
+          "export_limit_kw": "0 when nothing may go to the grid, empty when there is no limit.",
+          "weather_model": "An Open-Meteo model name. ecmwf_aifs025_single covers 16 days and fills the days a shorter model lacks."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "forecast": { "name": "Forecast" }
+    }
+  },
+  "issues": {
+    "no_weather": {
+      "title": "Solar view: no new weather since {since}",
+      "description": "Open-Meteo has not answered for 12 hours, so the sun forecast is paused. It starts again by itself once Open-Meteo answers."
+    }
+  }
+}
