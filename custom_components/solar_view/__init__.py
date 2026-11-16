@@ -17,6 +17,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: SolarViewConfigEntry) ->
     coordinator = SolarViewCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
+    # A coordinator without listeners stops polling: keep it running when the sensor is disabled, since the
+    # Energy forecast and the stored day-ahead values come from the same runs.
+    entry.async_on_unload(coordinator.async_add_listener(lambda: None))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_reload))
     return True

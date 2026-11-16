@@ -52,7 +52,11 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
         cfg = self.config_entry.options or self.config_entry.data
         lat, lon, model = cfg[CONF_LATITUDE], cfg[CONF_LONGITUDE], cfg.get(CONF_MODEL) or AIFS
         now, tz = dt_util.utcnow(), dt_util.get_default_time_zone()
-        weather = merge_weather(await self._weather(lat, lon, model, now), model)
+        hourly = await self._weather(lat, lon, model, now)
+        if hourly is None:  # stale: nothing old may pass for a forecast, in the sensor or the Energy settings
+            await self._store.async_save(self._saved)
+            return None
+        weather = merge_weather(hourly, model)
         rows = await self._rows(cfg, now)
         profile = roof_profile(rows, lat, lon, tz, now) if rows is not None else None
         if rows is not None and profile is None:
@@ -74,8 +78,9 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
         return {"written": now, "attributes": attributes(sun, weather, now, tz, lat, lon),
                 "wh_hours": wh_hours(sun, now, tz)}
 
-    async def _weather(self, lat: float, lon: float, model: str, now: datetime) -> dict[str, Any]:
-        """Open-Meteo's hourly block: a fresh one, else the last good one while under STALE_AFTER_HOURS old."""
+    async def _weather(self, lat: float, lon: float, model: str, now: datetime) -> dict[str, Any] | None:
+        """Open-Meteo's hourly block: a fresh one, else the last good one while under STALE_AFTER_HOURS old.
+        Older: the repair issue and None. Never any: the issue and UpdateFailed, so setup retries."""
         try:
             session = async_get_clientsession(self.hass)
             async with session.get(weather_url(lat, lon, model), timeout=aiohttp.ClientTimeout(total=30)) as resp:
@@ -91,7 +96,10 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
                 self.hass, DOMAIN, ISSUE, is_fixable=False, severity=ir.IssueSeverity.WARNING,
                 translation_key=ISSUE,
                 translation_placeholders={"since": dt_util.as_local(fetched).strftime("%H:%M") if fetched else "-"})
-            raise UpdateFailed(f"No weather from Open-Meteo: {err}") from err
+            if not last:
+                raise UpdateFailed(f"No weather from Open-Meteo: {err}") from err
+            _LOGGER.debug("Open-Meteo failed (%s), the weather from %s is too old to use", err, fetched)
+            return None
         self._saved["weather"] = {"fetched": now.isoformat(), "hourly": hourly}
         ir.async_delete_issue(self.hass, DOMAIN, ISSUE)
         return hourly
