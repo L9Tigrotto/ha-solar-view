@@ -66,9 +66,14 @@ function moneyView({ data, now, clock, pick }, payback = paybackView(data, now, 
       picked: x && { cost, saved: got("saved", x, at), earned: got("earned", x, at), brought, net: net(x, at), endCost, endBack } };
   }
   // This month day by day: what each day brought back from its day rows, priced as the months without the fixed
-  // fees; null for a day with no numbers on record or nobody to price it. The days to come from the outlook.
-  const days = (data.monthDays ?? []).map((d) => ({ date: d.date, none: d.none, back: d.none ? null : sumKnown([onRecord.saved(d), onRecord.earned(d)]), cost: d.none ? null : onRecord.cost(d) }));
-  const recent = (anyPrice || stat(data.monthDays ?? [])) && days.some((d) => d.back !== null || d.cost !== null)
+  // fees; its cost and savings the bills sensor's when it priced the day (this month's estimate), earned always
+  // from the rows. Null for a day with no numbers on record or nobody to price it. The days to come from the outlook.
+  const billed = data.sensorMonths?.[data.monthKey]?.days ?? {};
+  const days = (data.monthDays ?? []).map((d) => {
+    const b = billed[new Date(d.date).toISOString().slice(0, 10)], own = (k) => (Number.isFinite(b?.[k]) ? b[k] : onRecord[k](d));
+    return { date: d.date, none: d.none, back: d.none ? null : sumKnown([own("saved"), onRecord.earned(d)]), cost: d.none ? null : own("cost") };
+  });
+  const recent = (anyPrice || stat(data.monthDays ?? []) || Object.keys(billed).length > 0) && days.some((d) => d.back !== null || d.cost !== null)
     ? { key: data.monthKey, days, coming: coming?.days ?? [], at: pick?.recent } : null;
   // The month's end is drawn as a faded bar: behind this month's net, or behind its cost or savings.
   const ghost = !!month && ((month.months[key].net !== null && end.net !== null) || (!!month.picked && (month.picked.endCost > 0 || month.picked.endBack > 0)));

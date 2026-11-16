@@ -23,6 +23,10 @@ ENERGY = {"bought": ("grid_in_energy", "grid", "stat_energy_from"), "sent": ("gr
           "batt_out": ("battery_out_energy", "battery", "stat_energy_from"),
           "batt_in": ("battery_in_energy", "battery", "stat_energy_to"), "load": ("load_energy", None, None)}
 SHARE = 0.95  # hours with bought known a month needs before it is priced
+# A month without a bill: each band moves from the last bill's by K x the PUN Index GME's move (spec part 2).
+LOSSES = 0.10  # grid losses on the PUN (ARERA may revise them)
+VAT = 0.10
+K = (1 + LOSSES) * (1 + VAT)
 
 
 def kind_of(prices: dict[str, float]) -> str | None:
@@ -59,32 +63,72 @@ def band_of(day: date, hour: int, kind: str) -> str:
     return "f23" if kind == "two" and band != "f1" else band
 
 
+def month_after(month: str) -> str:
+    """The month after `month` ("2026-12" -> "2027-01")."""
+    y, m = map(int, month.split("-"))
+    return f"{y + m // 12:04d}-{m % 12 + 1:02d}"
+
+
+def estimated_months(stored: dict, this_month: str) -> dict[str, str]:
+    """Each month after the first stored one, up to `this_month`, with no bill of its own, to the latest stored
+    month before it (the bill its estimate starts from)."""
+    out: dict[str, str] = {}
+    if not stored:
+        return out
+    last = min(stored)
+    month = month_after(last)
+    while month <= this_month:
+        if month in stored:
+            last = month
+        else:
+            out[month] = last
+        month = month_after(month)
+    return out
+
+
+def estimate(bill: dict[str, float], pun_bill: dict[str, float], pun_month: dict[str, float]) -> dict[str, float]:
+    """A month's band prices from the last bill before it: each band of `bill` (fixed left out) moved by K x the
+    PUN's move from the bill's month (`pun_bill`) to this one (`pun_month`), EUR/kWh."""
+    return {b: round(p + K * (pun_month[b] - pun_bill[b]), 5) for b, p in bill.items() if b != "fixed"}
+
+
 def month_money(hours: list[tuple[datetime, float | None, float | None]], prices: dict[str, float],
-                tz: ZoneInfo, month: str) -> dict | None:
+                tz: ZoneInfo, month: str, until: datetime | None = None) -> dict | None:
     """What `month` ("2026-09") cost and saved at its bill's prices. `hours` are (start, bought kWh, house kWh):
-    cost is bought x price, saved is house above bought x price. None when the bands make no contract, or fewer
-    than 95 % of the month's hours (in `tz`, clock changes counted) have bought known."""
+    cost is bought x price, saved is house above bought x price. With `until` (this month: its last full hour),
+    only the hours before it count, and the result also has each local day's {"cost", "saved"} under "days".
+    None when the bands make no contract, no hour came before `until`, or fewer than 95 % of the month's hours
+    up to `until` (in `tz`, clock changes counted) have bought known."""
     kind = kind_of(prices)
     if kind is None:
         return None
     y, m = map(int, month.split("-"))
     first = datetime(y, m, 1, tzinfo=tz)
-    after = datetime(y + m // 12, m % 12 + 1, 1, tzinfo=tz)
-    total = (after.astimezone(timezone.utc) - first.astimezone(timezone.utc)) / timedelta(hours=1)
+    end = datetime(y + m // 12, m % 12 + 1, 1, tzinfo=tz)
+    if until is not None:
+        end = min(end, until)
+    total = (end.astimezone(timezone.utc) - first.astimezone(timezone.utc)) / timedelta(hours=1)
     cost = saved = 0.0
     known = 0
+    days: dict[str, list[float]] = {}
     for start, bought, house in hours:
-        if bought is None:
+        if bought is None or (until is not None and start >= until):
             continue
         local = start.astimezone(tz)
         price = prices[band_of(local.date(), local.hour, kind)]
         known += 1
+        day = days.setdefault(local.date().isoformat(), [0.0, 0.0])
+        day[0] += bought * price
         cost += bought * price
         if house is not None:
+            day[1] += max(0.0, house - bought) * price
             saved += max(0.0, house - bought) * price
-    if known < SHARE * total:
+    if total <= 0 or known < SHARE * total:
         return None
-    return {"cost": round(cost, 2), "saved": round(saved, 2)}
+    out: dict[str, Any] = {"cost": round(cost, 2), "saved": round(saved, 2)}
+    if until is not None:
+        out["days"] = {d: {"cost": round(c, 2), "saved": round(s, 2)} for d, (c, s) in sorted(days.items())}
+    return out
 
 
 def energy_ids(prefs: dict, config: dict) -> dict[str, list[str]]:
@@ -139,20 +183,32 @@ def hour_rows(stats: dict[str, list[dict]], ids: dict[str, list[str]]
     return out
 
 
-def months_attr(stored: dict, money: dict[str, dict | None]) -> dict:
-    """The sensor's months attribute: each stored month's prices, fixed part and money."""
-    return {m: {"prices": {k: v for k, v in s.items() if k != "fixed"}, "fixed": s.get("fixed"), "money": money.get(m)}
-            for m, s in stored.items()}
+def months_attr(stored: dict, money: dict[str, dict | None], estimates: dict[str, dict] | None = None,
+                this_month: str | None = None) -> dict:
+    """The sensor's months attribute: each stored month's prices, fixed part and money, then each estimated month
+    ({month: {"prices", "fixed"}}) flagged "estimate". The money's per-day figures are kept, as "days", for
+    `this_month`'s entry only."""
+    out = {m: {"prices": {k: v for k, v in s.items() if k != "fixed"}, "fixed": s.get("fixed")}
+           for m, s in stored.items()}
+    out.update({m: {"prices": e["prices"], "fixed": e.get("fixed"), "estimate": True}
+                for m, e in (estimates or {}).items()})
+    for m, entry in out.items():
+        cash = money.get(m)
+        entry["money"] = None if cash is None else {k: v for k, v in cash.items() if k != "days"}
+        if m == this_month and cash and "days" in cash:
+            entry["days"] = cash["days"]
+    return out
 
 
 class Bills:
     """The months stored through the set_month_prices action and their priced `months` attribute, for
-    sensor.solar_view_bills. Priced on setup and after each call, not hourly: a finished month's statistics stay."""
+    sensor.solar_view_bills. Priced on setup and after each call; with `pun`, also each hour (this month's
+    statistics grow), the months without a bill estimated from the PUN Index GME."""
 
-    def __init__(self, hass: Any) -> None:
+    def __init__(self, hass: Any, pun: bool = False) -> None:
         from homeassistant.helpers.storage import Store
 
-        from .const import BILLS_STORE
+        from .const import BILLS_STORE, PUN_STORE
 
         self.hass = hass
         self._store = Store(hass, 1, BILLS_STORE)
@@ -160,6 +216,16 @@ class Bills:
         self.months: dict = {}  # months_attr of the last pricing
         self._listeners: list[Callable[[], None]] = []
         self._lock = asyncio.Lock()  # one pricing at a time, so an older one never lands after a newer one
+        self.pun = pun
+        self._pun_store = Store(hass, 1, PUN_STORE)
+        # {"2026-09": {"three": {..}, "two": {..}, "single": {..}}}; this month's entry also has its fetch "day"
+        self._pun: dict[str, dict] = {}
+        # (month, day) of a failed fetch: said once and not tried again that day (a try can take a minute, holding
+        # the lock that set_month_prices waits on)
+        self._warned: set[tuple[str, str]] = set()
+        # A finished month's money by month, with the prices it was priced at: the hourly pricing reads only this
+        # month's statistics again. A month priced None (the recorder still starting) is read again.
+        self._priced: dict[str, tuple[tuple, dict]] = {}
 
     def async_add_listener(self, cb: Callable[[], None]) -> Callable[[], None]:
         """`cb` runs after each pricing; the returned function stops it."""
@@ -168,6 +234,8 @@ class Bills:
 
     async def async_load(self) -> None:
         self.stored = await self._store.async_load() or {}
+        if self.pun:
+            self._pun = await self._pun_store.async_load() or {}
 
     async def async_set(self, month: str, figures: dict[str, float] | None) -> None:
         """Store `month`'s figures (None removes the month), save, then price again."""
@@ -178,8 +246,57 @@ class Bills:
         await self._store.async_save(self.stored)
         await self.async_price()
 
+    async def _async_means(self, stored: dict, estimated: dict[str, str], now: datetime) -> None:
+        """The PUN's band means of each month an estimate needs (its own and its bill's), from GME: a finished
+        month once (again when it was last fetched unfinished), this month once a day. A failure warns once per
+        month and day and keeps what is stored."""
+        import aiohttp
+
+        from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+        from .pun import HEADERS, band_means, parse_zip, url_for
+
+        this_month, today = now.strftime("%Y-%m"), now.date()
+        need: dict[str, set[str]] = {}
+        for month, bill in estimated.items():
+            kind = kind_of({k: v for k, v in stored[bill].items() if k != "fixed"})
+            if kind is not None:
+                for m in (month, bill):
+                    need.setdefault(m, set()).add(kind)
+        changed = False
+        for month, kinds in sorted(need.items()):
+            entry = self._pun.get(month, {})
+            if (month, today.isoformat()) in self._warned:
+                continue
+            if month == this_month:
+                if entry.get("day") == today.isoformat():
+                    continue
+            elif "day" not in entry and kinds <= entry.keys():
+                continue
+            y, m = map(int, month.split("-"))
+            first = date(y, m, 1)
+            last = min(date(y + m // 12, m % 12 + 1, 1) - timedelta(days=1), today)
+            try:
+                async with async_get_clientsession(self.hass).get(
+                        url_for(first, last), headers=HEADERS, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                    resp.raise_for_status()
+                    data = await resp.read()
+                prices = await self.hass.async_add_executor_job(parse_zip, data)
+                means = {k: v for k in KINDS if (v := band_means(prices, k)) is not None}
+                if not means:
+                    raise ValueError("no hour in it")
+            except (aiohttp.ClientError, TimeoutError, ValueError) as err:
+                self._warned.add((month, today.isoformat()))
+                _LOGGER.warning("Solar view: no PUN Index GME for %s (%s), keeping what is stored", month, err)
+                continue
+            self._pun[month] = {**means, **({"day": today.isoformat()} if month == this_month else {})}
+            changed = True
+        if changed:
+            await self._pun_store.async_save(self._pun)
+
     async def async_price(self) -> None:
-        """Every stored month priced from its own hours in Home Assistant's time zone; listeners told."""
+        """Every stored month priced from its own hours in Home Assistant's time zone, and with `pun` every month
+        without a bill after the first one estimated (this month up to its last full hour); listeners told."""
         from homeassistant.components.energy.data import async_get_manager
         from homeassistant.components.recorder import get_instance
         from homeassistant.components.recorder.statistics import statistics_during_period
@@ -190,13 +307,34 @@ class Bills:
         async with self._lock:
             stored = dict(self.stored)  # a call may change it while this one waits on the statistics
             tz = dt_util.get_default_time_zone()
+            now = dt_util.now()
+            this_month = now.strftime("%Y-%m")
+            estimated = estimated_months(stored, this_month) if self.pun else {}
+            if estimated:
+                await self._async_means(stored, estimated, now)
+            estimates: dict[str, dict] = {}
+            for month, bill in estimated.items():
+                prices = {k: v for k, v in stored[bill].items() if k != "fixed"}
+                kind = kind_of(prices)
+                pun_bill, pun_month = self._pun.get(bill, {}).get(kind), self._pun.get(month, {}).get(kind)
+                if pun_bill and pun_month:  # a month never fetched is left out
+                    estimates[month] = {"prices": estimate(prices, pun_bill, pun_month),
+                                        "fixed": stored[bill].get("fixed")}
+            # Each month to price: its prices and the hour its money stops at (None: the month's end).
+            hour = now.replace(minute=0, second=0, microsecond=0)
+            todo = {m: ({k: v for k, v in s.items() if k != "fixed"}, None) for m, s in stored.items()}
+            todo.update({m: (e["prices"], hour if m == this_month else None) for m, e in estimates.items()})
             money: dict[str, dict | None] = {}
             if stored:
                 ids = energy_ids((await async_get_manager(self.hass)).data or {}, await async_read_config(self.hass))
                 wanted = {i for group in ids.values() for i in group}
-                for month, figures in stored.items():
+                for month, (prices, until) in todo.items():
                     if not ids["bought"]:
                         money[month] = None
+                        continue
+                    key = tuple(sorted(prices.items()))
+                    if until is None and self._priced.get(month, (None,))[0] == key:
+                        money[month] = self._priced[month][1]
                         continue
                     # One month that cannot be priced (the recorder still starting, a bad stored key) leaves
                     # the others priced: it says so and keeps its statistics' figure on the page.
@@ -207,11 +345,12 @@ class Bills:
                         stats = await get_instance(self.hass).async_add_executor_job(
                             statistics_during_period, self.hass, start, end, wanted, "hour", {"energy": "kWh"},
                             {"change"})
-                        prices = {k: v for k, v in figures.items() if k != "fixed"}
-                        money[month] = month_money(hour_rows(stats, ids), prices, tz, month)
+                        money[month] = month_money(hour_rows(stats, ids), prices, tz, month, until)
+                        if until is None and money[month] is not None:
+                            self._priced[month] = (key, money[month])
                     except Exception as err:  # noqa: BLE001
                         _LOGGER.warning("Solar view: %s could not be priced from the statistics: %s", month, err)
                         money[month] = None
-            self.months = months_attr(stored, money)
+            self.months = months_attr(stored, money, estimates, this_month)
         for cb in list(self._listeners):
             cb()

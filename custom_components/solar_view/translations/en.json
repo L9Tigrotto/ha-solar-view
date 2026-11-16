@@ -29,12 +29,14 @@
           "longitude": "Longitude",
           "soc_entity": "Battery charge sensor (%)",
           "export_limit_kw": "Export limit (kW)",
-          "weather_model": "Weather model"
+          "weather_model": "Weather model",
+          "pun_estimate": "Estimate months without a bill from the PUN Index GME (Italy)"
         },
         "data_description": {
           "soc_entity": "Leave empty without a battery.",
           "export_limit_kw": "0 when nothing may go to the grid, empty when there is no limit.",
-          "weather_model": "An Open-Meteo model name. ecmwf_aifs025_single covers 16 days and fills the days a shorter model lacks."
+          "weather_model": "An Open-Meteo model name. ecmwf_aifs025_single covers 16 days and fills the days a shorter model lacks.",
+          "pun_estimate": "Needs at least one bill stored with set_month_prices. Calls GME once a day."
         }
       }
     },

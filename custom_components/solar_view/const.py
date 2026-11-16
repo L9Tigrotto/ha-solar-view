@@ -13,3 +13,5 @@ ELEMENT = "solar-view-panel"         # the page's element name (the HACS Dashboa
 CONFIG_FILE = "solar_view.yaml"      # the page's options, in the config folder
 BILLS_STORE = f"{DOMAIN}.bills"      # each month's bill figures, set through SERVICE_PRICES
 SERVICE_PRICES = "set_month_prices"  # the action that stores a finished month's bill prices
+CONF_PUN = "pun_estimate"            # months without a bill estimated from the PUN Index GME, options only
+PUN_STORE = f"{DOMAIN}.pun"          # the PUN's band means of each month an estimate needs

@@ -29,12 +29,14 @@
           "longitude": "Longitudine",
           "soc_entity": "Sensore di carica della batteria (%)",
           "export_limit_kw": "Limite di immissione (kW)",
-          "weather_model": "Modello meteo"
+          "weather_model": "Modello meteo",
+          "pun_estimate": "Stima i mesi senza bolletta dal PUN Index GME (Italia)"
         },
         "data_description": {
           "soc_entity": "Lascia vuoto senza batteria.",
           "export_limit_kw": "0 se nulla può andare in rete, vuoto se non c'è un limite.",
-          "weather_model": "Un nome di modello Open-Meteo. ecmwf_aifs025_single copre 16 giorni e riempie i giorni che un modello più corto non ha."
+          "weather_model": "Un nome di modello Open-Meteo. ecmwf_aifs025_single copre 16 giorni e riempie i giorni che un modello più corto non ha.",
+          "pun_estimate": "Serve almeno una bolletta salvata con set_month_prices. Interroga il GME una volta al giorno."
         }
       }
     },

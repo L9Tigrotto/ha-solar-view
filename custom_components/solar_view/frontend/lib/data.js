@@ -69,25 +69,35 @@ function adviceForecast(mode, stats, ahead, now, clock) {
   return sun === null ? null : { fade: { now: at(0), next: (at(1) + at(2) + at(3)) / 3 }, today: sun, tomorrow: day(shiftKey(today, 1)), usual: stats.sunUsual ?? null };
 }
 
-// The tariff's bands and their prices ({ type, prices: { f1, ... }, share }), or null: each band's price typed (a
-// number or an entity), else learned from the price sensor's hour means and its value now. A band left without
-// one: no bands, and prices are left out of the advice. share: what part of this month's grid energy was bought
-// in each band (null with nothing bought yet). Worked out apart from the forecast: a sensor that cannot be read
-// must not take the prices card with it.
+// The bands a bill's prices give, by their names in order, and the tariff type they make.
+const BILLED = { "f1": "single", "f1,f23": "two", "f1,f2,f3": "three" };
+
+// The tariff's bands and their prices ({ type, prices: { f1, ... }, share }), or null: this month's prices on the
+// bills sensor (its bill or the PUN estimate) when they make a whole set of bands, its type from the bands given,
+// with or without a tariff; else each band's price typed (a number or an entity), else learned from the price
+// sensor's hour means and its value now. A band left without one: no bands, and prices are left out of the advice.
+// share: what part of this month's grid energy was bought in each band (null with nothing bought yet). Worked out
+// apart from the forecast: a sensor that cannot be read must not take the prices card with it.
 // ponytail: from the hour rows, so the hour under way is not in the share yet; add todayHours if that ever matters.
 function bandsOf(hass, ids, cfg, stats, now, clock) {
-  const tf = cfg.tariff;
-  if (!tf) return null;
-  const prices = bandPrices(tf.type, Object.fromEntries(Object.entries(tf.prices).map(([k, p]) => [k, numberOrEntity(p, hass, priceOf)])),
-    tf.sensor ? [...(stats.priceRows ?? []).map((r) => ({ ...r, mean: priceOf(hass, tf.sensor, r.mean) })), { start: now, mean: priceOf(hass, tf.sensor) }] : [], clock);
-  if (!prices) { warnOnce("tariff needs a type (single, two, three) and a price for each of its bands, from prices or sensor"); return null; }
-  const used = {}, month = clock(now).key.slice(0, 7);
+  const tf = cfg.tariff, month = clock(now).key.slice(0, 7);
+  const billed = findBills(hass)?.attributes?.months?.[month]?.prices, names = billed && Object.keys(billed).sort().join();
+  let type = billed && Object.values(billed).every(Number.isFinite) ? BILLED[names] : undefined;
+  let prices = type ? Object.fromEntries(names.split(",").map((b) => [b, billed[b]])) : null;
+  if (!type) {
+    if (!tf) return null;
+    type = tf.type;
+    prices = bandPrices(type, Object.fromEntries(Object.entries(tf.prices).map(([k, p]) => [k, numberOrEntity(p, hass, priceOf)])),
+      tf.sensor ? [...(stats.priceRows ?? []).map((r) => ({ ...r, mean: priceOf(hass, tf.sensor, r.mean) })), { start: now, mean: priceOf(hass, tf.sensor) }] : [], clock);
+    if (!prices) { warnOnce("tariff needs a type (single, two, three) and a price for each of its bands, from prices or sensor"); return null; }
+  }
+  const used = {};
   for (const id of ids.gridImportKwh) for (const r of stats.gridMonth?.[id] ?? []) {
     const c = clock(r.start);
-    if (r.change > 0 && c.key.startsWith(month)) { const b = bandOf(c.key, c.hour, tf.type); used[b] = (used[b] ?? 0) + r.change; }
+    if (r.change > 0 && c.key.startsWith(month)) { const b = bandOf(c.key, c.hour, type); used[b] = (used[b] ?? 0) + r.change; }
   }
   const bought = Object.values(used).reduce((a, x) => a + x, 0);
-  return { type: tf.type, prices, share: bought > 0 ? Object.fromEntries(Object.keys(prices).map((b) => [b, (used[b] ?? 0) / bought])) : null };
+  return { type, prices, share: bought > 0 ? Object.fromEntries(Object.keys(prices).map((b) => [b, (used[b] ?? 0) / bought])) : null };
 }
 
 // The forecast and what follows from it (ghosts, lasts until, best time, money, month end), worked out when the

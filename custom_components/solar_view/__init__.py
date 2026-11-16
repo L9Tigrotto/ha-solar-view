@@ -9,11 +9,12 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv, issue_registry as ir
+from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .bills import Bills, kind_of
-from .const import BILLS_STORE, DOMAIN, ISSUE_PICK, ISSUE_WEATHER, SERVICE_PRICES
+from .const import BILLS_STORE, CONF_PUN, DOMAIN, ISSUE_PICK, ISSUE_WEATHER, PUN_STORE, SERVICE_PRICES
 from .coordinator import SolarViewCoordinator
 from .panel import async_serve_files, async_setup_panel, remove_panel
 
@@ -62,7 +63,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: SolarViewConfigEntry) ->
     await async_setup_panel(hass)
     coordinator = SolarViewCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
-    coordinator.bills = Bills(hass)
+    coordinator.bills = bills = Bills(hass, pun=bool((entry.options or {}).get(CONF_PUN)))
     await coordinator.bills.async_load()
     entry.runtime_data = coordinator
     # A coordinator without listeners stops polling: keep it running when the sensor is disabled, since the
@@ -70,7 +71,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: SolarViewConfigEntry) ->
     entry.async_on_unload(coordinator.async_add_listener(lambda: None))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     # In the background: a year of billed months reads a year of hourly statistics, and startup need not wait.
-    entry.async_create_background_task(hass, coordinator.bills.async_price(), "solar_view bills")
+    entry.async_create_background_task(hass, bills.async_price(), "solar_view bills")
+    # This month's estimate grows with its statistics: priced again at a quarter past each hour, once Home
+    # Assistant has written the last hour's (the page asks for them then too).
+    if bills.pun:
+        async def _hourly(_now) -> None:
+            await bills.async_price()
+
+        entry.async_on_unload(async_track_time_change(hass, _hourly, minute=15, second=0))
     entry.async_on_unload(entry.add_update_listener(_reload))
     return True
 
@@ -84,14 +92,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: SolarViewConfigEntry) -
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: SolarViewConfigEntry) -> None:
-    """Removed: its panel, its repair issues, its stored weather and day-ahead values and its bills go too. The
-    sun_forecast statistic stays, as every removed integration's statistics do (Developer tools > Statistics
-    deletes it)."""
+    """Removed: its panel, its repair issues, its stored weather and day-ahead values, its bills and PUN means go
+    too. The sun_forecast statistic stays, as every removed integration's statistics do (Developer tools >
+    Statistics deletes it)."""
     remove_panel(hass)  # an entry deleted while its setup retries is never unloaded
     for issue in (ISSUE_WEATHER, ISSUE_PICK):
         ir.async_delete_issue(hass, DOMAIN, issue)
     await Store(hass, 1, DOMAIN).async_remove()
     await Store(hass, 1, BILLS_STORE).async_remove()
+    await Store(hass, 1, PUN_STORE).async_remove()
 
 
 async def _reload(hass: HomeAssistant, entry: SolarViewConfigEntry) -> None:

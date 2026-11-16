@@ -173,3 +173,59 @@ def test_energy_ids_odd_override_is_dropped_not_raised():
     """A number or a map where an id belongs is left out, as the page's readConfig does, never an error."""
     assert bills.energy_ids({}, {"sensors": {"grid_in_energy": 5}})["bought"] == []
     assert bills.energy_ids({}, {"sensors": {"grid_in_energy": {"a": 1}}})["bought"] == []
+
+
+# ---- PUN estimate: months to estimate, estimate, money until now ----
+def test_estimated_months_after_first_bill():
+    assert bills.estimated_months({"2026-08": {}, "2026-09": {}}, "2026-11") == {"2026-10": "2026-09",
+                                                                                  "2026-11": "2026-09"}
+    # a gap between two bills is estimated from the latest bill before it; none before the first bill
+    assert bills.estimated_months({"2026-06": {}, "2026-08": {}, "2026-11": {}}, "2026-11") == {
+        "2026-07": "2026-06", "2026-09": "2026-08", "2026-10": "2026-08"}
+    # across a new year
+    assert bills.estimated_months({"2026-11": {}}, "2027-02") == {"2026-12": "2026-11", "2027-01": "2026-11",
+                                                                   "2027-02": "2026-11"}
+    assert bills.estimated_months({}, "2026-11") == {}
+    assert bills.estimated_months({"2026-11": {}}, "2026-11") == {}
+
+
+def test_estimate_follows_pun_times_k():
+    assert bills.K == pytest.approx(1.21)
+    sep = {"f1": .3468, "f2": .3, "f3": .25, "fixed": -4}
+    got = bills.estimate(sep, {"f1": .20635, "f2": .2, "f3": .19}, {"f1": .23339, "f2": .2, "f3": .18})
+    assert got == {"f1": .37952, "f2": .3, "f3": .2379}
+
+
+def test_month_money_until_counts_elapsed_hours():
+    until = datetime(2026, 11, 3, tzinfo=ROME)  # 48 hours elapsed: 95 % is 45.6
+    rows = month_of(d1h10=(1, 3), d2h10=(2, 2), d16h10=(5, 5))
+    assert bills.month_money(rows[:45], PRICES, ROME, "2026-11", until) is None
+    # the hours at or after until are ignored (d16), the 95 % rule counts only the elapsed ones
+    got = bills.month_money(rows, PRICES, ROME, "2026-11", until)
+    # Sun 1 (holiday) 10:00 f3 0.2: cost 0.2 saved 0.4; Mon 2 10:00 f1 0.3: cost 0.6 saved 0
+    assert got == {"cost": 0.8, "saved": 0.4,
+                   "days": {"2026-11-01": {"cost": 0.2, "saved": 0.4}, "2026-11-02": {"cost": 0.6, "saved": 0}}}
+    assert sum(d["cost"] for d in got["days"].values()) == pytest.approx(got["cost"])
+    assert sum(d["saved"] for d in got["days"].values()) == pytest.approx(got["saved"])
+
+
+def test_month_money_until_first_instant_is_none():
+    assert bills.month_money(month_of(), PRICES, ROME, "2026-11", datetime(2026, 11, 1, tzinfo=ROME)) is None
+
+
+def test_month_money_until_after_month_end_counts_whole_month():
+    got = bills.month_money(month_of(), PRICES, ROME, "2026-11", datetime(2026, 12, 5, tzinfo=ROME))
+    assert got["cost"] == 0 and len(got["days"]) == 30
+
+
+def test_months_attr_flags_estimates_and_keeps_days_for_this_month():
+    stored = {"2026-09": {"f1": .3, "fixed": -4}}
+    day = {"2026-11-02": {"cost": 0.6, "saved": 0}}
+    money = {"2026-09": {"cost": 1, "saved": 2, "days": day}, "2026-10": {"cost": 3, "saved": 4, "days": day},
+             "2026-11": {"cost": 0.6, "saved": 0, "days": day}}
+    estimates = {"2026-10": {"prices": {"f1": .31}, "fixed": -4}, "2026-11": {"prices": {"f1": .32}, "fixed": -4}}
+    assert bills.months_attr(stored, money, estimates, "2026-11") == {
+        "2026-09": {"prices": {"f1": .3}, "fixed": -4, "money": {"cost": 1, "saved": 2}},
+        "2026-10": {"prices": {"f1": .31}, "fixed": -4, "money": {"cost": 3, "saved": 4}, "estimate": True},
+        "2026-11": {"prices": {"f1": .32}, "fixed": -4, "money": {"cost": 0.6, "saved": 0}, "estimate": True,
+                    "days": day}}

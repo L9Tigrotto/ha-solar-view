@@ -1,5 +1,5 @@
 """Setup and options: where the panels are, the battery's charge sensor, the export limit; options add the
-weather model."""
+weather model and the PUN estimate."""
 from __future__ import annotations
 
 from typing import Any
@@ -12,10 +12,11 @@ from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
-    EntitySelector, EntitySelectorConfig, NumberSelector, NumberSelectorConfig, NumberSelectorMode, TextSelector,
+    BooleanSelector, EntitySelector, EntitySelectorConfig, NumberSelector, NumberSelectorConfig, NumberSelectorMode,
+    TextSelector,
 )
 
-from .const import CONF_EXPORT_LIMIT, CONF_MODEL, CONF_SOC, DOMAIN
+from .const import CONF_EXPORT_LIMIT, CONF_MODEL, CONF_PUN, CONF_SOC, DOMAIN
 from .forecast import AIFS, weather_url
 
 
@@ -34,6 +35,7 @@ def _schema(d: dict[str, Any], options: bool) -> vol.Schema:
     }
     if options:
         fields[vol.Required(CONF_MODEL, default=d.get(CONF_MODEL) or AIFS)] = TextSelector()
+        fields[vol.Required(CONF_PUN, default=bool(d.get(CONF_PUN)))] = BooleanSelector()
     return vol.Schema(fields)
 
 

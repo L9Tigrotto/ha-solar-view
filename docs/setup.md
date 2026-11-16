@@ -258,6 +258,12 @@ Calling again for a month replaces it; `month` alone removes it. The integration
 - A month with fewer than 95 % of its hours on record keeps the statistics' figure.
 - A month priced in its first minutes misses its last hour until the integration is reloaded.
 
+#### Months without a bill (Italy, PUN Index GME)
+
+For a contract priced on the PUN Index GME by band (such as Servizio a Tutele Graduali), turn on "Estimate months without a bill from the PUN Index GME" in the integration's options (Settings, Devices and services, Solar view, Configure). Every month after your first bill that has no bill of its own, this month included, is then estimated from the last bill before it: each band's price moves by 1.21 times what the PUN Index moved in that band since the billed month (1.10 for grid losses, 1.10 for VAT), and the fixed part stays the bill's. The bill's other per-kWh charges are taken as they were, so an estimate can be a cent or two off.
+
+The integration downloads each month's hourly PUN from GME once (this month's once a day) and prices this month again at a quarter past each hour. Daily returns, the Prices card's bands, the advice and the days ahead use this month's estimated prices; `sensor.solar_view_bills` marks estimated months with `estimate: true`. Once the bill comes, give its figures as above and they replace the estimate. A month that starts on a weekend or a holiday has no F1 hour yet, so it stays unestimated until its first working day.
+
 ### Time bands
 
 Italian contracts price electricity by the time bands that ARERA sets for every supplier:
