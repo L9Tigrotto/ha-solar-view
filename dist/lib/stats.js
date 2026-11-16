@@ -383,16 +383,18 @@ const recentOf = (kept, fresh, since, from) => Object.fromEntries(Object.keys({ 
   [id, [...(kept[id] ?? []).filter((r) => r.start >= since && r.start < from), ...(fresh[id] ?? []).filter((r) => r.start >= from)]]));
 
 // The statistics for one load: { rows (by name, see totals), kept (for the next load) }. Calls run side by side.
-// A failed solar forecast is no forecast; any other failure fails the load.
+// A failed solar forecast is no forecast this load, and is not kept, so the next load asks again (Home
+// Assistant restarting answers with errors for a while); any other failure fails the load.
 async function fetchStats(hass, ids, cfg, kept = {}, now, clock) {
-  const asks = toAsk(ids, cfg, kept, now, clock), next = { ...kept };
+  const asks = toAsk(ids, cfg, kept, now, clock), next = { ...kept }, failed = {};
   await Promise.all(asks.map(async ({ name, life, key, msg, from, since }) => {
     const answer = !msg ? {} : await hass.callWS(msg.start_time == null ? msg : { ...msg, start_time: new Date(msg.start_time).toISOString() })
-      .catch((e) => { if (name === "solarForecast") return {}; throw e; });
+      .catch((e) => { if (name === "solarForecast") return null; throw e; });
+    if (answer === null) { delete next[name]; failed[name] = {}; return; }
     const rows = from == null ? answer : recentOf(kept[name].rows, answer, since, from);
     next[name] = { key, until: untilOf(life, now, clock), at: now, rows };
   }));
-  return { rows: Object.fromEntries(FETCHES.map(({ name }) => [name, next[name].rows])), kept: next };
+  return { rows: Object.fromEntries(FETCHES.map(({ name }) => [name, failed[name] ?? next[name].rows])), kept: next };
 }
 
 export { ENERGY, balanceKwh, socDay, usualDay, totals, toAsk, untilOf, fetchStats }; // usualDay: for the tests
