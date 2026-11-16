@@ -29,15 +29,16 @@ const STALE_MS = 20 * 60 * 1000; // no live state written for this long: the pag
 const STEP = { weather: "none", usual_days_weather: "usual_days", usual_days: "none" };
 /** @type {Mode} */
 const NO_MODE = { level: "none" };
-// `level` is the config's (null: auto, which says nothing when it settles lower: the fresh sensor, else the page's own
-// forecast, else none). The Solar Forecast alone is enough for usual_days_weather, at auto and when set: it gives
+// `level` is the config's (null: auto, which says nothing when it settles lower: the Solar Forecast with a usual day,
+// so house use and money stay when the solar_view integration also writes the sensor; else the fresh sensor, else
+// the page's own forecast, else none). The Solar Forecast alone is enough for usual_days_weather, at auto and when set: it gives
 // the advice its "soon", "later" and "wait" before a usual day is on record. `usual`: a usual day is on record
 // (3 days); `solar`: the Solar Forecast answered.
 /** @param {Level | null} level @returns {Mode} */
 function modeOf(level, { usual = false, solar = false } = {}, sensor, now) {
   const fresh = !!sensorOf(sensor, now);
   const has = { none: true, usual_days: usual, weather: fresh, usual_days_weather: solar };
-  if (level == null) return { level: fresh ? "weather" : solar ? "usual_days_weather" : usual ? "usual_days" : "none" };
+  if (level == null) return { level: usual && solar ? "usual_days_weather" : fresh ? "weather" : solar ? "usual_days_weather" : usual ? "usual_days" : "none" };
   const why = { weather: "no fresh forecast sensor (sensor.solar_view_forecast)",
     usual_days_weather: "no Solar Forecast in the Energy settings", usual_days: "no usual day yet (it needs 3 days on record)" };
   let l = level;

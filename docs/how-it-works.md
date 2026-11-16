@@ -13,7 +13,7 @@ The page asks for today's 5 minute statistics every 5 minutes. The rest (the Ene
 
 ## Prediction levels
 
-`level` sets how far the page looks ahead. Without the key, the page picks the highest level its data allows, in this order: `weather`, `usual_days_weather`, `usual_days`, `none`.
+`level` sets how far the page looks ahead. Without the key, the page picks the highest level its data allows, in this order: `usual_days_weather` when a usual day and a Solar Forecast are both there, `weather`, `usual_days_weather` with the Solar Forecast alone, `usual_days`, `none`.
 
 | `level` | Sun from | House use from | Worked out by |
 |---|---|---|---|
