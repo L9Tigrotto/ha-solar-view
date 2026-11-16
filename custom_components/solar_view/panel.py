@@ -49,21 +49,26 @@ async def async_serve_files(hass: Any) -> None:
     await hass.http.async_register_static_paths([StaticPathConfig(FILES_URL, str(FRONTEND), True)])
 
 
+async def async_read_config(hass: Any) -> dict:
+    """solar_view.yaml as read_config reads it (!secret lines included), in the executor."""
+    from homeassistant.util.yaml import Secrets, load_yaml_dict
+
+    from .const import CONFIG_FILE
+
+    secrets = Secrets(Path(hass.config.config_dir))
+    return await hass.async_add_executor_job(
+        read_config, Path(hass.config.path(CONFIG_FILE)), lambda p: load_yaml_dict(p, secrets))
+
+
 async def async_setup_panel(hass: Any) -> None:
     """The sidebar panel, solar_view.yaml as its config and the files' hash as its version. Any panel from an
     earlier setup (a reload, a retry after a failed first refresh) is replaced."""
     from homeassistant.components import panel_custom
-    from homeassistant.util.yaml import Secrets, load_yaml_dict
 
-    from .const import CONFIG_FILE, ELEMENT, FILES_URL, PANEL_URL
+    from .const import ELEMENT, FILES_URL, PANEL_URL
 
-    secrets = Secrets(Path(hass.config.config_dir))
-
-    def read() -> tuple[str, dict]:
-        return files_hash(FRONTEND), read_config(Path(hass.config.path(CONFIG_FILE)),
-                                                 lambda p: load_yaml_dict(p, secrets))
-
-    version, config = await hass.async_add_executor_job(read)
+    version = await hass.async_add_executor_job(files_hash, FRONTEND)
+    config = await async_read_config(hass)
     remove_panel(hass)
     await panel_custom.async_register_panel(
         hass, frontend_url_path=PANEL_URL, webcomponent_name=ELEMENT, sidebar_title="Solar view",

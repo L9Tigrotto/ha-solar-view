@@ -11,3 +11,5 @@ PANEL_URL = "solar-view"             # the sidebar path of the page
 FILES_URL = "/solar_view"            # where frontend/ is served
 ELEMENT = "solar-view-panel"         # the page's element name (the HACS Dashboard install keeps solar-view)
 CONFIG_FILE = "solar_view.yaml"      # the page's options, in the config folder
+BILLS_STORE = f"{DOMAIN}.bills"      # each month's bill figures, set through SERVICE_PRICES
+SERVICE_PRICES = "set_month_prices"  # the action that stores a finished month's bill prices

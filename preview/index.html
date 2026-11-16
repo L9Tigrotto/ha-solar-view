@@ -357,8 +357,6 @@ function fakeForecast(s, now = Date.now()) {
   }
   const today = clock(now).key, range = (v) => [v * 0.85, v, v * 1.1];
   const total = (field, key, from = -Infinity) => hours.reduce((s, h) => s + (clock(Date.parse(h.t)).key === key && Date.parse(h.t) >= from ? h[field]?.[1] ?? 0 : 0), 0);
-  const d0 = new Date(localMidnight()), prev = new Date(d0.getFullYear(), d0.getMonth() - 1, 1);
-  const month = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   return { state: new Date(written).toISOString(), attributes: {
     hours,
     left: { sun: range(total("sun", today, written)), use: null },
@@ -369,10 +367,13 @@ function fakeForecast(s, now = Date.now()) {
           : { cloud: hours[0].cloud, rain: sky === "rain" ? 4 : 0 };
         return { d, sun: range(i < 2 ? total("sun", d) : real ? HOME.days[day2017(noon)][0] : 7), use: null, ...weather };
       }),
-    months: {
-      [month(prev)]: { money: money ? { cost: 14.6, saved: 98, earned: 0 } : null },
-    },
   } };
+}
+// The bills sensor: last month billed (its own fixed part not given, so bill_fixed applies), priced when prices are on.
+function fakeBills(s) {
+  const d0 = new Date(localMidnight()), prev = new Date(d0.getFullYear(), d0.getMonth() - 1, 1);
+  const key = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`;
+  return { state: key, attributes: { months: { [key]: { prices: { f1: 0.3 }, fixed: null, money: priced && !s.noPrices ? { cost: 14.6, saved: 98 } : null } } } };
 }
 
 function fakeHass(s, loading = false) {
@@ -381,7 +382,7 @@ function fakeHass(s, loading = false) {
   if (s) {
     const [solar, batt, grid, soc, elevation, rising] = s.v;
     set("sun.sun", elevation > 0 ? "above_horizon" : "below_horizon", { elevation, rising });
-    if (s.ahead) states["sensor.solar_view_forecast"] = fakeForecast(s);
+    if (s.ahead) { states["sensor.solar_view_forecast"] = fakeForecast(s); states["sensor.solar_view_bills"] = fakeBills(s); }
     if (s.weather) set("weather.home", s.weather, s.cover === undefined ? {} : { cloud_coverage: s.cover }); // a weather entity's state, e.g. "rainy", and its cloud cover in %
     // Home Assistant still starting: everything is there except the energy sensors.
     if (!loading) {
@@ -879,7 +880,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
 // Check: the forecast shape, from the sensor or built by the page, at fixed times in Rome
 // (2026-10-25 is the 25 hour day: clocks go back at 03:00).
 {
-  const { forecastOf, scenarioHours, findForecast } = await import("../custom_components/solar_view/frontend/lib/forecast.js");
+  const { forecastOf, scenarioHours, findForecast, findBills } = await import("../custom_components/solar_view/frontend/lib/forecast.js");
   const clock = clockOf("Europe/Rome");
   const at = Date.parse;
   // A sensor with every hour from midnight of `first` to the end of `last`: sun 1 kWh mid from 10 to 15.
@@ -909,7 +910,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     "forecast: sensor hours not from the present hour, or on past its last", a.hours);
   console.assert(same(a.hours[1], { t: at("2026-10-24T14:00:00+02:00"), sun: [0.5, 1, 1.5], use: null, cloud: 40, rain: 0, buy: 0.3, sell: null }), "forecast: sensor hour not copied", a.hours[1]);
   console.assert(same(a.left.sun.map(r3), [1.25, 2.5, 3.75]) && a.left.use === null, "forecast: left.sun not rebased to now, or use kept", a.left);
-  // The sensor's months are a fact, read apart from the forecast (sensorOf in forecast.js, used at every level).
+  // Months come from the bills sensor, never the forecast.
   console.assert(same(a.days, days.map((d) => ({ ...d, use: null }))) && a.months === undefined, "forecast: days not copied, or months in the forecast", a);
 
   // Stale (4 h old) or missing: built by the page from solarWh for a day it has any hour of (its missing
@@ -1000,9 +1001,11 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     console.assert(rows.every((h) => (h.sun > 0) === (clock(h.t).hour >= 10 && clock(h.t).hour <= 15)), `scenario ${kind}: mid shape lost`, rows);
   }
 
-  // The sensor is found by platform when renamed, else by its fixed id.
-  const A = { state: "a" }, B = { state: "b" };
-  console.assert(findForecast({ entities: { "sensor.other": { platform: "x" }, "sensor.my_forecast": { platform: "solar_view" } }, states: { "sensor.other": B, "sensor.my_forecast": A, "sensor.solar_view_forecast": B } }) === A, "findForecast: renamed entity not found");
+  // The sensors are found by translation key when renamed, else by their fixed id; the forecast never as the bills.
+  const A = { state: "a" }, B = { state: "b" }, M = { state: "2026-10" };
+  const ours = { "sensor.other": { platform: "x", translation_key: "forecast" }, "sensor.my_bills": { platform: "solar_view", translation_key: "bills" }, "sensor.my_forecast": { platform: "solar_view", translation_key: "forecast" } };
+  console.assert(findForecast({ entities: ours, states: { "sensor.other": B, "sensor.my_bills": M, "sensor.my_forecast": A, "sensor.solar_view_forecast": B } }) === A, "findForecast: renamed entity not found, or the bills sensor taken");
+  console.assert(findBills({ entities: ours, states: { "sensor.my_bills": M, "sensor.my_forecast": A } }) === M && findBills({ entities: {}, states: { "sensor.solar_view_bills": M } }) === M, "findBills: renamed or fixed id not found");
   console.assert(findForecast({ entities: {}, states: { "sensor.solar_view_forecast": B } }) === B && findForecast({ states: {} }) === undefined, "findForecast: fallback wrong");
 }
 
@@ -1576,7 +1579,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
 // Check: the Money page's month balance and prices. The 12 months up to this one to pick, oldest first, this
 // one pressed; under them the picked month: what the grid cost, what was saved (and earned), the net, below 0
 // in the low colour; for this month the month end from a fresh sensor, none from the statistics. From the
-// sensor's months when fresh, else the statistics at the flat price, the bill's fixed part on the cost and the
+// bills sensor's months, else the statistics at the flat price, the bill's fixed part on the cost and the
 // net. The prices now in their own card, selling only while export is on. Neither card without any price.
 {
   const t = STRINGS.en, f = formats("en", "EUR", "h12"), money = f.money;

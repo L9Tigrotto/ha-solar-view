@@ -232,6 +232,32 @@ template:
         state: "{{ states('input_number.bill_fixed') | float(0) }}"
 ```
 
+### Bill prices
+
+This needs the Solar view integration (the action and the bills sensor are its own). Once a bill has come, give its figures for each month it covers, and Money prices that month as the bill does. Call the action `solar_view.set_month_prices` (Developer tools, Actions, or from an automation):
+
+```yaml
+action: solar_view.set_month_prices
+data:
+  month: "2026-09"
+  f1: 0.3512
+  f2: 0.3301
+  f3: 0.3004
+  fixed: 14.20
+```
+
+| Field | Meaning |
+|---|---|
+| `month` | The month, `YYYY-MM`. Only a finished month: this month or a later one is refused. |
+| `f1`, `f2`, `f3`, `f23` | What one more kWh cost in that band, with every per-kWh charge, excise and VAT included. Give `f1`, `f2` and `f3`; or `f1` and `f23`; or `f1` alone for a single price. |
+| `fixed` | The month's fixed part with VAT: fixed fee, power fee and commercialisation. Half of a two-month bill's. Leave out TV licence, adjustments for earlier months and one-off charges. May be below 0. |
+
+Calling again for a month replaces it; `month` alone removes it. The integration prices each hour of the month at its band's price, the grid energy bought and the house's own energy alike, and `sensor.solar_view_bills` lists every month with its prices, fixed part and money. Month balance and payback then use those figures, and the month's `fixed` replaces `bill_fixed` for that month.
+
+- Home Assistant's meter can differ from the distributor's by a few percent, so the cost does not match the bill to the cent.
+- A month with fewer than 95 % of its hours on record keeps the statistics' figure.
+- A month priced in its first minutes misses its last hour until the integration is reloaded.
+
 ### Time bands
 
 Italian contracts price electricity by the time bands that ARERA sets for every supplier:

@@ -16,7 +16,7 @@ const netRow = (t, f, net) => [t.netBenefit, f.money(net), net < 0 ? "--low" : "
 
 // A money statistic in some of these rows.
 const stat = (rows) => rows.some((x) => Number.isFinite(x?.costMoney) || Number.isFinite(x?.earnedMoney));
-// Something prices the numbers: a price in the Energy settings, the sensor's month money or a money statistic.
+// Something prices the numbers: a price in the Energy settings, the bills sensor's month money or a money statistic.
 const priced = (data, rows) => data.price.buy != null || data.price.sell != null || Object.values(data.sensorMonths ?? {}).some((m) => m?.money) || stat(rows);
 
 // Payback for this month (see paybackOf): its own step, as it walks up to 50 years of months. The page asks for it
@@ -47,7 +47,7 @@ function moneyView({ data, now, clock, pick }, payback = paybackView(data, now, 
   // from the day rows (as `month`).
   const byMonth = new Map([[lastKey, data.lastMonth], ...(data.months ?? []), [key, data.month]]);
   const row = (mk) => { const x = byMonth.get(mk); return x && !x.none ? x : null; };
-  // A card of money shows only when something prices it: a price, the sensor's month money or a money statistic.
+  // A card of money shows only when something prices it: a price, the bills sensor's month money or a money statistic.
   // A day or month that bought or sent 0 kWh is a known 0 even then, which alone would draw a card of dashes.
   const anyPrice = p.buy != null || p.sell != null;
   // Month balance: each of the 12 months' net (null when nobody can price it; `noPrice`: numbers on record, no price

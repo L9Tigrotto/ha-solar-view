@@ -44,7 +44,8 @@
   },
   "entity": {
     "sensor": {
-      "forecast": { "name": "Previsione" }
+      "forecast": { "name": "Previsione" },
+      "bills": { "name": "Bollette" }
     }
   },
   "issues": {
@@ -55,6 +56,38 @@
     "not_picked": {
       "title": "Solar view: sceglilo come previsione solare",
       "description": "In Impostazioni > Plance > Energia, imposta come previsione dei pannelli solari solo Solar view. Un'altra previsione accanto conta il sole due volte; senza Solar view, la plancia Energia e la pagina Solar view leggono l'altra previsione."
+    }
+  },
+  "services": {
+    "set_month_prices": {
+      "name": "Imposta i prezzi del mese",
+      "description": "Salva i prezzi della bolletta di un mese concluso, così Solar view conta quel mese a quei prezzi. I prezzi sono tutto compreso al kWh, accise e IVA incluse. Indica solo il mese per toglierlo.",
+      "fields": {
+        "month": {
+          "name": "Mese",
+          "description": "Il mese concluso, nel formato AAAA-MM."
+        },
+        "f1": {
+          "name": "Prezzo F1",
+          "description": "Prezzo tutto compreso al kWh in fascia F1, o il prezzo unico di un contratto monorario."
+        },
+        "f2": {
+          "name": "Prezzo F2",
+          "description": "Prezzo tutto compreso al kWh in fascia F2, insieme a F1 e F3."
+        },
+        "f3": {
+          "name": "Prezzo F3",
+          "description": "Prezzo tutto compreso al kWh in fascia F3, insieme a F1 e F2."
+        },
+        "f23": {
+          "name": "Prezzo F23",
+          "description": "Prezzo tutto compreso al kWh in fascia F23, insieme a F1, per un contratto biorario."
+        },
+        "fixed": {
+          "name": "Quota fissa",
+          "description": "La quota fissa del mese, IVA inclusa. Sotto lo 0 se un bonus la supera."
+        }
+      }
     }
   }
 }

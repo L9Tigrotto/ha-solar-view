@@ -78,7 +78,7 @@ export function sensorOf(sensor, now) {
     .filter((h) => Number.isFinite(h.t)).sort((x, y) => x.t - y.t).filter((h, i, s) => !i || h.t !== s[i - 1].t);
   const fresh = Math.abs(now - written) < FRESH_MS && Array.isArray(a?.days) && a.days.every((d) => d && typeof d.d === "string")
     && Array.isArray(a.left?.sun) && hours.length > 0 && hours.every((h) => Array.isArray(h.sun));
-  return fresh ? { written, hours, days: a.days, left: a.left, months: a.months ?? null } : null;
+  return fresh ? { written, hours, days: a.days, left: a.left } : null;
 }
 
 // The usual day's sun in the hour starting at t, W, as the season moves it (usual.scale, see usualDay in stats.js).
@@ -168,18 +168,20 @@ export function scenarioHours(ahead, kind, now, clock) {
     .map((h) => ({ t: h.t, sun: h.sun[1] * sun[clock(h.t).key], use: h.use[1] * use[clock(h.t).key] }));
 }
 
-// The forecast sensor: found by its platform when the owner renamed it, else by its fixed id.
-// The registry's solar_view ids are kept while hass.entities is the same object: Home Assistant replaces it only
+// The integration's sensors: found by their translation key when the owner renamed them, else by their fixed id.
+// The registry's solar_view entries are kept while hass.entities is the same object: Home Assistant replaces it only
 // when the registry changes, and this runs on every state change.
 let registry, ours = [];
-export function findForecast(hass) {
+const findOurs = (hass, key, fallback) => {
   if (hass.entities !== registry) {
     registry = hass.entities;
     ours = Object.keys(registry || {}).filter((k) => registry[k]?.platform === "solar_view");
   }
-  const id = ours.find((k) => hass.states[k]);
-  return hass.states[id ?? "sensor.solar_view_forecast"];
-}
+  const id = ours.find((k) => registry[k].translation_key === key && hass.states[k]);
+  return hass.states[id ?? fallback];
+};
+export const findForecast = (hass) => findOurs(hass, "forecast", "sensor.solar_view_forecast");
+export const findBills = (hass) => findOurs(hass, "bills", "sensor.solar_view_bills");
 
 // ---- Time bands (Italy, ARERA) ----
 // F1 Monday to Friday 8 to 19; F2 Monday to Friday 7 to 8 and 19 to 23, Saturday 7 to 23; F3 the rest,

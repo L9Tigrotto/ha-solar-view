@@ -9,7 +9,7 @@ const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ ne
  *   typeof import("./money.js")]} */
 const [{ HOUR, FULL_SOC, roundTo, clockOf, dayHours, hourStart, inHour, shiftKey, noonOf, monthDayKeys, stateNum, numberOrEntity, priceOf, warnOnce },
   { SKY_LOW_DEG, weatherOf, cloudNow, raining, snowing, dawnOf, greyOf, coverOf, moonPhase }, { wearOf }, { BATTERY_FLOOR_SOC },
-  { sensorOf, forecastOf, lookAhead, bandOf, bandPrices }, { ENERGY }, { moneySoFar }] = await Promise.all([
+  { sensorOf, forecastOf, lookAhead, bandOf, bandPrices, findBills }, { ENERGY }, { moneySoFar }] = await Promise.all([
   import(`./core.js${v}`), import(`./sky.js${v}`), import(`./advice.js${v}`), import(`./config.js${v}`), import(`./forecast.js${v}`), import(`./stats.js${v}`), import(`./money.js${v}`)]);
 
 const SUN = "sun.sun";
@@ -92,7 +92,7 @@ function bandsOf(hass, ids, cfg, stats, now, clock) {
 
 // The forecast and what follows from it (ghosts, lasts until, best time, money, month end), worked out when the
 // statistics load and when the sensor writes, not on every redraw.
-// facts: the fresh sensor (see sensorOf), whose sky, prices and months are facts used at every level; null
+// facts: the fresh sensor (see sensorOf), whose sky and prices are facts used at every level; null
 // when it is not fresh. A sensor that cannot be read leaves the page without a forecast, nothing else.
 /** @typedef {import("./forecast.js").Ahead} Ahead */
 /** @typedef {import("./forecast.js").Outlook} Outlook */
@@ -239,8 +239,8 @@ function readData(hass, ids, cfg, stats, looked = {}, now = Date.now()) {
     // The tariff's bands, their prices and this month's share of each ({ type, prices: { f1, ... }, share }, see
     // bandsOf), or null.
     bands: looked.bands ?? null,
-    // The fresh sensor's months: finished months' money as it counted it.
-    sensorMonths: looked.facts?.months ?? null,
+    // The bills sensor's months: each billed month's prices, fixed part and money as it priced them (see moneyOf).
+    sensorMonths: findBills(hass)?.attributes?.months ?? null,
     // The fresh sensor's sky by day, { "2026-11-10": { cloud, rain } }, for the coming days' icons at every level.
     sensorSky: looked.facts ? Object.fromEntries(looked.facts.days.filter((d) => Number.isFinite(d.cloud)).map((d) => [d.d, { cloud: d.cloud, rain: d.rain }])) : null,
   };

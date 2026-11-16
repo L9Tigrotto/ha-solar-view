@@ -44,7 +44,8 @@
   },
   "entity": {
     "sensor": {
-      "forecast": { "name": "Forecast" }
+      "forecast": { "name": "Forecast" },
+      "bills": { "name": "Bills" }
     }
   },
   "issues": {
@@ -55,6 +56,38 @@
     "not_picked": {
       "title": "Solar view: pick it as the solar forecast",
       "description": "In Settings > Dashboards > Energy, set the solar panels' forecast to Solar view alone. Another forecast beside it counts the sun twice; without it, the Energy dashboard and the Solar view page read the other forecast."
+    }
+  },
+  "services": {
+    "set_month_prices": {
+      "name": "Set month prices",
+      "description": "Stores a finished month's bill prices, so Solar view counts that month at them. Prices are all-in per kWh, excise and VAT included. Give the month alone to remove it.",
+      "fields": {
+        "month": {
+          "name": "Month",
+          "description": "The finished month, as YYYY-MM."
+        },
+        "f1": {
+          "name": "F1 price",
+          "description": "All-in price per kWh in band F1, or the one price of a single-price contract."
+        },
+        "f2": {
+          "name": "F2 price",
+          "description": "All-in price per kWh in band F2, with F1 and F3."
+        },
+        "f3": {
+          "name": "F3 price",
+          "description": "All-in price per kWh in band F3, with F1 and F2."
+        },
+        "f23": {
+          "name": "F23 price",
+          "description": "All-in price per kWh in band F23, with F1, for a two-band contract."
+        },
+        "fixed": {
+          "name": "Fixed part",
+          "description": "The month's fixed part, VAT included. Below 0 when a bonus outweighs it."
+        }
+      }
     }
   }
 }

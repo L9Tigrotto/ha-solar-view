@@ -39,9 +39,9 @@ function moneySoFar(todayHours, buyAt, sellAt, standbyKwhPerHour, now) {
 // - fixedAt(mk): the bill's fixed part in a month: that month's mean of its entity, else the nearest month before
 //   with one, else the first on record (the month is older than the entity), else its value now; null (unknown)
 //   when the entity has neither. No bill_fixed at all is 0.
-// - got(k, x, mk): the sensor's figure for a finished month when it has one (fresh, at every level), else
-//   onRecord; the fixed part on every month's cost whole, as the bill charges it. back: saved plus earned. net:
-//   back less cost. Each null when any part is.
+// - got(k, x, mk): the bills sensor's figure for a month it priced, else onRecord; the fixed part on every month's
+//   cost whole, as the bill charges it: the bill's own when it gives one, else fixedAt. back: saved plus earned.
+//   net: back less cost. Each null when any part is.
 // - end: this month's end ({ net }): this month so far plus what the outlook expects (see moneyAhead), else null.
 // - coming: see moneyAhead.
 // ponytail: a month whose cost statistic started part way through counts only that part.
@@ -56,7 +56,8 @@ function moneyOf(data, key) {
   const fixedAt = (mk) => fx.months?.[mk] ?? fx.months?.[fxKeys.filter((k) => k < mk).at(-1) ?? fxKeys[0]] ?? (fx.now === undefined ? 0 : fx.now);
   const got = (k, x, mk) => {
     const v = months?.[mk]?.money?.[k], r = Number.isFinite(v) ? v : onRecord[k](x);
-    return r === null ? null : k !== "cost" ? r : fixedAt(mk) === null ? null : r + fixedAt(mk);
+    const own = months?.[mk]?.fixed, fixed = Number.isFinite(own) ? own : fixedAt(mk);
+    return r === null ? null : k !== "cost" ? r : fixed === null ? null : r + fixed;
   };
   const back = (x, mk) => sumKnown([got("saved", x, mk), got("earned", x, mk)]);
   const net = (x, mk) => { const c = got("cost", x, mk), b = back(x, mk); return c === null || b === null ? null : b - c; };
@@ -65,10 +66,9 @@ function moneyOf(data, key) {
   return { onRecord, fixedAt, got, back, net, end, coming };
 }
 
-// What each month brought back (saved and earned), for payback: finished months as the month card reads them, this
-// month so far from the statistics (the sensor's figure for it is the month end), from the first month on record to
-// `key`. A month whose savings are unknown stays in, as null: payback then cannot say what came back. So does a month
-// missing from the month rows between the first on record and this one (last month from the day rows, which the
+// What each month brought back (saved and earned), for payback: each month as the month card reads it (this one so
+// far), from the first month on record to `key`. A month whose savings are unknown stays in, as null: payback then
+// cannot say what came back. So does a month missing from the month rows between the first on record and this one (last month from the day rows, which the
 // month rows lag). Each with its kWh and money for seasonGuess.
 function ledgerOf(data, key, { back, got }) {
   const ledger = [], have = new Map(data.months ?? []), lastKey = shiftMonth(key, -1);

@@ -22,6 +22,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
+from .bills import Bills
 from .const import (
     CONF_EXPORT_LIMIT, CONF_MODEL, CONF_SOC, DOMAIN, ISSUE_PICK, ISSUE_WEATHER, STALE_AFTER_HOURS, STAT_ID,
 )
@@ -35,6 +36,8 @@ _LOGGER = logging.getLogger(__name__)
 
 class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
     """data: {"written", "attributes", "wh_hours"}, or None while there is nothing to forecast from."""
+
+    bills: Bills  # set by async_setup_entry before the platforms load
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, _LOGGER, config_entry=entry, name=DOMAIN, update_interval=timedelta(hours=1))

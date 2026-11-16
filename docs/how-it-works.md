@@ -7,7 +7,7 @@ How the page gets each figure, forecast and advice line. To install and set it u
 - Live values come from the power sensors named in the Energy settings (or under `sensors`).
 - Hour, day and month totals come from the long-term statistics of the energy sensors named there.
 - Prices and the solar forecast come from the same place, when they are set. A price entity per MWh or per Wh is turned into a price per kWh.
-- The money of past months comes from the cost statistics Home Assistant keeps for a grid with a price. A new price therefore leaves past months as they were. A month without them counts at today's price.
+- The money of past months comes from the bills sensor for a month with a bill's prices (see Bill prices in setup.md), else from the cost statistics Home Assistant keeps for a grid with a price. A new price therefore leaves past months as they were. A month without either counts at today's price.
 
 The page asks for today's 5 minute statistics every 5 minutes. The rest (the Energy settings, the hour, day and month rows, the solar forecast) only changes when Home Assistant writes its hourly statistics. The page asks for it again a quarter past each hour, and the day rows once a day.
 
@@ -53,7 +53,7 @@ A level whose data is missing steps down, again and again while data is missing.
 
 ### The forecast sensor's facts
 
-While the forecast sensor is fresh, some of what it says is a fact, not a forecast. The page uses these at every level: the cloud and rain of this hour for the sky, the weather icons of the coming days, the sell price now (and the buy price, without bands), and the money of past months and of this month so far. Only the forecast parts (days to come, the month end) follow the level.
+While the forecast sensor is fresh, some of what it says is a fact, not a forecast. The page uses these at every level: the cloud and rain of this hour for the sky, the weather icons of the coming days, and the sell price now (and the buy price, without bands). Only the forecast parts (days to come, the month end) follow the level.
 
 ## The usual day
 

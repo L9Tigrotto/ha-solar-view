@@ -105,7 +105,7 @@ let zoom; // textScale's answer, measured once per load: it forces a layout of t
 // draws, as themselves (a few hundred bytes). A picked day or hour changes its page in place (see _wireWeek); a
 // picked month draws again whatever the keys (see _redraw). payback: what payback reads (see paybackView).
 function pageKeys(data, { base, now, clock, sky }) {
-  const money = JSON.stringify([data.sends, data.payback, data.lat, data.price, data.priceNow, data.billFixed?.now]);
+  const money = JSON.stringify([data.sends, data.payback, data.lat, data.price, data.priceNow, data.billFixed?.now, data.sensorMonths]);
   return {
     now: `${base}|${JSON.stringify([data.now, data.sun, data.weather, data.moon, data.batt, data.wear, sky.day, staleSince(data, now)])}`,
     // Today by hour moves its now line every 5 minutes.
