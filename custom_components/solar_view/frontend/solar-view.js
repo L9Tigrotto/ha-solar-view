@@ -179,6 +179,14 @@ class SolarView extends HTMLElement {
     this._dialog = null; // the gear's dialog, built the first time it opens (see _gearDialog)
     try { this._show = JSON.parse(localStorage.getItem(SHOW_KEY)) ?? {}; } catch (e) { this._show = {}; }
     try { const l = localStorage.getItem(LANGUAGE_KEY); this._language = Object.hasOwn(LANGUAGES, l ?? "") ? l : ""; } catch (e) { this._language = ""; }
+    // The tab bar floats over the pages: they keep its height free at their foot (--foot, see footer in styles.js).
+    // Rects come zoomed, --foot is in the panel's own pixels (as in the hints below). 0 where the bar is not at
+    // the bottom (the wide layout puts the menu button in a corner).
+    const footer = /** @type {HTMLElement} */ (root.querySelector("footer"));
+    new ResizeObserver(() => {
+      const z = this["currentCSSZoom"] || 1, f = footer.getBoundingClientRect(), p = this._pager.getBoundingClientRect();
+      this.style.setProperty("--foot", `${f.bottom >= p.bottom - 1 ? Math.max(0, p.bottom - f.top) / z : 0}px`);
+    }).observe(footer);
     this._wireHints(root);
     this._wireTabs(root);
     this._wireShow();

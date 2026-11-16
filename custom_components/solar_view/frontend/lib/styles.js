@@ -95,7 +95,7 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .pager::-webkit-scrollbar{display:none}
 .page{flex:0 0 100%;min-width:0;scroll-snap-align:start;overflow-y:auto;scrollbar-width:none;
   display:grid;grid-template-columns:minmax(0,460px);justify-content:center;align-content:start;gap:12px;
-  padding:max(24px,env(safe-area-inset-top)) 16px 12px}
+  padding:max(24px,env(safe-area-inset-top)) 16px calc(12px + var(--foot,0px))}
 .title,.now h1{font-weight:700;line-height:1.15;letter-spacing:-.02em}
 /* Headings keep clear of the gear: the page edge plus this padding reaches past it. */
 .title{font-size:var(--t-title);padding:0 32px 4px 4px}
@@ -222,7 +222,7 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .empty .ids{margin:4px 0 0;padding:0;list-style:none;color:var(--ink-2);font-size:var(--t-s);overflow-wrap:anywhere}
 /* Offline or setup: one full-width page that scrolls from the top, the message centred in it, no dashboard tracks. */
 .pager.message{display:flex;overflow:hidden;padding:0;width:100%;max-width:none;margin:0;gap:0;scroll-snap-type:none}
-.pager.message .now{flex:1 1 auto;min-width:0;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;overflow:auto;gap:0;padding:56px 16px 24px;scroll-snap-align:none}
+.pager.message .now{flex:1 1 auto;min-width:0;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;overflow:auto;gap:0;padding:56px 16px calc(24px + var(--foot,0px));scroll-snap-align:none}
 .pager.message .empty{flex:none;margin-block:auto}
 
 /* Skeleton: the real page with every number and sentence turned into a grey bar. What is known
@@ -508,11 +508,16 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .bands .band-pct{font-weight:400;color:var(--ink-2)}
 .bands [aria-current]{border-color:var(--grid-mark,var(--grid));color:var(--ink)}
 
-/* Tab bar, with Home Assistant's own menu button beside it when the sidebar is hidden. */
-footer{position:relative;flex:none;zoom:var(--cap);display:flex;justify-content:center;align-items:center;gap:6px;padding:6px 8px max(8px,env(safe-area-inset-bottom))}
+/* Tab bar, with Home Assistant's own menu button beside it when the sidebar is hidden. It floats over the
+   pages, which scroll under it: their bottom padding is its height (--foot, measured in solar-view.js), so the
+   last card still clears it. Only the pill and the button take taps; the strip around them is the page's. */
+footer{position:absolute;z-index:2;left:0;right:0;bottom:0;zoom:var(--cap);display:flex;justify-content:center;align-items:center;gap:6px;
+  padding:6px 8px max(8px,env(safe-area-inset-bottom));pointer-events:none}
+footer > *{pointer-events:auto}
 ha-menu-button{color:var(--ink)}
 /* Each tab an icon above a short label. */
-.tabs{display:flex;gap:2px;min-width:0;overflow-x:auto;scrollbar-width:none;padding:4px;border-radius:26px;background:var(--card);border:1px solid var(--card-line)}
+.tabs{display:flex;gap:2px;min-width:0;overflow-x:auto;scrollbar-width:none;padding:4px;border-radius:26px;background:var(--card);border:1px solid var(--card-line);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
 .tabs button{appearance:none;border:0;background:none;cursor:pointer;display:grid;justify-items:center;align-content:center;gap:2px;
   min-height:50px;min-width:60px;padding:5px 10px 4px;border-radius:22px;color:var(--ink);font:500 var(--t-xs)/1.2 var(--f);white-space:nowrap}
 .tabs svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
@@ -580,7 +585,7 @@ dialog form > button{display:block;min-height:44px;margin:16px 0 0 auto;padding:
 @container (max-height:700px) and (max-width:1003px){
   .battday .plot{height:96px}
   .battday .plot.charge{height:60px}
-  .page{gap:10px;padding-top:max(16px,env(safe-area-inset-top));padding-bottom:6px}
+  .page{gap:10px;padding-top:max(16px,env(safe-area-inset-top));padding-bottom:calc(6px + var(--foot,0px))}
   .now h1{font-size:calc(26px / var(--zt))}
   .now .sub{margin-top:4px;font-size:var(--t-m)}
   .card{padding:12px 16px 14px}
@@ -648,7 +653,7 @@ dialog form > button{display:block;min-height:44px;margin:16px 0 0 auto;padding:
   .title,.now h1{font-size:var(--t-title)}
   .tabs{display:none}
   /* The menu button, when there is one, moves to the corner above the first column. */
-  footer{position:absolute;top:4px;left:12px;padding:0}
+  footer{top:4px;right:auto;bottom:auto;left:12px;padding:0}
 }
 
 @media (prefers-reduced-motion:no-preference){
