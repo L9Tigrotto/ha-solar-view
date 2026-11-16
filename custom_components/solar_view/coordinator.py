@@ -22,14 +22,15 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_EXPORT_LIMIT, CONF_MODEL, CONF_SOC, DOMAIN, STALE_AFTER_HOURS, STAT_ID
+from .const import (
+    CONF_EXPORT_LIMIT, CONF_MODEL, CONF_SOC, DOMAIN, ISSUE_PICK, ISSUE_WEATHER, STALE_AFTER_HOURS, STAT_ID,
+)
 from .forecast import (
-    AIFS, WINDOW_DAYS, Row, attributes, is_throttled, merge_weather, roof_profile, sun_hours, update_pending,
-    weather_url, wh_hours,
+    AIFS, WINDOW_DAYS, Row, attributes, forecast_linked, is_throttled, merge_weather, roof_profile, sun_hours,
+    update_pending, weather_url, wh_hours,
 )
 
 _LOGGER = logging.getLogger(__name__)
-ISSUE = "no_weather"
 
 
 class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
@@ -50,7 +51,8 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
         if self._saved is None:
             self._saved = await self._store.async_load() or {}
         cfg = self.config_entry.options or self.config_entry.data
-        lat, lon, model = cfg[CONF_LATITUDE], cfg[CONF_LONGITUDE], cfg.get(CONF_MODEL) or AIFS
+        lat, lon = cfg[CONF_LATITUDE], cfg[CONF_LONGITUDE]
+        model = (cfg.get(CONF_MODEL) or "").strip() or AIFS  # saved before the options flow stripped it
         now, tz = dt_util.utcnow(), dt_util.get_default_time_zone()
         hourly = await self._weather(lat, lon, model, now)
         if hourly is None:  # stale: nothing old may pass for a forecast, in the sensor or the Energy settings
@@ -59,12 +61,14 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
         weather = merge_weather(hourly, model)
         rows = await self._rows(cfg, now)
         profile = roof_profile(rows, lat, lon, tz, now) if rows is not None else None
-        if rows is not None and profile is None:
+        if rows == []:
+            self._say("no_stats", "Solar view: the Energy settings' solar panels have no statistics yet, no forecast")
+        elif rows is not None and profile is None:
             self._say("not_ready", "Solar view: fewer than 5 clear midday hours on record yet, no forecast")
         if profile is None:
             await self._store.async_save(self._saved)
             return None
-        self._said.discard("not_ready")
+        self._said -= {"no_stats", "not_ready"}
         sun = sun_hours(profile, weather, tz)
         pending, done = update_pending(self._saved.get("pending", {}), sun, now, tz)
         if done:
@@ -80,28 +84,32 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
 
     async def _weather(self, lat: float, lon: float, model: str, now: datetime) -> dict[str, Any] | None:
         """Open-Meteo's hourly block: a fresh one, else the last good one while under STALE_AFTER_HOURS old.
-        Older: the repair issue and None. Never any: the issue and UpdateFailed, so setup retries."""
+        Older: the repair issue and None. Never any: UpdateFailed, so setup retries (no issue: setup shows it)."""
         try:
             session = async_get_clientsession(self.hass)
             async with session.get(weather_url(lat, lon, model), timeout=aiohttp.ClientTimeout(total=30)) as resp:
                 resp.raise_for_status()
                 hourly = (await resp.json())["hourly"]
         except (aiohttp.ClientError, TimeoutError, KeyError, ValueError) as err:
+            if isinstance(err, aiohttp.ClientResponseError) and err.status == 400:  # not an outage: a model it lacks
+                self._say("bad_model", f"Solar view: Open-Meteo does not know the weather model {model!r}, "
+                          "pick another in the options")
             last = self._saved.get("weather")
             fetched = datetime.fromisoformat(last["fetched"]) if last else None
             if fetched and now - fetched < timedelta(hours=STALE_AFTER_HOURS):
                 _LOGGER.debug("Open-Meteo failed (%s), reusing the weather from %s", err, fetched)
                 return last["hourly"]
-            ir.async_create_issue(
-                self.hass, DOMAIN, ISSUE, is_fixable=False, severity=ir.IssueSeverity.WARNING,
-                translation_key=ISSUE,
-                translation_placeholders={"since": dt_util.as_local(fetched).strftime("%H:%M") if fetched else "-"})
             if not last:
                 raise UpdateFailed(f"No weather from Open-Meteo: {err}") from err
+            ir.async_create_issue(
+                self.hass, DOMAIN, ISSUE_WEATHER, is_fixable=False, severity=ir.IssueSeverity.WARNING,
+                translation_key=ISSUE_WEATHER,
+                translation_placeholders={"since": dt_util.as_local(fetched).strftime("%H:%M")})
             _LOGGER.debug("Open-Meteo failed (%s), the weather from %s is too old to use", err, fetched)
             return None
         self._saved["weather"] = {"fetched": now.isoformat(), "hourly": hourly}
-        ir.async_delete_issue(self.hass, DOMAIN, ISSUE)
+        self._said.discard("bad_model")
+        ir.async_delete_issue(self.hass, DOMAIN, ISSUE_WEATHER)
         return hourly
 
     async def _rows(self, cfg: Any, now: datetime) -> list[Row] | None:
@@ -116,6 +124,11 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
             self._say("no_solar", "Solar view: no solar panels in the Energy settings, nothing to forecast")
             return None
         self._said.discard("no_solar")
+        if forecast_linked(sources, self.config_entry.entry_id):
+            ir.async_delete_issue(self.hass, DOMAIN, ISSUE_PICK)
+        else:
+            ir.async_create_issue(self.hass, DOMAIN, ISSUE_PICK, is_fixable=False,
+                                  severity=ir.IssueSeverity.WARNING, translation_key=ISSUE_PICK)
         soc, limit = cfg.get(CONF_SOC), cfg.get(CONF_EXPORT_LIMIT)
         end = now.replace(minute=0, second=0, microsecond=0)
         ids = set(solar) | set(export) | ({soc} if soc else set())

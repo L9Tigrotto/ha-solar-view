@@ -92,6 +92,14 @@ def weather_url(lat: float, lon: float, model: str) -> str:
     return "https://api.open-meteo.com/v1/forecast?" + urlencode(q, safe=",")
 
 
+def forecast_linked(sources: list[dict], entry_id: str) -> bool:
+    """Whether the Energy settings' solar forecasts are this entry alone. The page and the Energy dashboard add up
+    every forecast linked to any solar source, and this one already covers all the panels: another beside it counts
+    the sun twice, and the page at auto reads the other alone when this one is not linked."""
+    linked = {e for s in sources if s.get("type") == "solar" for e in s.get("config_entry_solar_forecast") or []}
+    return linked == {entry_id}
+
+
 def merge_weather(hourly: dict, model: str) -> dict[datetime, Weather]:
     """Open-Meteo's hourly block as Weather by UTC hour start: the chosen model's value where it has one, else
     AIFS's. Open-Meteo labels an hour by its end, so every value moves one hour back."""

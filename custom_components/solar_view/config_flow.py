@@ -4,17 +4,19 @@ from __future__ import annotations
 
 from typing import Any
 
+import aiohttp
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     EntitySelector, EntitySelectorConfig, NumberSelector, NumberSelectorConfig, NumberSelectorMode, TextSelector,
 )
 
 from .const import CONF_EXPORT_LIMIT, CONF_MODEL, CONF_SOC, DOMAIN
-from .forecast import AIFS
+from .forecast import AIFS, weather_url
 
 
 def _schema(d: dict[str, Any], options: bool) -> vol.Schema:
@@ -33,6 +35,16 @@ def _schema(d: dict[str, Any], options: bool) -> vol.Schema:
     if options:
         fields[vol.Required(CONF_MODEL, default=d.get(CONF_MODEL) or AIFS)] = TextSelector()
     return vol.Schema(fields)
+
+
+async def _model_known(hass: HomeAssistant, d: dict[str, Any]) -> bool:
+    """False only when Open-Meteo answers 400, its answer to a model it lacks; an outage cannot tell, so it passes."""
+    try:
+        async with async_get_clientsession(hass).get(weather_url(d[CONF_LATITUDE], d[CONF_LONGITUDE], d[CONF_MODEL]),
+                                                     timeout=aiohttp.ClientTimeout(total=15)) as resp:
+            return resp.status != 400
+    except (aiohttp.ClientError, TimeoutError):
+        return True
 
 
 class SolarViewConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -54,7 +66,11 @@ class SolarViewOptionsFlow(OptionsFlow):
     """Every field again: the options replace the setup's answers whole, so a field cleared here stays cleared."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
-        now = self.config_entry.options or self.config_entry.data
-        return self.async_show_form(step_id="init", data_schema=_schema(dict(now), options=True))
+            user_input[CONF_MODEL] = user_input[CONF_MODEL].strip() or AIFS
+            if await _model_known(self.hass, user_input):
+                return self.async_create_entry(data=user_input)
+            errors[CONF_MODEL] = "bad_model"
+        now = user_input or self.config_entry.options or self.config_entry.data
+        return self.async_show_form(step_id="init", data_schema=_schema(dict(now), options=True), errors=errors)

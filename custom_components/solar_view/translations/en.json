@@ -37,6 +37,9 @@
           "weather_model": "An Open-Meteo model name. ecmwf_aifs025_single covers 16 days and fills the days a shorter model lacks."
         }
       }
+    },
+    "error": {
+      "bad_model": "Open-Meteo does not know this model. Check its spelling against Open-Meteo's model list."
     }
   },
   "entity": {
@@ -48,6 +51,10 @@
     "no_weather": {
       "title": "Solar view: no new weather since {since}",
       "description": "Open-Meteo has not answered for 12 hours, so the sun forecast is paused. It starts again by itself once Open-Meteo answers."
+    },
+    "not_picked": {
+      "title": "Solar view: pick it as the solar forecast",
+      "description": "In Settings > Dashboards > Energy, set the solar panels' forecast to Solar view alone. Another forecast beside it counts the sun twice; without it, the Energy dashboard and the Solar view page read the other forecast."
     }
   }
 }
