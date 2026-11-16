@@ -21,12 +21,12 @@ const STALE_MS = 20 * 60 * 1000; // no live state written for this long: the pag
 // ---- How far the page predicts (the table in docs/how-it-works.md) ----
 // none: nothing. usual_days: the usual day's sun (the season scaling it, see usualDay) and use, no Solar
 // Forecast. weather: the sensor's sun, no house use. usual_days_weather: the Energy settings' Solar Forecast for
-// the sun, the usual day for use once one is on record. learned_weather: the sensor's sun and use. The last three without their data
-// step down (STEP), again while data is missing; each step is said once in the console, nothing on screen.
-/** @typedef {"none" | "usual_days" | "weather" | "usual_days_weather" | "learned_weather"} Level */
+// the sun, the usual day for use once one is on record. Those without their data step down (STEP), again while
+// data is missing; each step is said once in the console, nothing on screen.
+/** @typedef {"none" | "usual_days" | "weather" | "usual_days_weather"} Level */
 /** @typedef {{ level: Level }} Mode the level in use after any step down */
 /** @type {Record<string, Level>} */
-const STEP = { weather: "none", learned_weather: "usual_days_weather", usual_days_weather: "usual_days", usual_days: "none" };
+const STEP = { weather: "none", usual_days_weather: "usual_days", usual_days: "none" };
 /** @type {Mode} */
 const NO_MODE = { level: "none" };
 // `level` is the config's (null: auto, which says nothing when it settles lower: the fresh sensor, else the page's own
@@ -35,10 +35,10 @@ const NO_MODE = { level: "none" };
 // (3 days); `solar`: the Solar Forecast answered.
 /** @param {Level | null} level @returns {Mode} */
 function modeOf(level, { usual = false, solar = false } = {}, sensor, now) {
-  const s = sensorOf(sensor, now), fresh = !!s;
-  const has = { none: true, usual_days: usual, weather: fresh, usual_days_weather: solar, learned_weather: fresh && s.withUse };
-  if (level == null) return { level: has.learned_weather ? "learned_weather" : fresh ? "weather" : solar ? "usual_days_weather" : usual ? "usual_days" : "none" };
-  const why = { weather: "no fresh forecast sensor (sensor.solar_view_forecast)", learned_weather: "no fresh forecast sensor with house use",
+  const fresh = !!sensorOf(sensor, now);
+  const has = { none: true, usual_days: usual, weather: fresh, usual_days_weather: solar };
+  if (level == null) return { level: fresh ? "weather" : solar ? "usual_days_weather" : usual ? "usual_days" : "none" };
+  const why = { weather: "no fresh forecast sensor (sensor.solar_view_forecast)",
     usual_days_weather: "no Solar Forecast in the Energy settings", usual_days: "no usual day yet (it needs 3 days on record)" };
   let l = level;
   while (!has[l]) { warnOnce(`level ${l}: ${why[l]}, so ${STEP[l]} is used`); l = STEP[l]; }
@@ -46,11 +46,8 @@ function modeOf(level, { usual = false, solar = false } = {}, sensor, now) {
 }
 // The sensor is the forecast in use: its days, hours and ranges, not the page's own.
 /** @param {Mode} mode */
-const fromSensor = (mode) => mode?.level === "weather" || mode?.level === "learned_weather";
-// The sensor's forecast is the one drawn: there is a forecast, and it is the sensor's.
-/** @param {Data} data */
-const sensorAhead = (data) => !!data.ahead && fromSensor(data.mode);
-// The forecast sensor without house use (its mode Weather): sun and sky only. Nothing from the usual day
+const fromSensor = (mode) => mode?.level === "weather";
+// The forecast sensor in use (level weather): sun and sky only. Nothing from the usual day
 // shows beside it (the coming days' use line, payback's time left), nor money it cannot know (month end).
 /** @param {Data} data */
 const weatherOnly = (data) => data.mode?.level === "weather" && !!data.ahead;
@@ -110,8 +107,8 @@ function predict(hass, ids, cfg, stats, sensor, now, clock) {
     // Export capped and the battery full at some point today: the sun so far was held back (see forecastOf).
     const throttled = cfg.exportMaxKw != null && ((stats.socDay ?? []).some(([, p]) => p >= FULL_SOC) || n.soc >= FULL_SOC);
     const base = { now, clock, solarWh: stats.solarWh, usual, price, sunSoFar: stats.today.solarKwh, sunUntil: stats.sunUntil, throttled };
-    const l = mode.level, ahead = l === "none" ? null : l === "weather" ? forecastOf({ ...base, sensor, sunOnly: true })
-      : forecastOf({ ...base, sensor: l === "learned_weather" ? sensor : null, solarWh: l === "usual_days" ? {} : stats.solarWh });
+    const l = mode.level, ahead = l === "none" ? null : l === "weather" ? forecastOf({ ...base, sensor })
+      : forecastOf({ ...base, sensor: null, solarWh: l === "usual_days" ? {} : stats.solarWh });
     // Hours already past are priced by the sensor's own hours while it is fresh, else at the flat price.
     const given = new Map((facts?.hours ?? []).map((h) => [h.t, h]));
     const priceAt = (field) => (t) => (given.has(t) ? given.get(t)[field] : price[field]);
@@ -241,7 +238,7 @@ function readData(hass, ids, cfg, stats, looked = {}, now = Date.now()) {
     // The tariff's bands, their prices and this month's share of each ({ type, prices: { f1, ... }, share }, see
     // bandsOf), or null.
     bands: looked.bands ?? null,
-    // The fresh sensor's months: finished months' money as it counted it, and this month's end.
+    // The fresh sensor's months: finished months' money as it counted it.
     sensorMonths: looked.facts?.months ?? null,
     // The fresh sensor's sky by day, { "2026-11-10": { cloud, rain } }, for the coming days' icons at every level.
     sensorSky: looked.facts ? Object.fromEntries(looked.facts.days.filter((d) => Number.isFinite(d.cloud)).map((d) => [d.d, { cloud: d.cloud, rain: d.rain }])) : null,
@@ -308,4 +305,4 @@ function placeholder(hass, ids, cfg, last, now = Date.now()) {
   };
 }
 
-export { LAST_KEY, NO_MODE, lastSeen, staleSince, modeOf, fromSensor, sensorAhead, weatherOnly, paybackPredicts, adviceForecast, bandsOf, predict, reading, live, project, readData, slim, remembered, placeholder };
+export { LAST_KEY, NO_MODE, lastSeen, staleSince, modeOf, fromSensor, weatherOnly, paybackPredicts, adviceForecast, bandsOf, predict, reading, live, project, readData, slim, remembered, placeholder };

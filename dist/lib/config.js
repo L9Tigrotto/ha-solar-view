@@ -68,8 +68,9 @@ const KEYS = ["battery_kwh", "battery_floor", "battery_max_charge_kw", "battery_
 const TARIFF_TYPES = ["single", "two", "three"];
 // How far the page predicts (the table in docs/how-it-works.md); no level is auto. What each level uses,
 // and the step down when its data is missing: modeOf in data.js.
-const LEVELS = ["none", "usual_days", "weather", "usual_days_weather", "learned_weather"];
-const LEVEL_ALIASES = { usual: "usual_days_weather" }; // the name before the five levels
+const LEVELS = ["none", "usual_days", "weather", "usual_days_weather"];
+// Old names: usual (before the levels), learned_weather (dropped 2026-11-16, it stepped down to usual_days_weather).
+const LEVEL_ALIASES = { usual: "usual_days_weather", learned_weather: "usual_days_weather" };
 const isMap = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 // The config as flat keys. A key given twice says so once: a group's wins over the top level, and the
 // later group of CONFIG_GROUPS over an earlier one. `sensors` (a group) and `entities` (flat) merge name by
@@ -198,6 +199,7 @@ function readConfig(prefs, config, costs = {}) {
   // on record), and what it saved before Home Assistant recorded.
   const cost = figure(c.system_cost, "system_cost", 0, Infinity), installed = date(c.install_date, "install_date");
   const level = c.level == null ? null : LEVELS.includes(c.level) ? c.level : LEVEL_ALIASES[c.level] ?? null;
+  if (c.level === "learned_weather") warnOnce("level learned_weather: dropped, so usual_days_weather is used");
   if (c.level != null && !level) warn(`level: ${shown(c.level)} is not one of ${LEVELS.join(", ")}, so the level is automatic`);
   // The clock: 12 or 24 hours for every viewer, or "system" or "language" as in the profile (see hourCycle).
   const timeFormat = c.time_format == null ? null : ["12", "24", "system", "language"].find((f) => f === String(c.time_format)) ?? null;
@@ -251,7 +253,7 @@ const optionalIds = (ids) => ids.loadW;
 // without a sensor runs on its typed figures, or the assumed washer's.
 const setupCheck = (cfg, { mode, sensor, battery, money, forecast, outlook, misread = [] }) => [
   { key: "level", asked: cfg.level, used: mode.level },
-  ...([null, "usual_days_weather", "learned_weather"].includes(cfg.level) && !sensor ? [{ key: "forecast", on: forecast }] : []),
+  ...([null, "usual_days_weather"].includes(cfg.level) && !sensor ? [{ key: "forecast", on: forecast }] : []),
   ...(battery ? [{ key: "battery", on: cfg.batt.kwh > 0, kwh: cfg.batt.kwh }] : []),
   { key: "money", on: money },
   { key: "payback", on: !!cfg.payback },

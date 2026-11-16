@@ -192,7 +192,6 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .ring{display:block;width:100%;height:auto;overflow:visible}
 .ring path{fill:none;stroke:var(--c);stroke-width:16;stroke-linecap:round}
 .ring .track{stroke:var(--track)}
-.ring .range{stroke-width:3}
 /* The battery in an hour: the faded piece of the track, and the battery size in the gap. */
 .ring .soon{stroke:color-mix(in srgb,var(--c) 50%,transparent)}
 .ring .size{font:400 calc(13px / var(--zs,1)) var(--f);fill:var(--ink-2);font-variant-numeric:tabular-nums}
@@ -567,7 +566,6 @@ dialog form > button{display:block;min-height:44px;margin:16px 0 0 auto;padding:
 .read li i{flex:none;width:24px;height:10px;margin:0 3px;border-radius:5px;background:var(--batt-mark,var(--batt))}
 .read li .gain{background:color-mix(in srgb,var(--batt-mark,var(--batt)) 50%,transparent)}
 .read li .use{background:color-mix(in srgb,var(--low-mark,var(--low)) 50%,transparent)}
-.read li .range{width:30px;height:3px;margin:0;background:var(--ink-2)}
 .read li .low{background:var(--low-mark,var(--low))}
 /* The other cards' marks, drawn small (see SW). */
 .read .sw{flex:none;width:30px;height:16px;overflow:visible;fill:var(--c);stroke:var(--c);stroke-width:2;stroke-linecap:round}
@@ -624,16 +622,14 @@ dialog form > button{display:block;min-height:44px;margin:16px 0 0 auto;padding:
 :host([big]) .days li{grid-template-columns:2.4em 26px minmax(0,1fr) 2em;gap:4px}
 :host([big]) .days .now-label{display:none}
 :host([big]) .days.with-use{margin-top:4px}
-/* Owner detail, for the wide screen only (see below): the battery's likely range in an hour, Power origin's
-   small rings, and their help lines. */
-.ring .range,.read li:has(> [data-t=helpRange],> [data-t^=helpShareAhead]){display:none}
+/* Owner detail, for the wide screen only (see below): Power origin's small rings and their help line. */
+.read li:has(> [data-t^=helpShareAhead]){display:none}
 
 /* The owner detail above, on the wide screen. By the panel's name: the small rings sit in Power origin's own
    container (see .share). */
 @container panel (min-width:1004px){
   .rings-ahead{display:flex}
-  .ring .range{display:inline}
-  .read li:has(> [data-t=helpRange],> [data-t^=helpShareAhead]):not([hidden]){display:flex}
+  .read li:has(> [data-t^=helpShareAhead]):not([hidden]){display:flex}
 }
 
 /* Wide panels: no paging, the pages stand side by side. */

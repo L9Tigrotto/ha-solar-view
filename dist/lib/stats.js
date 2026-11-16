@@ -319,7 +319,7 @@ function totals(ids, cfg, rows, clock, now, geo) {
 // `when(level)`: the levels that draw what the call gives (null is auto, which may need any of them). A call
 // not asked, or with no ids, gives {}.
 const draws = (l) => l !== "none" && l !== "weather";      // the usual day, the machines' runs (the washer line)
-const solarFc = (l) => l == null || l === "usual_days_weather" || l === "learned_weather"; // the Energy settings' Solar Forecast
+const solarFc = (l) => l == null || l === "usual_days_weather"; // the Energy settings' Solar Forecast
 const allIds = (ids) => PARTS.flatMap((k) => ids[k]);
 // The machines' energy sensors (their runs, see machineOf).
 const machineIds = (cfg) => [...new Set((cfg.machines ?? []).map((a) => a.sensor).filter(Boolean))];
