@@ -1,0 +1,53 @@
+{
+  "config": {
+    "abort": {
+      "single_instance_allowed": "Solar view è già configurato."
+    },
+    "step": {
+      "user": {
+        "title": "Solar view",
+        "description": "Dove sono i pannelli e cosa può frenarne la produzione. Produzione e immissione vengono dalle impostazioni Energia.",
+        "data": {
+          "latitude": "Latitudine",
+          "longitude": "Longitudine",
+          "soc_entity": "Sensore di carica della batteria (%)",
+          "export_limit_kw": "Limite di immissione (kW)"
+        },
+        "data_description": {
+          "soc_entity": "Lascia vuoto senza batteria.",
+          "export_limit_kw": "0 se nulla può andare in rete, vuoto se non c'è un limite."
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Solar view",
+        "data": {
+          "latitude": "Latitudine",
+          "longitude": "Longitudine",
+          "soc_entity": "Sensore di carica della batteria (%)",
+          "export_limit_kw": "Limite di immissione (kW)",
+          "weather_model": "Modello meteo"
+        },
+        "data_description": {
+          "soc_entity": "Lascia vuoto senza batteria.",
+          "export_limit_kw": "0 se nulla può andare in rete, vuoto se non c'è un limite.",
+          "weather_model": "Un nome di modello Open-Meteo. ecmwf_aifs025_single copre 16 giorni e riempie i giorni che un modello più corto non ha."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "forecast": { "name": "Previsione" }
+    }
+  },
+  "issues": {
+    "no_weather": {
+      "title": "Solar view: nessun nuovo meteo dalle {since}",
+      "description": "Open-Meteo non risponde da 12 ore, quindi la previsione del sole è ferma. Riparte da sola quando Open-Meteo risponde."
+    }
+  }
+}
