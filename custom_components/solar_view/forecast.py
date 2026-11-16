@@ -6,7 +6,7 @@ from __future__ import annotations
 import math
 import statistics
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
@@ -109,3 +109,71 @@ def merge_weather(hourly: dict, model: str) -> dict[datetime, Weather]:
         start = datetime.fromisoformat(t).replace(tzinfo=timezone.utc) - HOUR
         out[start] = Weather(*(pick(v, i) for v in VARS))
     return out
+
+
+def sun_hours(profile: dict[int, float], weather: dict[datetime, Weather], tz: ZoneInfo) -> dict[datetime, float]:
+    """kWh mid per UTC hour start: the roof profile at that local hour times the forecast sunlight."""
+    return {t: profile[t.astimezone(tz).hour] * w.sw for t, w in weather.items() if w.sw is not None}
+
+
+def _midnight(day: date, tz: ZoneInfo) -> datetime:
+    return datetime.combine(day, time(), tz).astimezone(timezone.utc)
+
+
+def _range(v: float) -> list[float]:
+    return [round(v * (1 - SPREAD), 3), round(v, 3), round(v * (1 + SPREAD), 3)]
+
+
+def _hours_of(day: date, tz: ZoneInfo) -> list[datetime]:
+    """The UTC hour starts of a local day: 23, 24 or 25 of them."""
+    t, end, out = _midnight(day, tz), _midnight(day + timedelta(days=1), tz), []
+    while t < end:
+        out.append(t)
+        t += HOUR
+    return out
+
+
+def attributes(sun: dict[datetime, float], weather: dict[datetime, Weather], now: datetime, tz: ZoneInfo,
+               lat: float, lon: float) -> dict:
+    """The forecast sensor's attributes (the page's contract, see sensorOf in dist/lib/forecast.js): every hour
+    of today and tomorrow, the rest of today, and every day from today on that the forecast fully covers.
+    Sun only: house use and prices are null, months left out."""
+    today = now.astimezone(tz).date()
+    none = Weather(None, None, None)
+    hours = []
+    for t in _hours_of(today, tz) + _hours_of(today + timedelta(days=1), tz):
+        w = weather.get(t, none)
+        hours.append({"t": t.astimezone(tz).isoformat(), "sun": _range(sun.get(t, 0.0)), "use": None,
+                      "cloud": None if w.cloud is None else round(w.cloud),
+                      "rain": None if w.rain is None else round(w.rain, 1), "buy": None, "sell": None})
+    left = sum(sun.get(t, 0.0) * min(1.0, (t + HOUR - now) / HOUR) for t in _hours_of(today, tz) if t + HOUR > now)
+    days, day = [], today
+    while True:
+        hs = _hours_of(day, tz)
+        if not all(t in sun for t in hs):
+            break
+        lit = [weather[t].cloud for t in hs if weather[t].cloud is not None and clear_sky(t, lat, lon) > 0]
+        days.append({"d": day.isoformat(), "sun": _range(sum(sun[t] for t in hs)), "use": None,
+                     "cloud": round(sum(lit) / len(lit)) if lit else None,
+                     "rain": round(sum(weather[t].rain or 0 for t in hs), 1)})
+        day += timedelta(days=1)
+    return {"hours": hours, "left": {"sun": _range(left), "use": None}, "days": days}
+
+
+def wh_hours(sun: dict[datetime, float], now: datetime, tz: ZoneInfo) -> dict[str, float]:
+    """The Energy settings' Solar Forecast: Wh by UTC hour start, from the start of today."""
+    start = _midnight(now.astimezone(tz).date(), tz)
+    return {t.isoformat(): round(v * 1000, 1) for t, v in sorted(sun.items()) if t >= start}
+
+
+def update_pending(pending: dict[str, float], sun: dict[datetime, float], now: datetime,
+                   tz: ZoneInfo) -> tuple[dict[str, float], list[tuple[datetime, float]]]:
+    """Day-ahead forecasts waiting to be stored. Tomorrow's hours are (re)written on every run, so each day keeps
+    the last forecast made the day before; hours that have ended leave the map, returned in time order."""
+    tomorrow = now.astimezone(tz).date() + timedelta(days=1)
+    p = dict(pending)
+    p.update({t.isoformat(): v for t, v in sun.items() if t.astimezone(tz).date() == tomorrow})
+    done = sorted((datetime.fromisoformat(k), v) for k, v in p.items() if datetime.fromisoformat(k) + HOUR <= now)
+    for t, _ in done:
+        del p[t.isoformat()]
+    return p, done

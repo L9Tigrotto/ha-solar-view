@@ -120,3 +120,71 @@ def test_weather_url():
                  "timezone=GMT", "models=icon_2i,ecmwf_aifs025_single", "latitude=43.4", "longitude=11.9"):
         assert part in u
     assert "models=ecmwf_aifs025_single&" in f.weather_url(43.4, 11.9, f.AIFS) + "&"
+
+
+# ---- sensor attributes, Energy hours, day-ahead map ----
+def flat(start, n, sw=500.0, cloud=40.0, rain=0.2):
+    return {start + timedelta(hours=i): f.Weather(sw, cloud, rain) for i in range(n)}
+
+
+ONE = {h: 0.001 for h in range(24)}  # 500 W/m2 makes 0.5 kWh every hour
+
+
+def build(now, w):
+    return f.attributes(f.sun_hours(ONE, w, ROME), w, now, ROME, LAT, LON)
+
+
+@pytest.mark.parametrize("now,n", [(utc("2026-11-16T09:30"), 48), (utc("2026-03-28T09:30"), 47), (utc("2026-10-24T09:30"), 49)])
+def test_hours_cover_today_and_tomorrow_on_normal_and_dst_days(now, n):
+    a = build(now, flat(now.replace(minute=0) - timedelta(days=2), 24 * 20))
+    ts = [h["t"] for h in a["hours"]]
+    assert len(ts) == n and len(set(ts)) == n
+    assert ts[0] == now.astimezone(ROME).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    h0 = a["hours"][0]
+    assert h0["sun"] == [0.4, 0.5, 0.6] and h0["use"] is None and h0["buy"] is None and h0["sell"] is None
+    assert h0["cloud"] == 40 and h0["rain"] == 0.2
+    assert "months" not in a
+
+
+def test_days_sum_their_hours_and_drop_a_partial_last_day():
+    w = flat(utc("2026-11-15T23:00"), 24 * 3 + 5)  # today, tomorrow, the day after, and 5 hours more
+    a = build(utc("2026-11-16T09:30"), w)
+    assert [d["d"] for d in a["days"]] == ["2026-11-16", "2026-11-17", "2026-11-18"]
+    d0 = a["days"][0]
+    assert d0["sun"] == [pytest.approx(9.6), pytest.approx(12.0), pytest.approx(14.4)] and d0["use"] is None
+    assert d0["rain"] == pytest.approx(4.8) and d0["cloud"] == 40
+
+
+def test_day_cloud_is_the_mean_over_daylight_hours():
+    w = flat(utc("2026-11-15T23:00"), 24 * 3)
+    w = {t: (f.Weather(v.sw, 100, v.rain) if f.clear_sky(t, LAT, LON) == 0 else v) for t, v in w.items()}
+    assert build(utc("2026-11-16T09:30"), w)["days"][0]["cloud"] == 40  # night's 100 % left out
+
+
+def test_left_counts_only_the_part_of_today_still_ahead():
+    a = build(utc("2026-11-16T08:30"), flat(utc("2026-11-15T23:00"), 24 * 3))  # 09:30 in Rome
+    assert a["left"]["use"] is None
+    assert a["left"]["sun"] == [pytest.approx(5.8), pytest.approx(7.25), pytest.approx(8.7)]
+
+
+def test_wh_hours_from_start_of_today_in_wh():
+    sun = f.sun_hours(ONE, flat(utc("2026-11-15T20:00"), 24 * 3), ROME)
+    wh = f.wh_hours(sun, utc("2026-11-16T08:30"), ROME)
+    assert min(wh) == "2026-11-15T23:00:00+00:00" and wh["2026-11-15T23:00:00+00:00"] == 500.0
+    assert "2026-11-15T22:00:00+00:00" not in wh
+
+
+def test_sun_hours_skip_hours_without_sunlight_given():
+    w = {utc("2026-11-16T11:00"): f.Weather(None, 50, 0), utc("2026-11-16T12:00"): f.Weather(400, 50, 0)}
+    assert f.sun_hours(ONE, w, ROME) == {utc("2026-11-16T12:00"): pytest.approx(0.4)}
+
+
+def test_pending_keeps_last_forecast_of_the_day_before_and_writes_once():
+    p, out = f.update_pending({}, {utc("2026-11-17T10:00"): 1.0}, utc("2026-11-16T08:00"), ROME)
+    assert out == [] and p == {"2026-11-17T10:00:00+00:00": 1.0}
+    p, out = f.update_pending(p, {utc("2026-11-17T10:00"): 2.0}, utc("2026-11-16T20:00"), ROME)
+    assert p["2026-11-17T10:00:00+00:00"] == 2.0                       # overwritten the day before
+    p, out = f.update_pending(p, {utc("2026-11-17T10:00"): 9.0}, utc("2026-11-17T08:00"), ROME)
+    assert p["2026-11-17T10:00:00+00:00"] == 2.0 and out == []          # frozen on the day itself
+    p, out = f.update_pending(p, {}, utc("2026-11-17T11:00"), ROME)
+    assert out == [(utc("2026-11-17T10:00"), 2.0)] and p == {}          # written once the hour has ended
