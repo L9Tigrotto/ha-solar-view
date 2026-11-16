@@ -188,3 +188,24 @@ def test_pending_keeps_last_forecast_of_the_day_before_and_writes_once():
     assert p["2026-11-17T10:00:00+00:00"] == 2.0 and out == []          # frozen on the day itself
     p, out = f.update_pending(p, {}, utc("2026-11-17T11:00"), ROME)
     assert out == [(utc("2026-11-17T10:00"), 2.0)] and p == {}          # written once the hour has ended
+
+
+# ---- the Energy settings' solar forecast: Solar view alone, or the sun is counted twice ----
+@pytest.mark.parametrize("forecasts,want", [
+    ([["ours"]], True),
+    ([["ours"], []], True),
+    ([["ours"], ["ours"]], True),
+    ([[]], False),
+    ([["open_meteo"]], False),
+    ([["ours", "open_meteo"]], False),
+    ([["ours"], ["open_meteo"]], False),
+])
+def test_forecast_linked(forecasts, want):
+    sources = [{"type": "grid", "config_entry_solar_forecast": ["x"]}] + [
+        {"type": "solar", "stat_energy_from": f"sensor.pv{i}", "config_entry_solar_forecast": fc}
+        for i, fc in enumerate(forecasts)]
+    assert f.forecast_linked(sources, "ours") is want
+
+
+def test_forecast_linked_without_the_key():
+    assert f.forecast_linked([{"type": "solar", "stat_energy_from": "sensor.pv"}], "ours") is False

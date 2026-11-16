@@ -5,7 +5,10 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.storage import Store
 
+from .const import DOMAIN, ISSUE_PICK, ISSUE_WEATHER
 from .coordinator import SolarViewCoordinator
 
 PLATFORMS = [Platform.SENSOR]
@@ -27,6 +30,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: SolarViewConfigEntry) ->
 
 async def async_unload_entry(hass: HomeAssistant, entry: SolarViewConfigEntry) -> bool:
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: SolarViewConfigEntry) -> None:
+    """Removed: its repair issues and its stored weather and day-ahead values go too. The sun_forecast statistic
+    stays, as every removed integration's statistics do (Developer tools > Statistics deletes it)."""
+    for issue in (ISSUE_WEATHER, ISSUE_PICK):
+        ir.async_delete_issue(hass, DOMAIN, issue)
+    await Store(hass, 1, DOMAIN).async_remove()
 
 
 async def _reload(hass: HomeAssistant, entry: SolarViewConfigEntry) -> None:

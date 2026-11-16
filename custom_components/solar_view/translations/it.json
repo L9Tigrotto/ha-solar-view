@@ -37,6 +37,9 @@
           "weather_model": "Un nome di modello Open-Meteo. ecmwf_aifs025_single copre 16 giorni e riempie i giorni che un modello più corto non ha."
         }
       }
+    },
+    "error": {
+      "bad_model": "Open-Meteo non conosce questo modello. Controlla come è scritto nell'elenco dei modelli di Open-Meteo."
     }
   },
   "entity": {
@@ -48,6 +51,10 @@
     "no_weather": {
       "title": "Solar view: nessun nuovo meteo dalle {since}",
       "description": "Open-Meteo non risponde da 12 ore, quindi la previsione del sole è ferma. Riparte da sola quando Open-Meteo risponde."
+    },
+    "not_picked": {
+      "title": "Solar view: sceglilo come previsione solare",
+      "description": "In Impostazioni > Plance > Energia, imposta come previsione dei pannelli solari solo Solar view. Un'altra previsione accanto conta il sole due volte; senza Solar view, la plancia Energia e la pagina Solar view leggono l'altra previsione."
     }
   }
 }
