@@ -10,7 +10,7 @@ set_month_prices:
       selector: &price
         number:
           min: 0
-          step: 0.00001
+          step: any
           unit_of_measurement: "EUR/kWh"
           mode: box
     f2:
