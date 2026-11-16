@@ -39,7 +39,7 @@ class Weather:
 
 def clear_sky(start: datetime, lat: float, lon: float) -> float:
     """Clear-sky sunlight on flat ground at the middle of the hour starting at `start`, W/m2.
-    clearSky of dist/lib/sky.js, line for line: Haurwitz, no equation of time."""
+    clearSky of frontend/lib/sky.js, line for line: Haurwitz, no equation of time."""
     d = start.astimezone(timezone.utc) + timedelta(minutes=30)
     n = (d - datetime(d.year, 1, 1, tzinfo=timezone.utc)).total_seconds() / 86400
     rad = math.pi / 180
@@ -143,7 +143,7 @@ def _hours_of(day: date, tz: ZoneInfo) -> list[datetime]:
 
 def attributes(sun: dict[datetime, float], weather: dict[datetime, Weather], now: datetime, tz: ZoneInfo,
                lat: float, lon: float) -> dict:
-    """The forecast sensor's attributes (the page's contract, see sensorOf in dist/lib/forecast.js): every hour
+    """The forecast sensor's attributes (the page's contract, see sensorOf in frontend/lib/forecast.js): every hour
     of today and tomorrow, the rest of today, and every day from today on that the forecast fully covers.
     Sun only: house use and prices are null, months left out."""
     today = now.astimezone(tz).date()

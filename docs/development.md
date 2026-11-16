@@ -1,10 +1,10 @@
 # Development
 
-There is no build step. The files in `dist/` are what Home Assistant loads, and what HACS downloads. HACS takes every file in that folder and its subfolders, so nothing else belongs there. `solar-view.js` stays at the top, because HACS looks for it by name (`hacs.json`).
+There is no build step. The files in `custom_components/solar_view/frontend/` are what Home Assistant loads: the `solar_view` integration serves that folder and adds the page to the sidebar.
 
 ## Files
 
-`dist/` holds `solar-view.js` and three folders: `lib/`, `pages/` and `strings/`.
+`custom_components/solar_view/frontend/` (here `frontend/`) holds `solar-view.js` and three folders: `lib/`, `pages/` and `strings/`.
 
 | File | What is in it |
 |---|---|
@@ -25,7 +25,7 @@ There is no build step. The files in `dist/` are what Home Assistant loads, and 
 | `strings/en.js` | Every English text. Also the fallback: any key another language lacks reads in English. |
 | `strings/it.js`, `strings/es.js`, ... | Every text of one language, loaded the first time it is on screen. |
 
-Outside `dist/`:
+Outside `frontend/`:
 
 | File | What is in it |
 |---|---|
@@ -113,10 +113,10 @@ The round sliders button beside the gear opens a drawer that changes the page li
 
 ## Checks
 
-Run all of these before a commit that changes `dist/`.
+Run all of these before a commit that changes `frontend/`.
 
 - **Unit tests:** `node --test test/` must end with 0 failures. The `test/` folder is not in git: it exists only in the maintainer's working copy.
-- **Types:** `npx -p typescript@5.6.3 tsc -p jsconfig.json --noEmit` must give 0 errors. It checks the JSDoc types of `dist/`, non-strict.
+- **Types:** `npx -p typescript@5.6.3 tsc -p jsconfig.json --noEmit` must give 0 errors. It checks the JSDoc types of `frontend/`, non-strict.
 - **Preview:** open `/preview/?at=2026-11-09T09:30` and then the real clock. The browser console must stay free of assertion failures. `window.failed` lists them too, for tools that cannot read the console.
 - **Skeleton:** after any change to markup, CSS or text length, run `/preview/?check=skeleton` at phone width (375 x 812), also with `&text=1.5` and `&text=2`. It must log "0 differ": the loading skeleton has to sit where the loaded page puts things, so nothing jumps when the numbers arrive.
 - **Words:** every load runs `wordCheck`. No word may break over two lines or stick out of its card. Try 375 x 812 with `?text=1.5` and `?text=2`, in Italian and German, on every page. `window.wordCheck()` runs it again in the console.
@@ -137,7 +137,7 @@ The sweep feeds the real page about 49,000 combinations of solar, battery and gr
 
 To try your changes on a real Home Assistant beside the installed page:
 
-1. Copy `dist/` to `config/www/<folder>/`, for example `config/www/solar-view-test/`.
+1. Copy `custom_components/solar_view/frontend/` to `config/www/<folder>/`, for example `config/www/solar-view-test/`.
 2. Add a second `panel_custom` entry. Its `module_url` ends in `&name=` with the same name as `name:`, so the copy defines its own element. Two panels cannot share one element name: without it the copy defines `solar-view` again, which the installed page already holds, and the test panel stays blank with no error.
 
    ```yaml
@@ -159,7 +159,7 @@ The repository has no releases, so HACS follows the latest commit on `main`. Eve
 
 ## Adding or fixing a language
 
-Each language has its own file, `dist/strings/xx.js`, named by the language code. To add a language, copy `strings/en.js` to the new code's file, rename its `en` key to the code, and translate it.
+Each language has its own file, `frontend/strings/xx.js`, named by the language code. To add a language, copy `strings/en.js` to the new code's file, rename its `en` key to the code, and translate it.
 
 - Every key of `en` must be there, and the language must have its own name in `LANGUAGES` (in `solar-view.js`). The gear lists it from there.
 - An advice pool can have its own lines, two or more, except `adviceGo`. That one needs the same number of lines as in `en`, in the same order, since each line names the appliance its icon shows.

@@ -37,7 +37,7 @@ HACS may also list the file under Settings, Dashboards, Resources. The page is a
 
 ## Install by hand
 
-1. Copy the `dist` folder of this repository into `config/www/` and rename it to `solar-view`. You then have `config/www/solar-view/solar-view.js` with the folders `lib/`, `pages/` and `strings/` beside it.
+1. Copy the `custom_components/solar_view/frontend` folder of this repository into `config/www/` and rename it to `solar-view`. You then have `config/www/solar-view/solar-view.js` with the folders `lib/`, `pages/` and `strings/` beside it.
 2. Add the `panel_custom` entry above, with `module_url: /local/solar-view/solar-view.js?v=1`.
 3. Restart Home Assistant.
 
@@ -354,7 +354,7 @@ Every user sees the same pages, in the language and time format of their profile
 - More panels on the same sensors are not noticed at once. The usual day catches up over `usual_days` days. Update the panel size in your solar forecast, and raise `system_cost` by what the extension cost.
 - "Enough until" knows the usual day, not today's plans. Weekdays and weekends share one usual day.
 - A house with neither a battery nor a grid power sensor reads "using energy from the panels" at night.
-- The thresholds behind the advice (for example 1000 W of spare sun) are constants in `dist/lib/advice.js`, not options.
+- The thresholds behind the advice (for example 1000 W of spare sun) are constants in `custom_components/solar_view/frontend/lib/advice.js`, not options.
 - Tested in desktop browsers and in the Android companion app. Not tested on iOS.
 
 ## Privacy

@@ -49,4 +49,4 @@ Translations other than Italian were not checked by a native speaker. Correction
 
 ## Licence
 
-MIT, see [LICENSE](LICENSE). Accent colours from [Catppuccin](https://github.com/catppuccin/catppuccin). Icons from [Lucide](https://lucide.dev) (ISC and MIT, notices at the end of `dist/solar-view.js`).
+MIT, see [LICENSE](LICENSE). Accent colours from [Catppuccin](https://github.com/catppuccin/catppuccin). Icons from [Lucide](https://lucide.dev) (ISC and MIT, notices at the end of `custom_components/solar_view/frontend/solar-view.js`).

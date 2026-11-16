@@ -1,4 +1,4 @@
-"""sensor.solar_view_forecast: the page's forecast (see sensorOf in dist/lib/forecast.js). Its state is the time
+"""sensor.solar_view_forecast: the page's forecast (see sensorOf in frontend/lib/forecast.js). Its state is the time
 it was written; its attributes are not recorded."""
 from __future__ import annotations
 

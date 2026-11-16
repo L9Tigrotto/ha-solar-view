@@ -38,7 +38,7 @@
 </style>
 </head>
 <body>
-<!-- Preview of the real panel (../dist/solar-view.js)
+<!-- Preview of the real panel (../custom_components/solar_view/frontend/solar-view.js)
      driven by a fake `hass` object: states, Energy settings, statistics and forecast. The scenarios, the URL
      parameters and the drawer are listed in docs/development.md; every change in the drawer goes into the URL,
      so a link reproduces it.
@@ -66,17 +66,17 @@
 <dialog id="dev" onclick="const r = this.getBoundingClientRect(); if (event.target === this && !(event.clientX >= r.left && event.clientX <= r.right && event.clientY >= r.top && event.clientY <= r.bottom)) this.close()"><h2>preview <button type="button" aria-label="close" onclick="dev.close()">×</button></h2><form></form></dialog>
 <solar-view></solar-view>
 <script type="module">
-import { readConfig } from "../dist/lib/config.js";
-import { STRINGS, LANGUAGES, loadLanguage } from "../dist/solar-view.js";
-import { formats } from "../dist/lib/format.js";
-import { clockOf, yearKeys } from "../dist/lib/core.js";
-import { totals as statsTotals, socDay } from "../dist/lib/stats.js";
-import { SKY, skyAt, dawnOf, greyOf, moonPhase, monthSun } from "../dist/lib/sky.js";
-import { wearOf } from "../dist/lib/advice.js";
-import { ring } from "../dist/lib/draw.js";
-import { paybackLeft, seasonGuess } from "../dist/lib/money.js";
-import { shareRing, battDayView, battDayCard } from "../dist/pages/energy.js";
-import { paybackCard, moneyHtml } from "../dist/pages/money.js";
+import { readConfig } from "../custom_components/solar_view/frontend/lib/config.js";
+import { STRINGS, LANGUAGES, loadLanguage } from "../custom_components/solar_view/frontend/solar-view.js";
+import { formats } from "../custom_components/solar_view/frontend/lib/format.js";
+import { clockOf, yearKeys } from "../custom_components/solar_view/frontend/lib/core.js";
+import { totals as statsTotals, socDay } from "../custom_components/solar_view/frontend/lib/stats.js";
+import { SKY, skyAt, dawnOf, greyOf, moonPhase, monthSun } from "../custom_components/solar_view/frontend/lib/sky.js";
+import { wearOf } from "../custom_components/solar_view/frontend/lib/advice.js";
+import { ring } from "../custom_components/solar_view/frontend/lib/draw.js";
+import { paybackLeft, seasonGuess } from "../custom_components/solar_view/frontend/lib/money.js";
+import { shareRing, battDayView, battDayCard } from "../custom_components/solar_view/frontend/pages/energy.js";
+import { paybackCard, moneyHtml } from "../custom_components/solar_view/frontend/pages/money.js";
 // The entities and settings in one object, as the panel keeps them (see _load).
 const fromConfig = (...a) => { const { ids, cfg } = readConfig(...a); return { ...ids, ...cfg }; };
 // totals as the checks call it: the entities and settings in one object, then the day, 5 minute and hour rows, the
@@ -700,7 +700,7 @@ if (q.get("shot") === "1") document.getElementById("dev-open").hidden = true;
 await Promise.all(Object.keys(LANGUAGES).map(loadLanguage));
 // Each language's file as written, without the English the panel puts under it.
 const TEXTS = Object.fromEntries(await Promise.all(Object.keys(LANGUAGES).map(async (code) => {
-  const own = (await import(`../dist/strings/${code}.js`)).STRINGS;
+  const own = (await import(`../custom_components/solar_view/frontend/strings/${code}.js`)).STRINGS;
   console.assert(Object.keys(own).join() === code, `strings/${code}.js: holds another language`, Object.keys(own));
   return [code, own[code]];
 })));
@@ -865,21 +865,21 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
 
 // Check: the day simulation against the shared cases (the integration's Python test runs the same file).
 {
-  const { simulate } = await import("../dist/lib/forecast.js");
+  const { simulate } = await import("../custom_components/solar_view/frontend/lib/forecast.js");
   const cases = await (await fetch("./simulate-cases.json")).json();
   for (const c of cases) {
     const got = simulate(c.hours, c.soc, c.battery, c.exportMaxKw, c.firstShare)
       .map((s) => Object.fromEntries(Object.entries(s).map(([k, v]) => [k, r3(v)])));
     console.assert(JSON.stringify(got) === JSON.stringify(c.expect), `simulate: ${c.name}`, got, c.expect);
   }
-  const { efficiencyOf } = await import("../dist/lib/forecast.js");
+  const { efficiencyOf } = await import("../custom_components/solar_view/frontend/lib/forecast.js");
   console.assert(efficiencyOf(9, 10, 6) === 0.95 && efficiencyOf(9, 10, 7) === 0.9 && efficiencyOf(5, 10, 30) === 0.85 && efficiencyOf(11, 10, 30) === 1, "efficiency: wrong default or clamp");
 }
 
 // Check: the forecast shape, from the sensor or built by the page, at fixed times in Rome
 // (2026-10-25 is the 25 hour day: clocks go back at 03:00).
 {
-  const { forecastOf, scenarioHours, findForecast } = await import("../dist/lib/forecast.js");
+  const { forecastOf, scenarioHours, findForecast } = await import("../custom_components/solar_view/frontend/lib/forecast.js");
   const clock = clockOf("Europe/Rome");
   const at = Date.parse;
   // A sensor with every hour from midnight of `first` to the end of `last`: sun 1 kWh mid from 10 to 15.
@@ -1009,7 +1009,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
 // Check: what the page derives from the forecast (ghosts, lasts until, best time, money, month end),
 // at fixed times in Rome.
 {
-  const { lookAhead, bandOf, bandPrices, machineOf } = await import("../dist/lib/forecast.js");
+  const { lookAhead, bandOf, bandPrices, machineOf } = await import("../custom_components/solar_view/frontend/lib/forecast.js");
   const clock = clockOf("Europe/Rome");
   const at = Date.parse, H = 36e5;
   // A forecast from the present hour to the end of tomorrow, sun and use by clock hour, low and high
@@ -1221,7 +1221,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
 
 // Check: money so far, hour by hour, at each hour's price; standby left out of the savings, never below 0.
 {
-  const { moneySoFar } = await import("../dist/lib/money.js");
+  const { moneySoFar } = await import("../custom_components/solar_view/frontend/lib/money.js");
   const H = 36e5;
   const hours = { [H]: { loadKwh: 1, gridImportKwh: 0.2, gridExportKwh: 0 }, [2 * H]: { loadKwh: 0.5, gridImportKwh: 0, gridExportKwh: 1 },
     [3 * H]: { loadKwh: 0.05, gridImportKwh: 0.05, gridExportKwh: 0 } };
@@ -2353,7 +2353,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   console.assert(late.monthDays[3]?.solarKwh === 6, "totals: just after midnight yesterday unknown while its 5 minute rows hold it", late.monthDays[3]);
   const soc = socDay({ a: [{ start: day + 9 * H, mean: 20 }, { start: day + 10 * H, mean: 30 }], b: [{ start: day + 10 * H, mean: 60 }] }, { a: 5, b: 15 }, utc, day + 12 * H, ["a", "b"]);
   console.assert(soc.length === 1 && soc[0][0] === day + 10 * H && soc[0][1] === 52.5, "battery charge: one battery's mean read as all of them", soc);
-  const { moneySoFar } = await import("../dist/lib/money.js");
+  const { moneySoFar } = await import("../custom_components/solar_view/frontend/lib/money.js");
   const m = moneySoFar({ [day]: { loadKwh: 1, gridImportKwh: null, gridExportKwh: 0.5 } }, () => 0.3, () => 0.1, 0, day + H);
   console.assert(m.saved === null && m.cost === null && m.earned === 0.05, "money so far: an unknown import counted as 0", m);
 }
@@ -2806,7 +2806,7 @@ if (q.has("sweep")) {
   // Words that time the big loads: beside a washer line, neither the line shown nor a line its pool keeps there
   // (all but the built-in ones loadLines names) may use them.
   const LOADS = /\b(big|loads?|appliances?|wash\w*|laundry|dishwasher|oven)\b/i;
-  const skipped = (await import("../dist/lib/advice.js")).loadLines(t);
+  const skipped = (await import("../custom_components/solar_view/frontend/lib/advice.js")).loadLines(t);
   const LINES = { [t.charging]: "charging", [t.chargingGrid]: "chargingGrid", [t.untilSun]: "untilSun", [t.discharging]: "discharging", [t.resting]: "resting" };
   const WORDS = Object.fromEntries(["empty", "low", "good", "nearlyFull", "full"].map((k) => [t[k], k]));
   const seen = {}, combos = new Map(), failures = [];

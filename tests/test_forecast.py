@@ -18,7 +18,7 @@ def utc(s):
     return datetime.fromisoformat(s).replace(tzinfo=UTC)
 
 
-# ---- clear sky: the page's clearSky (dist/lib/sky.js), values printed by node ----
+# ---- clear sky: the page's clearSky (frontend/lib/sky.js), values printed by node ----
 @pytest.mark.parametrize("t,lat,lon,want", [
     ("2026-06-21T10:00", 43.4, 11.9, 958.9013240934609),
     ("2026-12-21T11:00", 43.4, 11.9, 371.27494811661995),
