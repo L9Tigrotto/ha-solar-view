@@ -7,3 +7,7 @@ STAT_ID = f"{DOMAIN}:sun_forecast"   # the day-ahead sun forecast, kept as long-
 STALE_AFTER_HOURS = 12               # last good weather is reused this long, then a repair issue opens
 ISSUE_WEATHER = "no_weather"         # repair issue: Open-Meteo silent past STALE_AFTER_HOURS
 ISSUE_PICK = "not_picked"            # repair issue: the Energy settings' solar forecast is not Solar view alone
+PANEL_URL = "solar-view"             # the sidebar path of the page
+FILES_URL = "/solar_view"            # where frontend/ is served
+ELEMENT = "solar-view-panel"         # the page's element name (the HACS Dashboard install keeps solar-view)
+CONFIG_FILE = "solar_view.yaml"      # the page's options, in the config folder
