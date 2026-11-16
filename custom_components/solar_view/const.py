@@ -15,3 +15,5 @@ BILLS_STORE = f"{DOMAIN}.bills"      # each month's bill figures, set through SE
 SERVICE_PRICES = "set_month_prices"  # the action that stores a finished month's bill prices
 CONF_PUN = "pun_estimate"            # months without a bill estimated from the PUN Index GME, options only
 PUN_STORE = f"{DOMAIN}.pun"          # the PUN's band means of each month an estimate needs
+BILLS_DIR = "solar_view_bills"       # bill PDFs to read, in the config folder; there or not is the switch
+FILES_STORE = f"{DOMAIN}.files"      # the SHA-256 of each bill PDF read, with its file name

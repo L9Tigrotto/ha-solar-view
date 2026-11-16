@@ -258,6 +258,18 @@ Calling again for a month replaces it; `month` alone removes it. The integration
 - A month with fewer than 95 % of its hours on record keeps the statistics' figure.
 - A month priced in its first minutes misses its last hour until the integration is reloaded.
 
+#### Reading the bills
+
+Instead of typing the figures, copy each bill's PDF into a `solar_view_bills` folder in the config folder (`config/solar_view_bills/`, beside `configuration.yaml`). The integration reads it on start and at a quarter past each hour, and stores every month the bill covers as the action would: each band's price with every per-kWh charge, excise and VAT, and the fixed part with VAT. The folder is the switch: without it nothing is read. A folder made while Home Assistant runs is read from the next restart or reload of the integration.
+
+- It reads Servizio a Tutele Graduali bills laid out like Hera's. Other suppliers' layouts are untested.
+- Each file is read once, known by its bytes. A copy of the same file under another name (`bill(1).pdf`) is skipped, and a month you later fix or remove with the action stays as you left it. The same bill downloaded again usually has other bytes: it is read again and replaces its months.
+- A file that could not be read is not tried again. To read it again, change it (download it anew) or remove it and the file `.storage/solar_view.files`.
+- Two bills with the same month: the one read last wins (two read together: the later by name). A correction copied in after its original replaces it; copy an original in after its correction and the original wins.
+- The log says `read bill <file>: <months>` for each bill, which month a bill replaced, and a warning for a file it could not read or with no month in it.
+
+If your config folder is in git, add `solar_view_bills/` to its `.gitignore`: bills hold your name, address and supply codes.
+
 #### Months without a bill (Italy, PUN Index GME)
 
 For a contract priced on the PUN Index GME by band (such as Servizio a Tutele Graduali), turn on "Estimate months without a bill from the PUN Index GME" in the integration's options (Settings, Devices and services, Solar view, Configure). Every month after your first bill that has no bill of its own, this month included, is then estimated from the last bill before it: each band's price moves by 1.21 times what the PUN Index moved in that band since the billed month (1.10 for grid losses, 1.10 for VAT), and the fixed part stays the bill's. The bill's other per-kWh charges are taken as they were, so an estimate can be a cent or two off.

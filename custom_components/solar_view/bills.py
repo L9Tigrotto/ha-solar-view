@@ -4,9 +4,11 @@ them anywhere."""
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -208,10 +210,13 @@ class Bills:
     def __init__(self, hass: Any, pun: bool = False) -> None:
         from homeassistant.helpers.storage import Store
 
-        from .const import BILLS_STORE, PUN_STORE
+        from .const import BILLS_STORE, FILES_STORE, PUN_STORE
 
         self.hass = hass
         self._store = Store(hass, 1, BILLS_STORE)
+        self._files_store = Store(hass, 1, FILES_STORE)
+        self._files: dict[str, str] = {}  # {"<sha256 of a bill PDF>": "<its file name>"}, each read once
+        self._reading = asyncio.Lock()  # one folder scan at a time (setup's can still run at a quarter past)
         self.stored: dict[str, dict[str, float]] = {}  # {"2026-09": {"f1": .., "f2": .., "f3": .., "fixed": ..}}
         self.months: dict = {}  # months_attr of the last pricing
         self._listeners: list[Callable[[], None]] = []
@@ -221,7 +226,7 @@ class Bills:
         # {"2026-09": {"three": {..}, "two": {..}, "single": {..}}}; this month's entry also has its fetch "day"
         self._pun: dict[str, dict] = {}
         # (month, day) of a failed fetch: said once and not tried again that day (a try can take a minute, holding
-        # the lock that set_month_prices waits on)
+        # the lock that set_month_prices waits on); ("file", name) of a bill PDF that could not be opened
         self._warned: set[tuple[str, str]] = set()
         # A finished month's money by month, with the prices it was priced at: the hourly pricing reads only this
         # month's statistics again. A month priced None (the recorder still starting) is read again.
@@ -234,6 +239,7 @@ class Bills:
 
     async def async_load(self) -> None:
         self.stored = await self._store.async_load() or {}
+        self._files = await self._files_store.async_load() or {}
         if self.pun:
             self._pun = await self._pun_store.async_load() or {}
 
@@ -243,8 +249,78 @@ class Bills:
             self.stored.pop(month, None)
         else:
             self.stored[month] = figures
+        await self._async_save_and_price()
+
+    async def _async_save_and_price(self) -> None:
         await self._store.async_save(self.stored)
         await self.async_price()
+
+    async def async_read_folder(self) -> bool:
+        """Each bill PDF in <config>/solar_view_bills/ not read before (by the SHA-256 of its bytes), in name order:
+        its months stored as async_set stores them, the later file winning a month. Saved and priced when a month
+        came; returns whether it did, so the caller prices otherwise."""
+        from homeassistant.util import dt as dt_util
+
+        from .const import BILLS_DIR
+        from .stg import bill_months, read_pdf
+
+        def scan(folder: Path) -> list[tuple[Path, str | None]]:
+            # A folder that cannot be listed (permissions, a share gone) reads as empty: pricing still runs.
+            try:
+                if not folder.is_dir():
+                    return []
+                paths = sorted(p for p in folder.iterdir() if p.suffix.lower() == ".pdf" and p.is_file())
+            except OSError as err:
+                _LOGGER.warning("Solar view: the bills folder %s could not be listed: %s", folder, err)
+                return []
+            out: list[tuple[Path, str | None]] = []
+            for path in paths:
+                try:
+                    out.append((path, hashlib.sha256(path.read_bytes()).hexdigest()))
+                except OSError:
+                    out.append((path, None))
+            return out
+
+        async with self._reading:
+            files = await self.hass.async_add_executor_job(scan, Path(self.hass.config.path(BILLS_DIR)))
+            new_files = changed = False
+            for path, digest in files:
+                if digest is None:
+                    if ("file", path.name) not in self._warned:
+                        self._warned.add(("file", path.name))
+                        _LOGGER.warning("Solar view: bill %s could not be opened", path.name)
+                    continue
+                if digest in self._files:
+                    continue
+                self._files[digest] = path.name  # remembered even when it fails: not tried again each hour
+                new_files = True
+                try:
+                    months = await self.hass.async_add_executor_job(lambda p=path: bill_months(read_pdf(p)))
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.warning("Solar view: bill %s could not be read: %s", path.name, err)
+                    continue
+                if not months:
+                    _LOGGER.warning("Solar view: no month read from bill %s", path.name)
+                    continue
+                this_month = dt_util.now().strftime("%Y-%m")
+                for month, figures in sorted(months.items()):
+                    if month >= this_month:  # as the action: only a finished month takes a bill's prices
+                        _LOGGER.warning("Solar view: bill %s has %s, which is not over yet: left out", path.name, month)
+                        continue
+                    old = self.stored.get(month)
+                    if old is not None and old != figures:
+                        _LOGGER.info("Solar view: %s from bill %s replaces the stored %s", month, path.name, old)
+                    self.stored[month] = figures
+                changed = True
+                _LOGGER.info("Solar view: read bill %s: %s", path.name, ", ".join(sorted(months)))
+            # The months before the hashes: stopped in between, a bill is read again rather than lost.
+            if changed:
+                await self._store.async_save(self.stored)
+            if new_files:
+                await self._files_store.async_save(self._files)
+        if changed:
+            await self.async_price()
+        return changed
 
     async def _async_means(self, stored: dict, estimated: dict[str, str], now: datetime) -> None:
         """The PUN's band means of each month an estimate needs (its own and its bill's), from GME: a finished

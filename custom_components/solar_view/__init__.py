@@ -2,6 +2,8 @@
 the Energy dashboard."""
 from __future__ import annotations
 
+import os
+
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
@@ -14,7 +16,8 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .bills import Bills, kind_of
-from .const import BILLS_STORE, CONF_PUN, DOMAIN, ISSUE_PICK, ISSUE_WEATHER, PUN_STORE, SERVICE_PRICES
+from .const import (BILLS_DIR, BILLS_STORE, CONF_PUN, DOMAIN, FILES_STORE, ISSUE_PICK, ISSUE_WEATHER, PUN_STORE,
+                    SERVICE_PRICES)
 from .coordinator import SolarViewCoordinator
 from .panel import async_serve_files, async_setup_panel, remove_panel
 
@@ -70,13 +73,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: SolarViewConfigEntry) ->
     # Energy forecast and the stored day-ahead values come from the same runs.
     entry.async_on_unload(coordinator.async_add_listener(lambda: None))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    # In the background: a year of billed months reads a year of hourly statistics, and startup need not wait.
-    entry.async_create_background_task(hass, bills.async_price(), "solar_view bills")
-    # This month's estimate grows with its statistics: priced again at a quarter past each hour, once Home
-    # Assistant has written the last hour's (the page asks for them then too).
-    if bills.pun:
-        async def _hourly(_now) -> None:
+    async def _read_and_price(always: bool) -> None:
+        if not await bills.async_read_folder() and always:  # a bill read has priced already
             await bills.async_price()
+
+    # In the background: a year of billed months reads a year of hourly statistics, the new bills are parsed
+    # first, and startup need not wait.
+    entry.async_create_background_task(hass, _read_and_price(True), "solar_view bills")
+    # This month's estimate grows with its statistics: priced again at a quarter past each hour, once Home
+    # Assistant has written the last hour's (the page asks for them then too). The bills folder is read then too.
+    if bills.pun or await hass.async_add_executor_job(os.path.isdir, hass.config.path(BILLS_DIR)):
+        async def _hourly(_now) -> None:
+            await _read_and_price(bills.pun)
 
         entry.async_on_unload(async_track_time_change(hass, _hourly, minute=15, second=0))
     entry.async_on_unload(entry.add_update_listener(_reload))
@@ -92,8 +100,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: SolarViewConfigEntry) -
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: SolarViewConfigEntry) -> None:
-    """Removed: its panel, its repair issues, its stored weather and day-ahead values, its bills and PUN means go
-    too. The sun_forecast statistic stays, as every removed integration's statistics do (Developer tools >
+    """Removed: its panel, its repair issues, its stored weather and day-ahead values, its bills, read files and PUN
+    means go too. The sun_forecast statistic stays, as every removed integration's statistics do (Developer tools >
     Statistics deletes it)."""
     remove_panel(hass)  # an entry deleted while its setup retries is never unloaded
     for issue in (ISSUE_WEATHER, ISSUE_PICK):
@@ -101,6 +109,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: SolarViewConfigEntry) -
     await Store(hass, 1, DOMAIN).async_remove()
     await Store(hass, 1, BILLS_STORE).async_remove()
     await Store(hass, 1, PUN_STORE).async_remove()
+    await Store(hass, 1, FILES_STORE).async_remove()
 
 
 async def _reload(hass: HomeAssistant, entry: SolarViewConfigEntry) -> None:
