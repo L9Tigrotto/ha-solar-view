@@ -3,7 +3,7 @@
   "name": "Solar view",
   "codeowners": [],
   "config_flow": true,
-  "dependencies": ["energy", "recorder"],
+  "dependencies": ["energy", "frontend", "http", "panel_custom", "recorder"],
   "documentation": "https://github.com/L9Tigrotto/ha-solar-view",
   "integration_type": "service",
   "iot_class": "cloud_polling",

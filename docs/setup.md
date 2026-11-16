@@ -82,6 +82,8 @@ A level without its data steps down to the next one that has it, and says so onc
 
 Everything is optional. It goes under `config:` in the same `panel_custom` entry, in groups. The groups only keep things tidy: every key works in any group, or at the top with no group. A key the page does not know, or a value it cannot read, is ignored and named once in the browser console, and in the Setup check's "Options not used" row. Remember the [restart](#every-change-needs-a-restart).
 
+The options reach the browser of every user who can open Home Assistant, admins or not, so a `!secret` among them is readable there.
+
 To keep the options out of `configuration.yaml`, put them in a file of their own:
 
 ```yaml

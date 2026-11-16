@@ -35,3 +35,46 @@ def read_config(path: Path, loader: Callable[[Path], Any]) -> dict:
         _LOGGER.warning("Solar view: %s is not a map of options, the page runs without it", path)
         return {}
     return loaded
+
+
+FRONTEND = Path(__file__).parent / "frontend"
+
+
+async def async_serve_files(hass: Any) -> None:
+    """frontend/ at FILES_URL, once per Home Assistant run (from async_setup: a static path cannot be removed)."""
+    from homeassistant.components.http import StaticPathConfig
+
+    from .const import FILES_URL
+
+    await hass.http.async_register_static_paths([StaticPathConfig(FILES_URL, str(FRONTEND), True)])
+
+
+async def async_setup_panel(hass: Any) -> None:
+    """The sidebar panel, solar_view.yaml as its config and the files' hash as its version. Any panel from an
+    earlier setup (a reload, a retry after a failed first refresh) is replaced."""
+    from homeassistant.components import panel_custom
+    from homeassistant.util.yaml import Secrets, load_yaml_dict
+
+    from .const import CONFIG_FILE, ELEMENT, FILES_URL, PANEL_URL
+
+    secrets = Secrets(Path(hass.config.config_dir))
+
+    def read() -> tuple[str, dict]:
+        return files_hash(FRONTEND), read_config(Path(hass.config.path(CONFIG_FILE)),
+                                                 lambda p: load_yaml_dict(p, secrets))
+
+    version, config = await hass.async_add_executor_job(read)
+    remove_panel(hass)
+    await panel_custom.async_register_panel(
+        hass, frontend_url_path=PANEL_URL, webcomponent_name=ELEMENT, sidebar_title="Solar view",
+        sidebar_icon="mdi:solar-power-variant", module_url=f"{FILES_URL}/solar-view.js?v={version}&name={ELEMENT}",
+        config=config, require_admin=False)
+
+
+def remove_panel(hass: Any) -> None:
+    """The panel out of the sidebar; no warning when it is not there."""
+    from homeassistant.components import frontend
+
+    from .const import PANEL_URL
+
+    frontend.async_remove_panel(hass, PANEL_URL, warn_if_unknown=False)

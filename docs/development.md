@@ -135,23 +135,13 @@ The sweep feeds the real page about 49,000 combinations of solar, battery and gr
 
 ## Testing a local copy in Home Assistant
 
-To try your changes on a real Home Assistant beside the installed page:
+The `solar_view` integration serves the page and puts it in the sidebar as "Solar view" (`/solar-view`), with `config/solar_view.yaml` as its options.
 
-1. Copy `custom_components/solar_view/frontend/` to `config/www/<folder>/`, for example `config/www/solar-view-test/`.
-2. Add a second `panel_custom` entry. Its `module_url` ends in `&name=` with the same name as `name:`, so the copy defines its own element. Two panels cannot share one element name: without it the copy defines `solar-view` again, which the installed page already holds, and the test panel stays blank with no error.
+1. Copy `custom_components/solar_view/` to `config/custom_components/`.
+2. The first time: restart Home Assistant, then add the integration (Settings, Devices & services, Add integration, Solar view).
+3. After each later copy: reload the integration (Settings, Devices & services, Solar view, the three dots, Reload), then reload the page. The same applies after a change to `solar_view.yaml`.
 
-   ```yaml
-   panel_custom:
-     - name: solar-view-test
-       url_path: solar-test
-       sidebar_title: Solar test
-       sidebar_icon: mdi:flask
-       module_url: /local/solar-view-test/solar-view.js?v=1&name=solar-view-test
-   ```
-
-3. Restart Home Assistant fully.
-
-For each new copy, raise `?v=` in its `module_url` and restart Home Assistant again. Clearing the app's cache is not enough: browsers and the phone app keep `/local/` files, and Home Assistant reads `module_url` only when it starts.
+There is no `?v=` to raise: the panel's address carries a hash of the page's files, so a changed file reaches browsers and the phone app on the next reload. The panel defines its element as `solar-view-panel`, so it can sit beside a page installed as a HACS Dashboard, which holds `solar-view`.
 
 ## Publishing
 
