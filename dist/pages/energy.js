@@ -6,7 +6,7 @@ const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ ne
 /** @type {[typeof import("../lib/core.js"), typeof import("../lib/draw.js"), typeof import("../lib/data.js"), typeof import("../lib/stats.js")]} */
 const [{ MINUTE, FIVE_MIN, HOUR, clamp01, pct, say, cap, dayHours, hourStart, inHour, socShift, sumKnown, selfKwh, noonOf, monthDayKeys, yearKeys },
   { hint, big, markOf, helpButton, TRACK, ringSize, splitRing, legendHtml, lineGrid, readout, monthSteps, steps, dayLine, monthTotal, monthPicker, nowLabel, boldDate, monthName },
-  { fromSensor, sensorAhead, weatherOnly }, { balanceKwh }] = await Promise.all([
+  { fromSensor, weatherOnly }, { balanceKwh }] = await Promise.all([
   import(`../lib/core.js${v}`), import(`../lib/draw.js${v}`), import(`../lib/data.js${v}`), import(`../lib/stats.js${v}`)]);
 
 const MIN_USE_KWH = 0.05; // under this the house has used nothing yet today, so there is no share to show
@@ -27,11 +27,11 @@ const ringsAhead = (data) => data.outlook?.hoursAhead?.length > 0;
 // picked. monthAhead once for Production and its help.
 /** @param {import("../lib/data.js").ViewInput} c */
 function energyView({ data, now, clock, pick }) {
-  const coming = monthAhead(data), sensor = sensorAhead(data), noSoc = !data.batt || data.now.soc === null, share = shareView(data, now);
+  const coming = monthAhead(data), noSoc = !data.batt || data.now.soc === null, share = shareView(data, now);
   return { share, battday: battDayView(data, now, clock, pick), production: productionView(data, pick, coming),
     help: {
       share: share.noUse ? [] : ["helpShareSun", ...(data.batt ? ["helpShareBatt"] : []), "helpShareGrid", "helpShareNum", "helpShareTotal",
-        ...(ringsAhead(data) ? [sensor ? "helpShareAheadFc" : "helpShareAhead"] : [])],
+        ...(ringsAhead(data) ? ["helpShareAhead"] : [])],
       battday: ["helpBattDayBars", ...(data.outlook || weatherOnly(data) ? ["helpBattDayGhost"] : []),
         ...(noSoc ? [] : ["helpBattDayLine", ...(data.outlook ? ["helpBattDayAhead"] : []), "helpBattDayFloor"]), "helpBattDayPick"],
       daily: ["helpProdMonths", ...(coming?.end != null ? ["helpProdEnd"] : []), "helpWeekBar", ...(coming?.days.length ? ["helpProdAhead"] : []), "helpDayToday", "helpWeekPick"],
@@ -297,9 +297,8 @@ function battDayCard(v, t, f, clock) {
 // ---- Production ----
 // This month's days still to come and where the month should end. From the page's own forecast: tomorrow
 // from the forecast's days, later days from the Energy settings' solar forecast as far as it reaches, then
-// the usual day's sun; before a usual day is on record, the solar forecast's days alone, and no end. From a fresh sensor: its days' likely sun as far as they reach, then (with its house
-// use) the usual day's; with weather alone the days stop there, and the month's end shows only once they
-// reach it. { days: [{ date, kwh, usual }], end } (end null while a day of the month has no numbers on
+// the usual day's sun; before a usual day is on record, the solar forecast's days alone, and no end. From a fresh sensor: its days' likely sun as far as they reach; the days stop there, and
+// the month's end shows only once they reach it. { days: [{ date, kwh, usual }], end } (end null while a day of the month has no numbers on
 // record), or null without a forecast or a day to come.
 /** @param {import("../lib/data.js").Data} data */
 function monthAhead(data) {
@@ -311,8 +310,7 @@ function monthAhead(data) {
     // Tomorrow's forecast is the solar forecast where it has hours, else the usual day (see forecastOf).
     const dayKwh = a?.days.find((d) => d.d === key)?.sun?.[1] ?? (sensor ? null : data.sunDays?.[key]);
     if (!sensor) { const kwh = dayKwh ?? data.usualSunDays?.[key] ?? data.usualSun; return Number.isFinite(kwh) ? { date, kwh, usual: !(key in (data.sunDays ?? {})) } : null; }
-    const usual = weatherOnly(data) ? null : data.usualSunDays?.[key];
-    return Number.isFinite(dayKwh) ? { date, kwh: dayKwh, usual: false } : Number.isFinite(usual) ? { date, kwh: usual, usual: true } : null;
+    return Number.isFinite(dayKwh) ? { date, kwh: dayKwh, usual: false } : null;
   });
   const cut = all.indexOf(null), days = cut < 0 ? all : all.slice(0, cut);
   if (sensor && !days.length && list.length < n) return null;

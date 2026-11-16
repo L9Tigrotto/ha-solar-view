@@ -69,12 +69,12 @@ As an admin, open the gear at the top right. Its **Setup check** lists the main 
 
 ## Prediction levels
 
-The page can look ahead at five levels. Without a `level` key it picks the highest one its data allows. Most homes need no key.
+The page can look ahead at four levels. Without a `level` key it picks the highest one its data allows. Most homes need no key.
 
 - **`none`**: no predictions. The page shows what happened and what happens now.
 - **`usual_days`**: the page learns your usual day from the last 14 days: how much the house uses and how much sun there is, hour by hour. It needs 3 days on record. Until then, Now says how many days are left.
 - **`usual_days_weather`**: the usual day, with the sun of the solar forecast in your Energy settings. This is the usual level for a home with a solar forecast. The old name `usual` still works.
-- **`weather`** and **`learned_weather`**: they read the forecast sensor `sensor.solar_view_forecast`, from a companion integration that is planned but not published yet. `weather` takes only its sun and sky. `learned_weather` also takes its house use and prices.
+- **`weather`**: it reads the forecast sensor `sensor.solar_view_forecast`, from a companion integration that is planned but not published yet, and takes only its sun and sky. The old level `learned_weather` was dropped and now works as `usual_days_weather`.
 
 A level without its data steps down to the next one that has it, and says so once in the browser console. For example, `usual_days_weather` without a solar forecast works as `usual_days`. The Setup check in the gear shows the level asked for and the level in use. The full table of what each level shows is in [How it works](how-it-works.md#prediction-levels).
 
@@ -139,7 +139,7 @@ predictions:
 
 | Option | Meaning | Default |
 |---|---|---|
-| `level` | `none`, `usual_days`, `weather`, `usual_days_weather` or `learned_weather`. See [Prediction levels](#prediction-levels). | Automatic |
+| `level` | `none`, `usual_days`, `weather` or `usual_days_weather`. See [Prediction levels](#prediction-levels). | Automatic |
 | `usual_days` | How many past days make the usual day. Fewer follow a new routine faster; more give a steadier estimate. From 3 to 60. | `14` |
 
 ### Machines

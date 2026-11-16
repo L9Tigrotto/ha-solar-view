@@ -7,10 +7,10 @@ const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ ne
  *   typeof import("../lib/data.js"), typeof import("../lib/forecast.js")]} */
 const [{ HALF_HOUR, HOUR, noonOf, hourStart, clamp01, say, cap, esc }, { skyIcon, HOUSE, PLUG, line, ADVICE_ICON, SUN_DOT, hint, big, helpButton, wxIcon, battRing, nowLabel },
   { advice, outlookAdvice, advicePool, loadLines, outlookLastsH, batteryWord, isLow, gridCharging, sources, MIN_FLOW_W, EXPORT_W, IMPORT_W },
-  { SKY_NIGHT_DEG, SKY_DAY_DEG, RAIN_DAY_MM, coverOf }, { fromSensor, sensorAhead, weatherOnly, staleSince }, { SOLAR_SPREAD }] = await Promise.all([
+  { SKY_NIGHT_DEG, SKY_DAY_DEG, RAIN_DAY_MM, coverOf }, { fromSensor, weatherOnly, staleSince }, { SOLAR_SPREAD }] = await Promise.all([
   import(`../lib/core.js${v}`), import(`../lib/draw.js${v}`), import(`../lib/advice.js${v}`), import(`../lib/sky.js${v}`), import(`../lib/data.js${v}`), import(`../lib/forecast.js${v}`)]);
 
-const SOON_PCT = 1;       // the battery in an hour shows when it moves this many points or more, its likely range when that spans as much
+const SOON_PCT = 1;       // the battery in an hour shows when it moves this many points or more
 const PATHS = {
   sunHouse: "M170 62V121",
   sunBatt: "M127.6 40.2A124 104 0 0 0 47.9 119.9",
@@ -127,18 +127,17 @@ function nowView({ data, sky, day, now, clock }) {
   const plain = advice(n, data.forecast, daytime, word), timing = o?.best && ["go", "soon", "later", "wait"].includes(plain);
   const kind = outlookAdvice(timing ? "ok" : plain, o, word, sunCharging, daytime, evening, lastsH);
   // The battery in an hour, from the outlook's three runs, moved by a reading under the floor (see socShift; added in
-  // this order, as the sweep checks the 1 point edge). Its likely range only from the sensor's forecast.
-  const sensor = sensorAhead(data), ahead = n.soc !== null && batt?.kwh && o?.socInHour;
+  // this order, as the sweep checks the 1 point edge).
+  const ahead = n.soc !== null && batt?.kwh && o?.socInHour;
   const hour = ahead && ahead.map((x) => x + n.soc - Math.min(100, Math.max(n.soc, batt.floor)));
   const soon = hour && Math.abs(hour[1] - n.soc) >= SOON_PCT ? hour[1] : null;
-  const range = soon !== null && sensor && hour[2] - hour[0] >= SOON_PCT ? [hour[0], hour[2]] : null;
   const coming = comingView(data, now, clock);
   return {
     head: { names, sub, stale: staleSince(data, now) },
     flow: { n, charging, discharging, today: data.today, night, glow: sky.day, battery: !!batt, battColor, cover: data.weather.cover, moon: data.moon },
     wear: data.wear,
     advice: { kind, word, sunCharging, daytime, rests, day, washer: !!o?.best },
-    battery: n.soc === null ? null : { soc: n.soc, soon, range, color: battColor, word, kwh: batt?.kwh ?? null,
+    battery: n.soc === null ? null : { soc: n.soc, soon, color: battColor, word, kwh: batt?.kwh ?? null,
       state: charging ? (sunCharging ? "charging" : "chargingGrid") : lastsH === Infinity ? "untilSun" : lastsH ? "until" : discharging ? "discharging" : "resting",
       until, best: o?.best ?? [] },
     machines: n.soc === null && o?.best ? o.best : null,
@@ -146,7 +145,7 @@ function nowView({ data, sky, day, now, clock }) {
     learn: !fromSensor(data.mode) && data.usualIn > 0 ? data.usualIn : null,
     coming,
     help: {
-      battery: ["helpSolid", ...(o?.socInHour ? ["helpGain", "helpUse", ...(sensor ? ["helpRange"] : []), "helpRise"] : []), "helpLow"],
+      battery: ["helpSolid", ...(o?.socInHour ? ["helpGain", "helpUse", "helpRise"] : []), "helpLow"],
       days: ["helpDaysPill", ...(!weatherOnly(data) && data.usualToday?.used?.[1] > 0 ? ["helpDaysUse"] : []), ...(coming?.days.some((d) => d.cover !== null) ? ["helpDaysSky"] : [])],
     },
   };
@@ -233,12 +232,12 @@ function batteryCard(v, t, f, clock, now) {
   // One o'clock takes the singular in some languages ("all'1:30", not "alle 1:30"): untilOne, where a language has it.
   const state = v.state === "until" ? say((/^0?1\D/.test(until) && t.untilOne) || t.until, { t: until }) : t[v.state];
   const ringName = v.soon === null ? say(stored ? t.hRing : t.hRingNoSize, { p, k: stored })
-    : say(v.range ? t.hRingSoon : t.hRingSoonMid, { p, a: Math.round(v.soon), b: Math.round(v.range?.[0]), c: Math.round(v.range?.[1]) });
+    : say(t.hRingSoonMid, { p, a: Math.round(v.soon) });
   return `<section class="card battery" data-card="battery">
       <h2>${t.battery}</h2>
       ${helpButton(t, "battery")}
       <div class="ring-box">
-        ${battRing(v.soc, v.soon, v.range, v.color, ringName, v.kwh ? f.kwh(v.kwh) : "")}
+        ${battRing(v.soc, v.soon, v.color, ringName, v.kwh ? f.kwh(v.kwh) : "")}
         <div class="ring-mid" aria-hidden="true">${big(p)}</div>
       </div>
       <div class="batt-say"><div class="batt-word"><i style="--c:var(${v.color})"></i><span>${t[v.word]}</span></div><p>${state}</p></div>

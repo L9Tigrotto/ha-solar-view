@@ -33,7 +33,7 @@ function paybackView(data, now, clock) {
 /** @param {import("../lib/data.js").ViewInput} c */
 function moneyView({ data, now, clock, pick }, payback = paybackView(data, now, clock)) {
   const p = data.price, c = clock(now), key = c.key.slice(0, 7), lastKey = shiftMonth(key, -1);
-  const { onRecord, got, back, net, end, coming, ownEnd } = moneyOf(data, key);
+  const { onRecord, got, back, net, end, coming } = moneyOf(data, key);
   // The price now: the tariff's band now when it has bands, else the sensor's present hour while it is fresh (at
   // every level), else the Energy settings' one. Selling only while export is on.
   const hour = data.priceNow, bd = data.bands, bandNow = bd && bandOf(c.key, c.hour, bd.type);
@@ -59,8 +59,8 @@ function moneyView({ data, now, clock, pick }, payback = paybackView(data, now, 
   let month = null;
   if (shown) {
     const cost = x && got("cost", x, at), brought = x && back(x, at);
-    const endCost = at !== key ? null : ownEnd ? end.cost?.[1] ?? null : coming?.cost != null && cost !== null ? cost + coming.cost : null;
-    const endBack = at !== key ? null : ownEnd ? end.back : coming?.back != null && brought !== null ? brought + coming.back : null;
+    const endCost = at !== key ? null : coming?.cost != null && cost !== null ? cost + coming.cost : null;
+    const endBack = at !== key ? null : coming?.back != null && brought !== null ? brought + coming.back : null;
     month = { key, at, sends: data.sends, endNet: end.net,
       months: Object.fromEntries(yearKeys(key).map((mk) => [mk, { net: row(mk) ? net(row(mk), mk) : null, noPrice: !!row(mk) && !anyPrice }])),
       picked: x && { cost, saved: got("saved", x, at), earned: got("earned", x, at), brought, net: net(x, at), endCost, endBack } };

@@ -71,7 +71,6 @@ const sumOf = (hours, field, clock, key, from) => hours.reduce((s, h) =>
 // ago (either way: a time ahead of this clock would otherwise stay fresh for ever; a small skew still passes),
 // `days` a list of dated entries, `left.sun` and every hour's sun given. Its hours parsed, in order of t; a t
 // that does not parse, an hour given twice (the first kept) or an entry that is no hour at all is dropped.
-// withUse: house use too (the sensor's mode Weather leaves it out).
 export function sensorOf(sensor, now) {
   const a = sensor?.attributes, written = Date.parse(sensor?.state);
   const hours = (Array.isArray(a?.hours) ? a.hours : []).filter((h) => h && typeof h === "object")
@@ -79,8 +78,7 @@ export function sensorOf(sensor, now) {
     .filter((h) => Number.isFinite(h.t)).sort((x, y) => x.t - y.t).filter((h, i, s) => !i || h.t !== s[i - 1].t);
   const fresh = Math.abs(now - written) < FRESH_MS && Array.isArray(a?.days) && a.days.every((d) => d && typeof d.d === "string")
     && Array.isArray(a.left?.sun) && hours.length > 0 && hours.every((h) => Array.isArray(h.sun));
-  return fresh ? { written, hours, days: a.days, left: a.left, months: a.months ?? null,
-    withUse: Array.isArray(a.left?.use) && hours.every((h) => Array.isArray(h.use)) } : null;
+  return fresh ? { written, hours, days: a.days, left: a.left, months: a.months ?? null } : null;
 }
 
 // The usual day's sun in the hour starting at t, W, as the season moves it (usual.scale, see usualDay in stats.js).
@@ -89,17 +87,15 @@ export const usualSunAt = (usual, t, clock) => usual.solarW[clock(t).hour] * (us
 // The sensor as it is when fresh (see sensorOf), else what the page can build from the solar forecast (solarWh,
 // hour start in ms to Wh) and the usual day; null without a usual day. Hours start at the present
 // hour, `left` is the rest of today from now.
-// A fresh sensor without house use (mode Weather: `use` null in hours, left or days), or one read for its sun
-// alone (`sunOnly`, level weather), is still the forecast for sun, cloud and rain; its `left.use` is then null,
-// and nothing that needs use is worked out.
+// A fresh sensor is read for its sun alone (level weather): the forecast for sun, cloud and rain, any house use it
+// gives dropped; its `left.use` is then null, and nothing that needs use is worked out.
 // sunSoFar: kWh the sun made today, by sunUntil (ms, the end of its statistics; now when not known); it
 // scales today's usual sun, see below, never down when `throttled`.
 /** @returns {Ahead | null} */
-export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar, sunUntil, throttled = false, sunOnly = false }) {
+export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar, sunUntil, throttled = false }) {
   const today = clock(now).key, start = hourStart(now, clock);
   const a = sensorOf(sensor, now), fresh = !!a, written = a?.written;
-  const withUse = !fresh || (a.withUse && !sunOnly);
-  const given = fresh && !withUse ? a.hours.map((h) => ({ ...h, use: null })) : a?.hours;
+  const given = a?.hours.map((h) => ({ ...h, use: null }));
   if (!fresh && !usual) return null;
   const usualSun = (t) => usualSunAt(usual, t, clock) / 1000; // kWh
   const nextMonth = shiftMonth(today.slice(0, 7), 1) + "-01";
@@ -107,7 +103,7 @@ export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar
   let all, days, guessed = false;
   if (fresh) {
     all = given;
-    days = a.days.filter((d) => d.d >= today).map((d) => (withUse ? d : { ...d, use: null }));
+    days = a.days.filter((d) => d.d >= today).map((d) => ({ ...d, use: null }));
   } else {
     // From the first hour of today on to the end of tomorrow, or of the month when that is later (the
     // money of the days to come, see lookAhead): walking by the hour, so a 23 or 25 hour day needs nothing special.
@@ -140,16 +136,6 @@ export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar
     }
     days = [today, shiftKey(today, 1)].map((d) => ({ d, sun: sumOf(all, "sun", clock, d, -Infinity), use: sumOf(all, "use", clock, d, -Infinity) }));
   }
-  // A sensor with house use stops at its last hour: on to the month's end with the usual day (its sun as the season
-  // moves it, see usual.scale; prices flat), for the days to come on Production and Daily returns. Not with weather
-  // alone: it has no use to go on with.
-  if (fresh && withUse && usual && all.length) {
-    all = [...all];
-    for (let t = all.at(-1).t + HOUR; clock(t).key < nextMonth; t += HOUR) {
-      const sun = usualSun(t), use = usual.loadW[clock(t).hour] / 1000;
-      all.push({ t, sun: [sun, sun, sun], use: [use, use, use], cloud: null, rain: null, buy: price?.buy ?? null, sell: price?.sell ?? null });
-    }
-  }
   // A range of a total is kept by scaling it with the mid hours still ahead over the mid hours it
   // covers: `left` from its write hour when written today, else today's entry in days from the start
   // of today. Without one (or no mid hours to scale by) the hours are summed, low with low.
@@ -160,7 +146,7 @@ export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar
     const whole = sumOf(all, field, clock, today, sameDay ? hourStart(written, clock) : -Infinity)[1];
     return Array.isArray(base) && whole > 0 ? base.map((v) => (v * ahead[1]) / whole) : ahead;
   };
-  const left = /** @type {Ahead["left"]} */ (Object.fromEntries(["sun", "use"].map((f) => [f, f === "use" && !withUse ? null : fresh ? rebase(f) : sumOf(all, f, clock, today, now)])));
+  const left = /** @type {Ahead["left"]} */ (Object.fromEntries(["sun", "use"].map((f) => [f, fresh ? (f === "use" ? null : rebase(f)) : sumOf(all, f, clock, today, now)])));
   const hours = all.filter((h) => h.t >= start);
   return { from: fresh ? "sensor" : "page", hours, left, days, tomorrowSun: !guessed,
     // The machines' usual runs inside house use, W by clock hour (usual.machineW): the advice takes them out.

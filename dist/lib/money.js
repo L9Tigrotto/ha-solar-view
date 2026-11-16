@@ -42,12 +42,11 @@ function moneySoFar(todayHours, buyAt, sellAt, standbyKwhPerHour, now) {
 // - got(k, x, mk): the sensor's figure for a finished month when it has one (fresh, at every level), else
 //   onRecord; the fixed part on every month's cost whole, as the bill charges it. back: saved plus earned. net:
 //   back less cost. Each null when any part is.
-// - end: this month's end ({ saved, earned, cost } as [low, mid, high]; back and net from their mids): the sensor's while it is the
-//   forecast in use with house use, else this month so far plus what the outlook expects (see moneyAhead).
+// - end: this month's end ({ net }): this month so far plus what the outlook expects (see moneyAhead), else null.
 // - coming: see moneyAhead.
 // ponytail: a month whose cost statistic started part way through counts only that part.
 function moneyOf(data, key) {
-  const p = data.price, months = data.sensorMonths, ownEnd = data.mode?.level === "learned_weather" && !!months;
+  const p = data.price, months = data.sensorMonths;
   const onRecord = {
     cost: (x) => num(x.costMoney) ?? pricedEnergy(x.gridImportKwh, p.buy),
     earned: (x) => (!data.sends ? 0 : num(x.earnedMoney) ?? pricedEnergy(x.gridExportKwh, p.sell)),
@@ -61,15 +60,9 @@ function moneyOf(data, key) {
   };
   const back = (x, mk) => sumKnown([got("saved", x, mk), got("earned", x, mk)]);
   const net = (x, mk) => { const c = got("cost", x, mk), b = back(x, mk); return c === null || b === null ? null : b - c; };
-  const fee = fixedAt(key), s = ownEnd ? months[key]?.money : null;
-  const r = (j) => (Array.isArray(s?.[j]) && s[j].every(Number.isFinite) && (j !== "cost" || fee !== null) ? s[j].map((y) => y + (j === "cost" ? fee : 0)) : null);
-  const end = { saved: r("saved"), earned: r("earned"), cost: r("cost") };
-  // What the month should bring back: saved, plus earned while export is on.
-  end.back = end.saved ? end.saved[1] + (data.sends ? end.earned?.[1] ?? 0 : 0) : null;
-  end.net = end.back !== null && end.cost ? end.back - end.cost[1] : null;
   const coming = moneyAhead(data), m = data.month, soFarNet = m && !m.none ? net(m, key) : null;
-  if (!ownEnd && coming?.rest != null && soFarNet !== null) end.net = soFarNet + coming.rest;
-  return { ownEnd, onRecord, fixedAt, got, back, net, end, coming };
+  const end = { net: coming?.rest != null && soFarNet !== null ? soFarNet + coming.rest : null };
+  return { onRecord, fixedAt, got, back, net, end, coming };
 }
 
 // What each month brought back (saved and earned), for payback: finished months as the month card reads them, this

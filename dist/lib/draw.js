@@ -106,10 +106,9 @@ function ring(frac, color, label, size) {
 }
 // The battery ring, in percent: solid to `soc` in `color`. With `soon` (the battery in an hour, or null)
 // a faded piece of the track between the two: past the solid end in --batt when rising; when falling
-// the solid end draws back to `soon` and the piece up to now is --low. `range` ([low, high], or null) is
-// a thin arc outside in the faded piece's colour. `size` (text, or "") sits in the gap between the ends.
+// the solid end draws back to `soon` and the piece up to now is --low. `size` (text, or "") sits in the gap between the ends.
 // Without `label` the ring is a picture only (the help sheet's examples).
-function battRing(soc, soon, range, color, label, size) {
+function battRing(soc, soon, color, label, size) {
   const u = clamp01(soc / 100) || 0, s = soon === null ? u : clamp01(soon / 100);
   const arc = (a, b, r) => `M${ringAt(a, r)} ${ringArc(a, b, r)}`;
   const c = `style="--c:${markOf(s > u ? "--batt" : "--low")}"`;
@@ -117,7 +116,6 @@ function battRing(soc, soon, range, color, label, size) {
     <path class="track" d="${TRACK}"/>
     ${s === u ? "" : `<path class="soon" ${c} d="${arc(Math.min(u, s), Math.max(u, s), 80)}"/>`}
     <path class="val" d="${TRACK}" pathLength="100" stroke-dasharray="${Math.round(Math.min(u, s) * 1000) / 10} 100"/>
-    ${range && s !== u ? `<path class="range" ${c} d="${arc(clamp01(range[0] / 100), clamp01(range[1] / 100), 97)}"/>` : ""}
     ${ringSize(size)}
   </svg>`;
 }

@@ -36,12 +36,12 @@ const TAB_ICON = {
 // How to read each card: one line per mark, its drawing and its text. The battery's has its two
 // example rings above the lines (see readDialog).
 const READ = {
-  battery: ["solid", "gain", "use", "range", "low"].map((k) => [`<i class="${k}"></i>`, `help${k[0].toUpperCase() + k.slice(1)}`]),
+  battery: ["solid", "gain", "use", "low"].map((k) => [`<i class="${k}"></i>`, `help${k[0].toUpperCase() + k.slice(1)}`]),
   days: [[sw("pill", "--sun"), "helpDaysPill"], [sw("mark", "--ink"), "helpDaysUse"], [wxIcon("partly"), "helpDaysSky"]],
   daily: [[sw("solid", "--sun"), "helpProdMonths"], [sw("ghost", "--sun"), "helpProdEnd"], [sw("line", "--sun"), "helpWeekBar"], [sw("lineAhead", "--sun"), "helpProdAhead"],
     [sw("hollow", "--sun"), "helpDayToday"], [sw("dotPick", "--sun"), "helpWeekPick"]],
   share: [[sw("arc", "--sun"), "helpShareSun"], [sw("arc", "--batt"), "helpShareBatt"], [sw("arc", "--grid"), "helpShareGrid"],
-    [`<b class="sw-num">%</b>`, "helpShareNum"], ["", "helpShareTotal"], ["", "helpShareAhead"], ["", "helpShareAheadFc"]],
+    [`<b class="sw-num">%</b>`, "helpShareNum"], ["", "helpShareTotal"], ["", "helpShareAhead"]],
   recent: [[sw("line", "--sun"), "helpRecentBar"], ["", "helpRecentSold"], [sw("lineAhead", "--sun"), "helpRecentAhead"], [sw("hollow", "--sun"), "helpDayToday"], [sw("dotPick", "--sun"), "helpRecentPick"]],
   payback: [[sw("arc", "--sun"), "helpPaybackArc"], ["", "helpPaybackCost"], ["", "helpPaybackLeft"]],
   battday: [[sw("line", "--sun"), "helpBattDayBars"], [sw("lineAhead", "--sun"), "helpBattDayGhost"], [sw("line", "--batt"), "helpBattDayLine"], [sw("lineAhead", "--batt"), "helpBattDayAhead"], [sw("usual", "--low"), "helpBattDayFloor"], [sw("dotPick", "--batt"), "helpBattDayPick"]],
@@ -72,8 +72,8 @@ ${languagePicker(languages)}
 
 // How to read one card, "" for a card without one.
 const readDialog = (card) => (Object.hasOwn(READ, card) ? `<dialog class="read" data-card="${card}" aria-labelledby="read-${card}"><form method="dialog"><h2 id="read-${card}" data-t="helpTitle"></h2>
-${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, [69, 81], "--batt", null, "")}<figcaption data-t="helpRise"></figcaption></figure>
-<figure>${battRing(60, 45, [40, 52], "--batt", null, "")}<figcaption data-t="discharging"></figcaption></figure></div>` : ""}
+${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, "--batt", null, "")}<figcaption data-t="helpRise"></figcaption></figure>
+<figure>${battRing(60, 45, "--batt", null, "")}<figcaption data-t="discharging"></figcaption></figure></div>` : ""}
 <ul>${READ[card].map(([mark, key]) => `<li>${mark}<span data-t="${key}"></span></li>`).join("")}</ul>
 <button data-t="helpClose"></button></form></dialog>` : "");
 

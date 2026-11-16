@@ -13,7 +13,7 @@ The page asks for today's 5 minute statistics every 5 minutes. The rest (the Ene
 
 ## Prediction levels
 
-`level` sets how far the page looks ahead. Without the key, the page picks the highest level its data allows, in this order: `learned_weather`, `weather`, `usual_days_weather`, `usual_days`, `none`.
+`level` sets how far the page looks ahead. Without the key, the page picks the highest level its data allows, in this order: `weather`, `usual_days_weather`, `usual_days`, `none`.
 
 | `level` | Sun from | House use from | Worked out by |
 |---|---|---|---|
@@ -21,36 +21,33 @@ The page asks for today's 5 minute statistics every 5 minutes. The rest (the Ene
 | `usual_days` | the usual day, scaled by the season | the usual day | the page |
 | `weather` | the forecast sensor | nothing | the sensor |
 | `usual_days_weather` | the Solar Forecast in the Energy settings | the usual day | the page |
-| `learned_weather` | the forecast sensor | the forecast sensor | the sensor |
 
 The forecast sensor is `sensor.solar_view_forecast`, from the planned `solar_view` integration. The page trusts it only while it was written less than 3 hours ago.
 
 What each level shows:
 
-| Part of the page | `none` | `usual_days` | `weather` | `usual_days_weather` | `learned_weather` |
-|---|---|---|---|---|---|
-| Coming days on Now | | | yes | yes | yes |
-| Advice `soon`, `later`, `wait` | | | yes | yes | yes |
-| "Enough until", the battery in an hour, the washer line, advice `short`, `okLasts`, `fills` | | yes | | yes | yes |
-| Today by hour: the hours to come | | yes | sun only | yes | yes |
-| Power origin: the small rings (wide screens) | | yes | | yes | yes |
-| Production: days to come and month end | | yes | yes | yes | yes |
-| Daily returns: days to come; Month balance: month end | | yes | | yes | yes |
-| Payback: time left | | yes | | yes | yes |
-| The battery's likely range in an hour (wide screens) | | | | | yes |
+| Part of the page | `none` | `usual_days` | `weather` | `usual_days_weather` |
+|---|---|---|---|---|
+| Coming days on Now | | | yes | yes |
+| Advice `soon`, `later`, `wait` | | | yes | yes |
+| "Enough until", the battery in an hour, the washer line, advice `short`, `okLasts`, `fills` | | yes | | yes |
+| Today by hour: the hours to come | | yes | sun only | yes |
+| Power origin: the small rings (wide screens) | | yes | | yes |
+| Production: days to come and month end | | yes | yes | yes |
+| Daily returns: days to come; Month balance: month end | | yes | | yes |
+| Payback: time left | | yes | | yes |
 
 `weather` has no house use, so nothing that needs it shows there.
 
 ### Old names
 
-`usual` is the old name of `usual_days_weather`, and still works. Any other value that is not one of the five says so once in the browser console, and the level is automatic.
+`usual` is the old name of `usual_days_weather`, and still works. `learned_weather` (the sensor's sun and house use) was dropped; it now works as `usual_days_weather` and says so once in the browser console. Any other value that is not one of the four says so once in the browser console, and the level is automatic.
 
 ### Step down
 
 A level whose data is missing steps down, again and again while data is missing. Each step says so once in the browser console. Nothing shows on screen, but the Setup check in the gear names the level asked for and the level in use.
 
 - `weather` steps down to `none`.
-- `learned_weather` steps down to `usual_days_weather`, then `usual_days`, then `none`.
 - `usual_days_weather` steps down to `usual_days` only without a Solar Forecast. The Solar Forecast alone is enough: the usual day joins once it is on record.
 - `usual_days` needs 3 days on record, else `none`.
 
@@ -118,7 +115,7 @@ The advice card shows one line a day from a pool that fits the moment. The pools
 - **`soon`** needs this hour's forecast sun at 500 W or more, and the next 3 hours under 40 percent of it.
 - **`later`** needs the next 3 hours at 500 W or more on average, and twice this hour's forecast.
 - **`wait`** needs today's forecast under 55 percent of a usual day, and tomorrow's at least 1.5 times today's.
-- **`soon`, `later` and `wait`** read the Solar Forecast at `usual_days_weather`, and the forecast sensor at `weather` and `learned_weather`.
+- **`soon`, `later` and `wait`** read the Solar Forecast at `usual_days_weather`, and the forecast sensor at `weather`.
 - **One voice for timing.** While the washer line shows, it alone says when to run something. The card then drops `go`, `soon`, `later` and `wait`, and shows `ok` or a battery line (`okLasts`, `short`, `fills`). The built-in `low` and `empty` lines that speak of big loads are left out too.
 - At night with the battery at its floor and the grid carrying the house, the battery rests as it should: no alarm colours.
 
@@ -128,8 +125,8 @@ The advice card shows one line a day from a pool that fits the moment. The pools
 - **Battery words:** "Empty" (Scarica) at `battery_floor`, "Low" up to 15 points above it, "Good" from there, "Almost full" from 85 percent, "Full" at 100.
 - **Battery warning:** above the advice, a red card when the battery nears its end. A `battery_health` sensor under 70 percent decides alone when it reads. Without one, the card shows 9.5 years after `battery_install_date`.
 - **Big text:** at about the largest text on a phone, the battery card comes before the flow, with a smaller ring, so the charge shows without a scroll.
-- **Battery in an hour:** the ring shows where the charge should be in an hour, from the likely run. On a wide screen, a thin outer line shows the low to high range from the forecast sensor.
-- **Coming days:** up to 7 days from tomorrow. At `weather` and `learned_weather` they come from the forecast sensor. At `usual_days_weather` they come from the Solar Forecast, as far as it reaches, 20 percent either way, also before a usual day is on record. Each day has a bar from 0 to its likely sun, a thin line from the low to the high, and its figure. An upright line marks a usual day's house use (not at `weather`, nor before a usual day is on record): a bar past it is a day the sun can cover the house. The weather icons come from the fresh forecast sensor, at every level.
+- **Battery in an hour:** the ring shows where the charge should be in an hour, from the likely run.
+- **Coming days:** up to 7 days from tomorrow. At `weather` they come from the forecast sensor. At `usual_days_weather` they come from the Solar Forecast, as far as it reaches, 20 percent either way, also before a usual day is on record. Each day has a bar from 0 to its likely sun, a thin line from the low to the high, and its figure. An upright line marks a usual day's house use (not at `weather`, nor before a usual day is on record): a bar past it is a day the sun can cover the house. The weather icons come from the fresh forecast sensor, at every level.
 - **Offline:** when every sensor of one kind (solar, battery or grid power, or the charge) has no value, Now shows "Inverter not reachable" with the time of the last reading. Energy and Money still show what is on record.
 - **Frozen:** when no live sensor has been updated for 20 minutes, the headline gets "Last update: 14:05" under it.
 
@@ -155,9 +152,9 @@ A figure nobody can price says "no price on record". A day or month with no numb
 - **Payback:** with `system_cost` set, a ring of how much of the cost has come back since `install_date`, plus `saved_before`. Under it: "This month: 18 € saved" (Questo mese: 18 € risparmiati), or "saved and sold" while export is on, and about how long is left. Once paid back, the month it happened and what came back since. With no price set, the card is hidden.
   - The time left counts each coming month like the same month last year. While there is less than a year on record, it guesses from the months so far and the sun at Home Assistant's latitude. Summer brings more sun, but the house uses less of it, so most of the extra goes out at the selling price. Until a year is on record, the time left is a range: every coming month 20 percent better and worse.
   - The rest of this month counts first: what such a month brings, less what this one brought so far.
-- **Daily returns:** a line of what the system brought back each day of this month (savings, without the bill's fixed part), a dot a day. Tap a day to see its Savings (saved plus export), Grid cost and Balance. With a forecast that has house use, the days left this month continue the line as dashes. They are priced at the Energy settings' price, or at the forecast sensor's hour prices at `learned_weather`.
+- **Daily returns:** a line of what the system brought back each day of this month (savings, without the bill's fixed part), a dot a day. Tap a day to see its Savings (saved plus export), Grid cost and Balance. With a forecast that has house use, the days left this month continue the line as dashes. They are priced at the Energy settings' price.
 - **Electricity prices:** the price now of a kWh bought from the grid and, while export is on, sold to it. The buy price is the tariff's band now when there are bands, else the forecast sensor's present hour while it is fresh, else the Energy settings' price. With two or three bands, a box per band shows its hours today, the share of this month's grid energy bought in it, and its price.
-- **Month balance:** each of the last 12 months' Balance as a bar, oldest on the left, the same months as Production. A bar goes down, in red, when the grid cost more. Under the bars, the picked month: its grid cost on the left of a middle line, its savings and sales on the right ("Saved + export", Risparmio + vendita, while export is on), then Saved, Export (while export is on) and Balance. For this month, faded bars show where each should end. That end is the forecast sensor's at `learned_weather`, else this month so far plus the rest of today and every day to come.
+- **Month balance:** each of the last 12 months' Balance as a bar, oldest on the left, the same months as Production. A bar goes down, in red, when the grid cost more. Under the bars, the picked month: its grid cost on the left of a middle line, its savings and sales on the right ("Saved + export", Risparmio + vendita, while export is on), then Saved, Export (while export is on) and Balance. For this month, faded bars show where each should end: this month so far plus the rest of today and every day to come.
 
 ## The sky
 
