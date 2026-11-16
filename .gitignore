@@ -3,3 +3,5 @@ docs/notes/
 graphify-out/
 __pycache__/
 .pytest_cache/
+test/
+.claude/
