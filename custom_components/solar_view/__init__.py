@@ -63,7 +63,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: SolarViewConfigEntry) -> bool:
     # The panel first: the page works without the forecast, so it stays in the sidebar while Open-Meteo is down
     # and the first refresh fails (setup retries, and replaces it).
-    await async_setup_panel(hass)
+    await async_setup_panel(hass, {**entry.data, **entry.options})
     coordinator = SolarViewCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     coordinator.bills = bills = Bills(hass, pun=bool((entry.options or {}).get(CONF_PUN)))

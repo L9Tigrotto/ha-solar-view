@@ -30,9 +30,9 @@ Developed and tested on Home Assistant 2026.9. Power sensors in the Energy setti
 
 **Updating:** replace the folder and restart Home Assistant.
 
-## Every change needs a restart
+## Every change needs a reload
 
-The integration reads `config/solar_view.yaml` when it starts. After **every** change to it, restart Home Assistant: Settings, System, the power button, Restart Home Assistant. Clearing the app's cache is not enough.
+The integration reads `config/solar_view.yaml` when it loads. A change in the Options dialog reloads it by itself, which reads the file again. After **every** change to the file, reload the integration (Settings, Devices & services, Solar view, the three dots on its entry, Reload) or restart Home Assistant, then reload the page. Clearing the app's cache is not enough.
 
 ## What shows, and what it needs
 
@@ -65,7 +65,32 @@ A level without its data steps down to the next one that has it, and says so onc
 
 ## Options
 
-Everything is optional. It goes in `config/solar_view.yaml`, in groups. The groups only keep things tidy: every key works in any group, or at the top with no group. A key the page does not know, or a value it cannot read, is ignored and named once in the browser console, and in the Setup check's "Options not used" row. Remember the [restart](#every-change-needs-a-restart).
+### In the dialog, or in the file
+
+Most settings can be set in Home Assistant: Settings, Devices and services, Solar view, Configure. The dialog is a menu of sections:
+
+| Section | Settings |
+|---|---|
+| Plant | `battery_kwh`, `battery_floor`, `battery_max_charge_kw`, `battery_max_discharge_kw`, `battery_install_date`, `standby_w`, `grid_max_kw`, export limit, `system_cost`, `install_date`, `saved_before` |
+| Predictions | `level`, `usual_days` |
+| Machines | `battery_margin`, `quiet_hours`, and for each machine you pick (washer, dryer, dishwasher) `kwh`, `hours`, `peak_kw`, `sensor` |
+| Prices | `bill_fixed` (a number; an entity needs the file) |
+| Optional sensors | `load_power`, `load_energy`, `battery_health` |
+| Weather and forecast | latitude, longitude, battery charge sensor, weather model, PUN estimate |
+
+A section saves when you press Submit, and the integration reloads: no restart. An empty field is a setting not set, so its default applies. A bad value (a date that is not real, hours that are not hours) is refused in the dialog.
+
+The export limit is the `export_max_kw` of the table below: set it in the dialog, not in the file. If `solar_view.yaml` also gives `export_max_kw` with another value, the file's is used and Home Assistant's log says so.
+
+**The file wins.** A key in `solar_view.yaml`, at the top or in any group, overrides the dialog's value for that key, so a file you already have keeps working as it is. Sensor names under `sensors` are compared one by one. A machine written in the file (even `washer: false`) overrides the dialog's machine of that type.
+
+Only these stay in the file, as a dialog cannot hold them: `tariff` (the bands, see [Time bands](#time-bands)), `advice` and `advice_replace`, and the `sensors` names for the Energy settings (solar, battery and grid power and the rest, see [Names under sensors](#names-under-sensors)). A change to the file still needs a [reload](#every-change-needs-a-reload).
+
+The tables below describe each setting. They apply to the file and to the dialog alike.
+
+### In the file
+
+Everything is optional. It goes in `config/solar_view.yaml`, in groups. The groups only keep things tidy: every key works in any group, or at the top with no group. A key the page does not know, or a value it cannot read, is ignored and named once in the browser console, and in the Setup check's "Options not used" row. Remember the [reload](#every-change-needs-a-reload).
 
 The options reach the browser of every user who can open Home Assistant, admins or not, so a `!secret` among them is readable there.
 
@@ -365,7 +390,7 @@ Every user sees the same pages, in the language and time format of their profile
 
 ## FAQ
 
-**I changed the options and nothing happened.** Restart Home Assistant fully. See [Every change needs a restart](#every-change-needs-a-restart).
+**I changed the options and nothing happened.** Reload the integration, or restart Home Assistant. See [Every change needs a reload](#every-change-needs-a-reload).
 
 **Why does the battery say "Empty" at 20 percent?** 20 is the default `battery_floor`, where most inverters stop discharging. Set your inverter's value.
 

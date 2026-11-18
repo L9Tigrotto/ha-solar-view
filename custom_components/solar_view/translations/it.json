@@ -23,31 +23,178 @@
   "options": {
     "step": {
       "init": {
+        "title": "Impostazioni di Solar view",
+        "description": "Scegli una sezione. Ognuna si salva quando premi Invia. Le impostazioni presenti anche in solar_view.yaml vengono prese dal file.",
+        "menu_options": {
+          "plant": "Impianto: batteria, rete e costo",
+          "predictions": "Previsioni",
+          "machines": "Elettrodomestici",
+          "prices": "Prezzi",
+          "sensors": "Sensori facoltativi",
+          "weather": "Meteo e previsione"
+        }
+      },
+      "weather": {
         "title": "Solar view",
         "data": {
           "latitude": "Latitudine",
           "longitude": "Longitudine",
           "soc_entity": "Sensore di carica della batteria (%)",
-          "export_limit_kw": "Limite di immissione (kW)",
           "weather_model": "Modello meteo",
           "pun_estimate": "Stima i mesi senza bolletta dal PUN Index GME (Italia)"
         },
         "data_description": {
           "soc_entity": "Lascia vuoto senza batteria.",
-          "export_limit_kw": "0 se nulla può andare in rete, vuoto se non c'è un limite.",
           "weather_model": "Un nome di modello Open-Meteo. ecmwf_aifs025_single copre 16 giorni e riempie i giorni che un modello più corto non ha.",
           "pun_estimate": "Serve almeno una bolletta salvata con set_month_prices. Interroga il GME una volta al giorno."
+        }
+      },
+      "plant": {
+        "title": "Impianto",
+        "description": "Lascia vuoto un campo per non impostarlo. Un'impostazione in solar_view.yaml ha la precedenza.",
+        "data": {
+          "battery_kwh": "Capacità della batteria (kWh)",
+          "battery_floor": "Soglia minima della batteria (%)",
+          "battery_max_charge_kw": "Massimo che la batteria assorbe (kW)",
+          "battery_max_discharge_kw": "Massimo che la batteria eroga (kW)",
+          "battery_install_date": "Batteria installata il",
+          "standby_w": "Consumo proprio dell'inverter (W)",
+          "grid_max_kw": "Massimo che dà il contatore (kW)",
+          "export_limit_kw": "Limite di immissione (kW)",
+          "system_cost": "Costo dell'impianto",
+          "install_date": "Impianto installato il",
+          "saved_before": "Risparmiato prima che Home Assistant lo registrasse"
+        },
+        "data_description": {
+          "battery_kwh": "Tutta la batteria, non solo la parte sopra la soglia. Predefinito: la capacità nelle impostazioni Energia.",
+          "battery_floor": "Percentuale a cui l'inverter smette di scaricare. Predefinito 20.",
+          "battery_max_charge_kw": "Il sole in più va alla rete nella previsione. Vuoto: nessun limite.",
+          "battery_max_discharge_kw": "Il consumo oltre viene dalla rete nella previsione. Vuoto: nessun limite.",
+          "battery_install_date": "Scritto AAAA-MM-GG, per esempio 2025-03-15. Impostalo di nuovo quando cambi la batteria. Predefinito: la data dell'impianto.",
+          "standby_w": "Tolto dai risparmi che la previsione si aspetta. Predefinito: calcolato dal sensore di energia della casa, altrimenti 0.",
+          "grid_max_kw": "Il massimo che il contatore dà prima di staccare (un contratto da 3 kW in Italia regge 3,3). Vuoto: nessun controllo.",
+          "export_limit_kw": "0 se nulla può andare in rete, vuoto se non c'è un limite.",
+          "system_cost": "Nella tua valuta. Attiva la scheda Rientro.",
+          "install_date": "Scritto AAAA-MM-GG. Il Rientro conta dal suo mese. Predefinito: il primo mese registrato.",
+          "saved_before": "Nella tua valuta. Aggiunto al rientro."
+        }
+      },
+      "predictions": {
+        "title": "Previsioni",
+        "description": "Fin dove prevede la pagina. I campi vuoti sono automatici.",
+        "data": {
+          "level": "Livello",
+          "usual_days": "Giorni del giorno tipo"
+        },
+        "data_description": {
+          "level": "Vuoto: automatico. Senza i suoi dati un livello scende al successivo che li ha.",
+          "usual_days": "Quanti giorni passati formano il giorno tipo, da 3 a 60. Predefinito 14."
+        }
+      },
+      "machines": {
+        "title": "Elettrodomestici",
+        "description": "Gli elettrodomestici di cui la riga della lavatrice dice quando avviarli. Non usati ai livelli nessuno e meteo.",
+        "data": {
+          "battery_margin": "Margine della batteria (%)",
+          "quiet_hours": "Ore di silenzio",
+          "machines": "Elettrodomestici"
+        },
+        "data_description": {
+          "battery_margin": "Percentuale tenuta sopra la soglia minima quando un avvio è detto gratuito. Predefinito 10.",
+          "quiet_hours": "In queste ore non viene suggerito nessun avvio, per esempio 0-7 o 23:30-6:30. Predefinito 0-7.",
+          "machines": "Scegli quelli che hai. Poi dai i dati di ognuno."
+        }
+      },
+      "prices": {
+        "title": "Prezzi",
+        "description": "La parte fissa della bolletta. Le fasce e i prezzi restano in solar_view.yaml (tariff).",
+        "data": {
+          "bill_fixed": "Parte fissa della bolletta"
+        },
+        "data_description": {
+          "bill_fixed": "Per esempio il canone del contatore, aggiunto al costo di ogni mese in Soldi. Nella tua valuta al mese. Vuoto: nessuna."
+        }
+      },
+      "sensors": {
+        "title": "Sensori facoltativi",
+        "description": "Non sono nelle impostazioni Energia. Lascia vuoto per saltarli. Gli altri sensori restano in solar_view.yaml (sensors).",
+        "data": {
+          "load_power": "Sensore di potenza della casa",
+          "load_energy": "Sensore di energia della casa",
+          "battery_health": "Sensore di salute della batteria (%)"
+        },
+        "data_description": {
+          "load_power": "Consumo della casa, in tempo reale. Senza, il consumo è quello che entra meno quello che esce.",
+          "load_energy": "Consumo della casa, per le statistiche.",
+          "battery_health": "Lo stato di salute della batteria, dove l'inverter lo comunica. Decide da solo l'avviso di usura."
+        }
+      },
+      "machine_washer": {
+        "title": "Lavatrice",
+        "description": "Lascia vuoto un campo perché la pagina supponga un ciclo tipico di 1 kWh in 2 ore.",
+        "data": {
+          "kwh": "Energia di un ciclo (kWh)",
+          "hours": "Durata di un ciclo (ore)",
+          "peak_kw": "Potenza di picco (kW)",
+          "sensor": "Sensore di energia"
+        },
+        "data_description": {
+          "kwh": "Usata quando non c'è un sensore, o il sensore non ha ancora cicli.",
+          "hours": "Da 0 a 24.",
+          "peak_kw": "Confrontata con il limite del contatore.",
+          "sensor": "I suoi cicli sostituiscono i dati sopra."
+        }
+      },
+      "machine_dryer": {
+        "title": "Asciugatrice",
+        "description": "Lascia vuoto un campo perché la pagina supponga un ciclo tipico di 1 kWh in 2 ore.",
+        "data": {
+          "kwh": "Energia di un ciclo (kWh)",
+          "hours": "Durata di un ciclo (ore)",
+          "peak_kw": "Potenza di picco (kW)",
+          "sensor": "Sensore di energia"
+        },
+        "data_description": {
+          "kwh": "Usata quando non c'è un sensore, o il sensore non ha ancora cicli.",
+          "hours": "Da 0 a 24.",
+          "peak_kw": "Confrontata con il limite del contatore.",
+          "sensor": "I suoi cicli sostituiscono i dati sopra."
+        }
+      },
+      "machine_dishwasher": {
+        "title": "Lavastoviglie",
+        "description": "Lascia vuoto un campo perché la pagina supponga un ciclo tipico di 1 kWh in 2 ore.",
+        "data": {
+          "kwh": "Energia di un ciclo (kWh)",
+          "hours": "Durata di un ciclo (ore)",
+          "peak_kw": "Potenza di picco (kW)",
+          "sensor": "Sensore di energia"
+        },
+        "data_description": {
+          "kwh": "Usata quando non c'è un sensore, o il sensore non ha ancora cicli.",
+          "hours": "Da 0 a 24.",
+          "peak_kw": "Confrontata con il limite del contatore.",
+          "sensor": "I suoi cicli sostituiscono i dati sopra."
         }
       }
     },
     "error": {
-      "bad_model": "Open-Meteo non conosce questo modello. Controlla come è scritto nell'elenco dei modelli di Open-Meteo."
+      "bad_model": "Open-Meteo non conosce questo modello. Controlla come è scritto nell'elenco dei modelli di Open-Meteo.",
+      "bad_number": "Non è un numero nell'intervallo consentito.",
+      "bad_date": "Scrivi un giorno reale come AAAA-MM-GG, per esempio 2025-03-15.",
+      "bad_level": "Scegli uno dei livelli.",
+      "bad_hours": "Scrivi ore come 0-7 o 23:30-6:30.",
+      "bad_entity": "Scegli un sensore."
     }
   },
   "entity": {
     "sensor": {
-      "forecast": { "name": "Previsione" },
-      "bills": { "name": "Bollette" }
+      "forecast": {
+        "name": "Previsione"
+      },
+      "bills": {
+        "name": "Bollette"
+      }
     }
   },
   "issues": {
@@ -89,6 +236,23 @@
           "name": "Quota fissa",
           "description": "La quota fissa del mese, IVA inclusa. Sotto lo 0 se un bonus la supera."
         }
+      }
+    }
+  },
+  "selector": {
+    "level": {
+      "options": {
+        "none": "Nessuno: solo sensori e statistiche",
+        "usual_days": "Giorni tipo",
+        "weather": "Meteo",
+        "usual_days_weather": "Giorni tipo e meteo"
+      }
+    },
+    "machines": {
+      "options": {
+        "washer": "Lavatrice",
+        "dryer": "Asciugatrice",
+        "dishwasher": "Lavastoviglie"
       }
     }
   }

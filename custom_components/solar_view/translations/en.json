@@ -23,31 +23,178 @@
   "options": {
     "step": {
       "init": {
+        "title": "Solar view settings",
+        "description": "Pick a section. Each one saves when you press Submit. Settings also in solar_view.yaml are taken from the file.",
+        "menu_options": {
+          "plant": "Plant: battery, grid and what it cost",
+          "predictions": "Predictions",
+          "machines": "Machines",
+          "prices": "Prices",
+          "sensors": "Optional sensors",
+          "weather": "Weather and forecast"
+        }
+      },
+      "weather": {
         "title": "Solar view",
         "data": {
           "latitude": "Latitude",
           "longitude": "Longitude",
           "soc_entity": "Battery charge sensor (%)",
-          "export_limit_kw": "Export limit (kW)",
           "weather_model": "Weather model",
           "pun_estimate": "Estimate months without a bill from the PUN Index GME (Italy)"
         },
         "data_description": {
           "soc_entity": "Leave empty without a battery.",
-          "export_limit_kw": "0 when nothing may go to the grid, empty when there is no limit.",
           "weather_model": "An Open-Meteo model name. ecmwf_aifs025_single covers 16 days and fills the days a shorter model lacks.",
           "pun_estimate": "Needs at least one bill stored with set_month_prices. Calls GME once a day."
+        }
+      },
+      "plant": {
+        "title": "Plant",
+        "description": "Leave a field empty to leave it unset. A setting in solar_view.yaml overrides it.",
+        "data": {
+          "battery_kwh": "Battery size (kWh)",
+          "battery_floor": "Battery floor (%)",
+          "battery_max_charge_kw": "Most the battery takes in (kW)",
+          "battery_max_discharge_kw": "Most the battery gives out (kW)",
+          "battery_install_date": "Battery installed on",
+          "standby_w": "Inverter's own use (W)",
+          "grid_max_kw": "Most the meter gives (kW)",
+          "export_limit_kw": "Export limit (kW)",
+          "system_cost": "What the system cost",
+          "install_date": "System installed on",
+          "saved_before": "Saved before Home Assistant recorded it"
+        },
+        "data_description": {
+          "battery_kwh": "The whole battery, not only the part above the floor. Default: the size in the Energy settings.",
+          "battery_floor": "Percent where the inverter stops discharging. Default 20.",
+          "battery_max_charge_kw": "Spare sun beyond it goes to the grid in the forecast. Empty: no limit.",
+          "battery_max_discharge_kw": "Use beyond it comes from the grid in the forecast. Empty: no limit.",
+          "battery_install_date": "Written YYYY-MM-DD, for example 2025-03-15. Set it again when you replace the battery. Default: the system's date.",
+          "standby_w": "Left out of the savings the forecast expects. Default: worked out from the house's energy sensor, else 0.",
+          "grid_max_kw": "The most the meter gives before it trips (a 3 kW contract in Italy holds 3.3). Empty: no check.",
+          "export_limit_kw": "0 when nothing may go to the grid, empty when there is no limit.",
+          "system_cost": "In your currency. Turns on the Payback card.",
+          "install_date": "Written YYYY-MM-DD. Payback counts from its month. Default: the first month on record.",
+          "saved_before": "In your currency. Added to Payback."
+        }
+      },
+      "predictions": {
+        "title": "Predictions",
+        "description": "How far the page predicts. Empty fields are automatic.",
+        "data": {
+          "level": "Level",
+          "usual_days": "Days in the usual day"
+        },
+        "data_description": {
+          "level": "Empty: automatic. Without its data a level steps down to the next one that has it.",
+          "usual_days": "How many past days make the usual day, from 3 to 60. Default 14."
+        }
+      },
+      "machines": {
+        "title": "Machines",
+        "description": "The machines the washer line says when to start. Not used at the levels none and weather.",
+        "data": {
+          "battery_margin": "Battery margin (%)",
+          "quiet_hours": "Quiet hours",
+          "machines": "Machines"
+        },
+        "data_description": {
+          "battery_margin": "Percent kept above the battery floor when a start is called free. Default 10.",
+          "quiet_hours": "No start is suggested in these hours, for example 0-7 or 23:30-6:30. Default 0-7.",
+          "machines": "Pick the machines you have. You give each one's figures next."
+        }
+      },
+      "prices": {
+        "title": "Prices",
+        "description": "The bill's fixed part. The bands and prices stay in solar_view.yaml (tariff).",
+        "data": {
+          "bill_fixed": "Fixed part of the bill"
+        },
+        "data_description": {
+          "bill_fixed": "A meter fee, say, added to every month's cost on Money. In your currency per month. Empty: none."
+        }
+      },
+      "sensors": {
+        "title": "Optional sensors",
+        "description": "Not in the Energy settings. Leave empty to skip. The other sensors stay in solar_view.yaml (sensors).",
+        "data": {
+          "load_power": "House power sensor",
+          "load_energy": "House energy sensor",
+          "battery_health": "Battery health sensor (%)"
+        },
+        "data_description": {
+          "load_power": "House use, live. Without it, house use is what flows in minus what flows out.",
+          "load_energy": "House use, for the statistics.",
+          "battery_health": "The battery's state of health, where the inverter reports it. It decides the wear warning alone."
+        }
+      },
+      "machine_washer": {
+        "title": "Washer",
+        "description": "Leave a field empty to let the page assume a usual run of 1 kWh over 2 hours.",
+        "data": {
+          "kwh": "Energy of one run (kWh)",
+          "hours": "Length of one run (hours)",
+          "peak_kw": "Peak power (kW)",
+          "sensor": "Energy sensor"
+        },
+        "data_description": {
+          "kwh": "Used when there is no sensor, or the sensor has no runs yet.",
+          "hours": "From 0 to 24.",
+          "peak_kw": "Checked against the meter's limit.",
+          "sensor": "Its runs replace the figures above."
+        }
+      },
+      "machine_dryer": {
+        "title": "Dryer",
+        "description": "Leave a field empty to let the page assume a usual run of 1 kWh over 2 hours.",
+        "data": {
+          "kwh": "Energy of one run (kWh)",
+          "hours": "Length of one run (hours)",
+          "peak_kw": "Peak power (kW)",
+          "sensor": "Energy sensor"
+        },
+        "data_description": {
+          "kwh": "Used when there is no sensor, or the sensor has no runs yet.",
+          "hours": "From 0 to 24.",
+          "peak_kw": "Checked against the meter's limit.",
+          "sensor": "Its runs replace the figures above."
+        }
+      },
+      "machine_dishwasher": {
+        "title": "Dishwasher",
+        "description": "Leave a field empty to let the page assume a usual run of 1 kWh over 2 hours.",
+        "data": {
+          "kwh": "Energy of one run (kWh)",
+          "hours": "Length of one run (hours)",
+          "peak_kw": "Peak power (kW)",
+          "sensor": "Energy sensor"
+        },
+        "data_description": {
+          "kwh": "Used when there is no sensor, or the sensor has no runs yet.",
+          "hours": "From 0 to 24.",
+          "peak_kw": "Checked against the meter's limit.",
+          "sensor": "Its runs replace the figures above."
         }
       }
     },
     "error": {
-      "bad_model": "Open-Meteo does not know this model. Check its spelling against Open-Meteo's model list."
+      "bad_model": "Open-Meteo does not know this model. Check its spelling against Open-Meteo's model list.",
+      "bad_number": "This is not a number in the allowed range.",
+      "bad_date": "Write a real day as YYYY-MM-DD, for example 2025-03-15.",
+      "bad_level": "Pick one of the levels.",
+      "bad_hours": "Write hours such as 0-7 or 23:30-6:30.",
+      "bad_entity": "Pick a sensor."
     }
   },
   "entity": {
     "sensor": {
-      "forecast": { "name": "Forecast" },
-      "bills": { "name": "Bills" }
+      "forecast": {
+        "name": "Forecast"
+      },
+      "bills": {
+        "name": "Bills"
+      }
     }
   },
   "issues": {
@@ -89,6 +236,23 @@
           "name": "Fixed part",
           "description": "The month's fixed part, VAT included. Below 0 when a bonus outweighs it."
         }
+      }
+    }
+  },
+  "selector": {
+    "level": {
+      "options": {
+        "none": "None: sensors and statistics only",
+        "usual_days": "Usual days",
+        "weather": "Weather",
+        "usual_days_weather": "Usual days and weather"
+      }
+    },
+    "machines": {
+      "options": {
+        "washer": "Washer",
+        "dryer": "Dryer",
+        "dishwasher": "Dishwasher"
       }
     }
   }

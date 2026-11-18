@@ -60,15 +60,16 @@ async def async_read_config(hass: Any) -> dict:
         read_config, Path(hass.config.path(CONFIG_FILE)), lambda p: load_yaml_dict(p, secrets))
 
 
-async def async_setup_panel(hass: Any) -> None:
-    """The sidebar panel, solar_view.yaml as its config and the files' hash as its version. Any panel from an
+async def async_setup_panel(hass: Any, entry_config: dict) -> None:
+    """The sidebar panel, solar_view.yaml merged with the entry's options (settings.merge) as its config and the files' hash as its version. Any panel from an
     earlier setup (a reload, a retry after a failed first refresh) is replaced."""
     from homeassistant.components import panel_custom
 
     from .const import ELEMENT, FILES_URL, PANEL_URL
+    from .settings import merge
 
     version = await hass.async_add_executor_job(files_hash, FRONTEND)
-    config = await async_read_config(hass)
+    config = merge(entry_config, await async_read_config(hass))
     remove_panel(hass)
     await panel_custom.async_register_panel(
         hass, frontend_url_path=PANEL_URL, webcomponent_name=ELEMENT, sidebar_title="Solar view",

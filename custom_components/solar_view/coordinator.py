@@ -54,7 +54,7 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
     async def _async_update_data(self) -> dict[str, Any] | None:
         if self._saved is None:
             self._saved = await self._store.async_load() or {}
-        entry_config = self.config_entry.options or self.config_entry.data
+        entry_config = {**self.config_entry.data, **self.config_entry.options}
         latitude, longitude = entry_config[CONF_LATITUDE], entry_config[CONF_LONGITUDE]
         model = (entry_config.get(CONF_MODEL) or "").strip() or AIFS  # saved before the options flow stripped it
         now, time_zone = dt_util.utcnow(), dt_util.get_default_time_zone()
