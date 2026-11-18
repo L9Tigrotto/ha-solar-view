@@ -22,7 +22,7 @@ The page asks for today's 5 minute statistics every 5 minutes. The rest (the Ene
 | `weather` | the forecast sensor | nothing | the sensor |
 | `usual_days_weather` | the Solar Forecast in the Energy settings | the usual day | the page |
 
-The forecast sensor is `sensor.solar_view_forecast`, from the planned `solar_view` integration. The page trusts it only while it was written less than 3 hours ago.
+The forecast sensor is `sensor.solar_view_forecast`, from the `solar_view` integration in this repository. The page trusts it only while it was written less than 3 hours ago.
 
 What each level shows:
 
@@ -61,7 +61,7 @@ The page learns the usual day from the last 14 days of hour statistics (`usual_d
 
 - With 5 days or more behind an hour, its lowest and highest sun are left out. One odd hour (a recorder catching up) cannot carry it. House use keeps them all: an oven or a car charged now and then is real energy.
 - The sun follows the season. Each hour of a day to come is scaled by how much sun that hour gets in a clear sky that day, against the usual days. The page takes the clear sky from Home Assistant's location. So in autumn each day expects a little less sun than the days behind it, and in spring a little more. On one plant in October, this cut the usual day's error on the next day from 21 to 17 percent.
-- The low and high of a day come from how much the whole days differed: their 25th and 75th percentile, for sun and for use. A day from the Solar Forecast takes 20 percent either way.
+- The low and high of a day come from how much the whole days differed: their 25th and 75th percentile, for sun and for use. A day from the Solar Forecast takes 20 percent either way. The forecast sensor (level `weather`) learns its own range: after 15 days of its day-ahead forecast against what the panels made, its low and high are the 10th and 90th percentile of made over forecast, the same for every day ahead; before that, 20 percent either way. While the sensor is fresh, the page also uses that range for a day of the Solar Forecast at `usual_days_weather`, scaled to the forecast's likely sun; otherwise 20 percent either way.
 - The usual runs of each machine with a `sensor` stay in house use. Only the washer line takes them out, before it adds each run where it plans it.
 
 There is no usual day until every hour has 3 days behind it. Until then, Now shows "Learning your usual day: predictions start in N days".
@@ -126,7 +126,7 @@ The advice card shows one line a day from a pool that fits the moment. The pools
 - **Battery warning:** above the advice, a red card when the battery nears its end. A `battery_health` sensor under 70 percent decides alone when it reads. Without one, the card shows 9.5 years after `battery_install_date`.
 - **Big text:** at about the largest text on a phone, the battery card comes before the flow, with a smaller ring, so the charge shows without a scroll.
 - **Battery in an hour:** the ring shows where the charge should be in an hour, from the likely run.
-- **Coming days:** up to 7 days from tomorrow. At `weather` they come from the forecast sensor. At `usual_days_weather` they come from the Solar Forecast, as far as it reaches, 20 percent either way, also before a usual day is on record. Each day has a bar from 0 to its likely sun, a thin line from the low to the high, and its figure. An upright line marks a usual day's house use (not at `weather`, nor before a usual day is on record): a bar past it is a day the sun can cover the house. The weather icons come from the fresh forecast sensor, at every level.
+- **Coming days:** up to 7 days from tomorrow. At `weather` they come from the forecast sensor. At `usual_days_weather` they come from the Solar Forecast, as far as it reaches, with the sensor's learned range while it is fresh and 20 percent either way otherwise, also before a usual day is on record. Each day has a bar from 0 to its likely sun, a thin line from the low to the high, and its figure. An upright line marks a usual day's house use (not at `weather`, nor before a usual day is on record): a bar past it is a day the sun can cover the house. The weather icons come from the fresh forecast sensor, at every level.
 - **Offline:** when every sensor of one kind (solar, battery or grid power, or the charge) has no value, Now shows "Inverter not reachable" with the time of the last reading. Energy and Money still show what is on record.
 - **Frozen:** when no live sensor has been updated for 20 minutes, the headline gets "Last update: 14:05" under it.
 

@@ -235,3 +235,70 @@ def test_forecast_linked(forecasts, want):
 
 def test_forecast_linked_without_the_key():
     assert f.forecast_linked([{"type": "solar", "stat_energy_from": "sensor.pv"}], "ours") is False
+
+
+# ---- learned range: day-ahead forecast against made ----
+def day_hours(day, kwh):
+    """The 24 UTC hours of Rome's local `day` (a winter day), each forecast `kwh`."""
+    start = datetime.fromisoformat(day).replace(tzinfo=ROME).astimezone(UTC)
+    return {(start + timedelta(hours=h)).isoformat(): kwh for h in range(24)}
+
+
+def made_for(ended, factor, throttled=()):
+    return [f.Row(datetime.fromisoformat(k), v * factor, k in throttled) for k, v in ended.items()]
+
+
+def test_record_pairs_sums_ended_day_over_shared_unthrottled_hours():
+    ended = day_hours("2026-11-10", 1.0)
+    ks = sorted(ended)
+    rows = made_for(ended, 0.5, throttled={ks[12]})
+    rows = [r for r in rows if r.start.isoformat() != ks[3]]       # an hour with no row
+    left, pairs = f.record_pairs(ended, {}, rows, NOW, ROME)
+    assert pairs == {"2026-11-10": [22.0, 11.0]} and left == {}    # 24 - throttled - missing = 22 hours
+
+
+def test_record_pairs_waits_for_a_running_or_just_ended_day():
+    ended = day_hours("2026-11-16", 1.0)
+    now = utc("2026-11-16T22:30")                                    # the day ends 23:00 UTC
+    left, pairs = f.record_pairs(ended, {}, made_for(ended, 0.5), now, ROME)
+    assert pairs == {} and left == ended
+    ended = day_hours("2026-11-15", 1.0)
+    now = utc("2026-11-15T23:30")                                    # ended 30 minutes ago: rows may not be in yet
+    assert f.record_pairs(ended, {}, made_for(ended, 0.5), now, ROME)[1] == {}
+    assert f.record_pairs(ended, {}, made_for(ended, 0.5), utc("2026-11-16T00:30"), ROME)[1] == {"2026-11-15": [24.0, 12.0]}
+
+
+def test_record_pairs_drops_empty_days_and_old_hours_and_keeps_newest_90():
+    dark = day_hours("2026-11-10", 0.01)
+    assert f.record_pairs(dark, {}, made_for(dark, 1), NOW, ROME) == ({}, {})
+    old = {"2026-11-12T10:00:00+00:00": 1.0}                         # a lone hour of a day never completed
+    assert f.record_pairs(old, {}, [], NOW + timedelta(days=1), ROME)[0] == {}
+    many = {f"2026-{m:02d}-{d:02d}": [10.0, 9.0] for m, d in [(8, x) for x in range(1, 32)] + [(9, x) for x in range(1, 31)] + [(10, x) for x in range(1, 32)]}
+    _, kept = f.record_pairs({}, many, [], NOW, ROME)
+    assert len(kept) == 90 and "2026-08-01" not in kept and "2026-10-31" in kept
+
+
+def pairs_with(ratios):
+    return {f"2026-10-{i + 1:02d}": [10.0, 10.0 * r] for i, r in enumerate(ratios)}
+
+
+def test_spread_is_fixed_until_15_days():
+    assert f.learned_spread(pairs_with([1.5] * 14)) == f.FIXED
+    assert f.learned_spread(pairs_with([1.5] * 15)) != f.FIXED
+
+
+def test_spread_is_10th_and_90th_percentile_of_made_over_forecast():
+    ratios = [0.5 + 0.1 * i for i in range(21)]                      # 0.5 .. 2.5, 21 days
+    assert f.learned_spread(pairs_with(ratios)) == (0.7, 2.3)
+
+
+def test_spread_keeps_the_mid_inside():
+    assert f.learned_spread(pairs_with([1.3 + 0.01 * i for i in range(20)])) == (1.0, pytest.approx(1.47, abs=0.02))
+    assert f.learned_spread(pairs_with([0.5 + 0.01 * i for i in range(20)]))[1] == 1.0
+
+
+def test_attributes_range_uses_the_learned_spread():
+    w = flat(utc("2026-11-15T23:00"), 24 * 2)
+    a = f.attributes(f.sun_hours(ONE, w), w, utc("2026-11-16T08:30"), ROME, LAT, LON, (0.7, 1.4))
+    assert a["hours"][12]["sun"] == [0.35, 0.5, 0.7] and a["days"][0]["sun"] == [8.4, 12.0, 16.8]
+    assert f.attributes(f.sun_hours(ONE, w), w, utc("2026-11-16T08:30"), ROME, LAT, LON)["hours"][12]["sun"] == [0.4, 0.5, 0.6]

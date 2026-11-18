@@ -81,6 +81,13 @@ export function sensorOf(sensor, now) {
   return fresh ? { written, hours, days: a.days, left: a.left } : null;
 }
 
+// The low and high of the sun as multiples of its mid, as the fresh sensor learned them (see sensorOf; every day
+// has the same ones), else null: the first day with sun gives them.
+export function sensorSpread(facts) {
+  const d = facts?.days.find((x) => Array.isArray(x.sun) && x.sun.every(Number.isFinite) && x.sun[1] > 0 && x.sun[0] <= x.sun[1] && x.sun[1] <= x.sun[2]);
+  return d ? [d.sun[0] / d.sun[1], d.sun[2] / d.sun[1]] : null;
+}
+
 // The usual day's sun in the hour starting at t, W, as the season moves it (usual.scale, see usualDay in stats.js).
 export const usualSunAt = (usual, t, clock) => usual.solarW[clock(t).hour] * (usual.scale?.(t) ?? 1);
 
@@ -90,9 +97,10 @@ export const usualSunAt = (usual, t, clock) => usual.solarW[clock(t).hour] * (us
 // A fresh sensor is read for its sun alone (level weather): the forecast for sun, cloud and rain, any house use it
 // gives dropped; its `left.use` is then null, and nothing that needs use is worked out.
 // sunSoFar: kWh the sun made today, by sunUntil (ms, the end of its statistics; now when not known); it
-// scales today's usual sun, see below, never down when `throttled`.
+// scales today's usual sun, see below, never down when `throttled`. solarSpread: [low, high] over the mid for a day of the
+// solar forecast (see sensorSpread), null for SOLAR_SPREAD either way.
 /** @returns {Ahead | null} */
-export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar, sunUntil, throttled = false }) {
+export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar, sunUntil, throttled = false, solarSpread = null }) {
   const today = clock(now).key, start = hourStart(now, clock);
   const a = sensorOf(sensor, now), fresh = !!a, written = a?.written;
   const given = a?.hours.map((h) => ({ ...h, use: null }));
@@ -123,9 +131,9 @@ export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar
     // clouded: it may only raise the rest of today.
     const sky = covered.has(today) || !(usualByNow >= SKY_MIN_KWH) || !Number.isFinite(sunSoFar) ? 1
       : Math.min(SKY_MAX, throttled ? Math.max(1, sunSoFar / usualByNow) : sunSoFar / usualByNow);
-    // Low and high: a forecast day SOLAR_SPREAD either way; a usual day's sun, and house use, as its days
+    // Low and high: a forecast day the fresh sensor's learned spread (solarSpread), else SOLAR_SPREAD either way; a usual day's sun, and house use, as its days
     // spread (usual.spread: [low, high] over the mean, see usualDay).
-    const spread = usual.spread ?? { sun: [1, 1], use: [1, 1] }, solar = [1 - SOLAR_SPREAD, 1 + SOLAR_SPREAD];
+    const spread = usual.spread ?? { sun: [1, 1], use: [1, 1] }, solar = solarSpread ?? [1 - SOLAR_SPREAD, 1 + SOLAR_SPREAD];
     const range = (v, [low, high]) => [v * low, v, v * high];
     all = [];
     for (let t = first; clock(t).key !== end; t += HOUR) {

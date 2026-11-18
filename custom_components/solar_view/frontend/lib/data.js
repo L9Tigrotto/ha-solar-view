@@ -9,7 +9,7 @@ const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ ne
  *   typeof import("./money.js")]} */
 const [{ HOUR, FULL_CHARGE, roundTo, clockOf, dayHours, hourStart, inHour, shiftKey, noonOf, monthDayKeys, stateNum, numberOrEntity, priceOf, warnOnce },
   { SKY_LOW_DEG, weatherOf, cloudNow, raining, snowing, dawnOf, greyOf, coverOf, moonPhase }, { wearOf }, { BATTERY_FLOOR_PERCENT },
-  { sensorOf, forecastOf, lookAhead, bandOf, bandName, bandPrices, findBills }, { ENERGY }, { moneySoFar }] = await Promise.all([
+  { sensorOf, sensorSpread, forecastOf, lookAhead, bandOf, bandName, bandPrices, findBills }, { ENERGY }, { moneySoFar }] = await Promise.all([
   import(`./core.js${v}`), import(`./sky.js${v}`), import(`./advice.js${v}`), import(`./config.js${v}`), import(`./forecast.js${v}`), import(`./stats.js${v}`), import(`./money.js${v}`)]);
 
 const SUN = "sun.sun";
@@ -121,7 +121,7 @@ function predict(hass, entityIds, options, stats, sensor, now, clock) {
     const throttled = options.exportMaxKw != null && ((stats.chargeLevelDay ?? []).some(([, p]) => p >= FULL_CHARGE) || n.chargeLevel >= FULL_CHARGE);
     const base = { now, clock, solarWh: stats.solarWh, usual, price, sunSoFar: stats.today.solarKwh, sunUntil: stats.sunUntil, throttled };
     const l = mode.level, ahead = l === "none" ? null : l === "weather" ? forecastOf({ ...base, sensor })
-      : forecastOf({ ...base, sensor: null, solarWh: l === "usual_days" ? {} : stats.solarWh });
+      : forecastOf({ ...base, sensor: null, solarWh: l === "usual_days" ? {} : stats.solarWh, solarSpread: sensorSpread(facts) });
     // Hours already past are priced by the sensor's own hours while it is fresh, else at the flat price.
     const given = new Map((facts?.hours ?? []).map((h) => [h.t, h]));
     const priceAt = (field) => (t) => (given.has(t) ? given.get(t)[field] : price[field]);
@@ -255,6 +255,8 @@ function readData(hass, entityIds, options, stats, looked = {}, now = Date.now()
     // The bills sensor's months: each billed month's prices, fixed part and money as it priced them (see moneyOf).
     sensorMonths: findBills(hass)?.attributes?.months ?? null,
     // The fresh sensor's sky by day, { "2026-11-10": { cloud, rain } }, for the coming days' icons at every level.
+    // Its learned low and high over the likely sun ([low, high] multiples), for the days of the Solar Forecast.
+    sensorSpread: sensorSpread(looked.facts),
     sensorSky: looked.facts ? Object.fromEntries(looked.facts.days.filter((d) => Number.isFinite(d.cloud)).map((d) => [d.d, { cloud: d.cloud, rain: d.rain }])) : null,
   };
 }

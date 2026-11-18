@@ -28,7 +28,7 @@ from .const import (
 )
 from .forecast import (
     AIFS, WINDOW_DAYS, Row, attributes, forecast_linked, is_throttled, merge_weather, roof_profile, sun_hours,
-    update_pending, weather_url, wh_hours,
+    learned_spread, record_pairs, update_pending, weather_url, wh_hours,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -42,7 +42,8 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, _LOGGER, config_entry=entry, name=DOMAIN, update_interval=timedelta(hours=1))
         self._store: Store[dict[str, Any]] = Store(hass, 1, DOMAIN)
-        self._saved: dict[str, Any] | None = None  # {"weather": {"fetched", "hourly"}, "pending": {hour: kWh}}
+        self._saved: dict[str, Any] | None = None  # {"weather": {"fetched", "hourly"}, "pending": {hour: kWh},
+        # "ended": the day-ahead hours that ended, "pairs": {day: [forecast, made]} (see forecast.record_pairs)}
         self._said: set[str] = set()  # causes already logged, so each is said once until it goes away
 
     def _say(self, cause: str, message: str) -> None:
@@ -81,8 +82,11 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
                 "mean_type": StatisticMeanType.ARITHMETIC,
             }, [{"start": t, "mean": v} for t, v in done])
         self._saved["pending"] = pending
+        ended = {**self._saved.get("ended", {}), **{t.isoformat(): v for t, v in done}}
+        self._saved["ended"], self._saved["pairs"] = record_pairs(ended, self._saved.get("pairs", {}), rows, now, time_zone)
         await self._store.async_save(self._saved)
-        return {"written": now, "attributes": attributes(sun, weather, now, time_zone, latitude, longitude),
+        spread = learned_spread(self._saved["pairs"])
+        return {"written": now, "attributes": attributes(sun, weather, now, time_zone, latitude, longitude, spread),
                 "wh_hours": wh_hours(sun, now, time_zone)}
 
     async def _weather(self, latitude: float, longitude: float, model: str, now: datetime) -> dict[str, Any] | None:

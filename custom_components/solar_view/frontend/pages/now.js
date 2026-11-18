@@ -266,20 +266,20 @@ const bestLine = (best, lines, format, clock, now) => best.map((b) => {
   const what = b.kind === "wait" ? say(lines.now.startWait, { machine: name, power: `${format.num(Math.round(b.kw * 10) / 10)} kW` })
     : b.kind === "now" ? say(lines.now.startNow, { machine: name })
       : say(clock(b.t).key === clock(now).key ? lines.now.startAt : lines.now.startTomorrow, { machine: name, time: format.time(new Date(b.t)) });
-  const why = b.why && say(lines.now[`why${cap(b.why)}`], { band: esc(b.band ?? "") });
+  const why = b.why && say(lines.now[`why${cap(b.why)}`], { band: esc(b.bandName ?? "") });
   const icon = b.kind === "wait" ? ADVICE_ICON.wait : APPLIANCE[b.type === "dishwasher" ? "dishes" : b.type] ?? ADVICE_ICON.go;
   return `<div class="best" data-kind="${b.kind}"><span class="tile" aria-hidden="true"><svg viewBox="0 0 24 24">${icon}</svg></span><p><span>${what}</span>${why ? `<small>${why}</small>` : ""}</p></div>`;
 }).join("");
 
 // Up to 7 days from tomorrow, from the sensor, else from the Energy settings' solar forecast (as far as it reaches,
-// SOLAR_SPREAD either way; alone before a usual day is on record): the day, its weather (the day's `cloud` by
+// the fresh sensor's learned spread, else SOLAR_SPREAD either way; alone before a usual day is on record): the day, its weather (the day's `cloud` by
 // the sky's thresholds, rain from RAIN_DAY_MM; from the fresh sensor's days at every level, as the sky; none
 // without them) and its likely sun [low, mid, high]; the usual day's use beside them (`use`, null with weather
 // alone). null without a day.
 function comingView(data, now, clock) {
   const a = data.ahead, today = clock(now).key;
   const days = (fromSensor(data.mode) ? a?.days ?? [] : data.mode?.level !== "usual_days_weather" ? [] : Object.entries(data.sunDays ?? {}).sort()
-    .map(([d, x]) => ({ d, sun: [x * (1 - SOLAR_SPREAD), x, x * (1 + SOLAR_SPREAD)] })))
+    .map(([d, x]) => ({ d, sun: [x * (data.sensorSpread?.[0] ?? 1 - SOLAR_SPREAD), x, x * (data.sensorSpread?.[1] ?? 1 + SOLAR_SPREAD)] })))
     .filter((d) => d.d > today && d.sun?.every(Number.isFinite)).slice(0, 7);
   if (!days.length) return null;
   const use = weatherOnly(data) ? null : data.usualToday?.used?.[1];

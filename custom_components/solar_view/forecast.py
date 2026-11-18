@@ -16,7 +16,10 @@ CLEAR_MIN_W = 50.0   # rows whose clear-sky sunlight is at most this (W/m2) say 
 FULL_CHARGE_PERCENT = 97.0      # battery % at or above which spare sun may have been held back
 CAP_SHARE = 0.9      # export at this share of the limit counts as capped
 MIN_ROWS = 5         # unthrottled rows an hour of the day needs before throttled ones are left out
-SPREAD = 0.2         # low and high: this much either way of the mid
+SPREAD = 0.2         # low and high: this much either way of the mid, until MIN_PAIRS days are on record
+MIN_PAIRS = 15       # days of day-ahead forecast against real production before the range is learned
+KEEP_PAIRS = 90      # the newest days kept
+FIXED = (1 - SPREAD, 1 + SPREAD)
 HOUR = timedelta(hours=1)
 VARS = ("shortwave_radiation", "cloud_cover", "precipitation")
 
@@ -134,8 +137,8 @@ def _midnight(day: date, time_zone: ZoneInfo) -> datetime:
     return datetime.combine(day, time(), time_zone).astimezone(timezone.utc)
 
 
-def _range(v: float) -> list[float]:
-    return [round(v * (1 - SPREAD), 3), round(v, 3), round(v * (1 + SPREAD), 3)]
+def _range(v: float, spread: tuple[float, float] = FIXED) -> list[float]:
+    return [round(v * spread[0], 3), round(v, 3), round(v * spread[1], 3)]
 
 
 def _hours_of(day: date, time_zone: ZoneInfo) -> list[datetime]:
@@ -148,16 +151,16 @@ def _hours_of(day: date, time_zone: ZoneInfo) -> list[datetime]:
 
 
 def attributes(sun: dict[datetime, float], weather: dict[datetime, Weather], now: datetime, time_zone: ZoneInfo,
-               latitude: float, longitude: float) -> dict:
+               latitude: float, longitude: float, spread: tuple[float, float] = FIXED) -> dict:
     """The forecast sensor's attributes (the page's contract, see sensorOf in frontend/lib/forecast.js): every hour
     of today and tomorrow, the rest of today, and every day from today on that the forecast fully covers.
-    Sun only: house use and prices are null, months left out."""
+    `spread`: the low and high as multiples of the mid (see learned_spread). Sun only: house use and prices are null, months left out."""
     today = now.astimezone(time_zone).date()
     none = Weather(None, None, None)
     hours = []
     for t in _hours_of(today, time_zone) + _hours_of(today + timedelta(days=1), time_zone):
         w = weather.get(t, none)
-        hours.append({"t": t.astimezone(time_zone).isoformat(), "sun": _range(sun.get(t, 0.0)), "use": None,
+        hours.append({"t": t.astimezone(time_zone).isoformat(), "sun": _range(sun.get(t, 0.0), spread), "use": None,
                       "cloud": None if w.cloud is None else round(w.cloud),
                       "rain": None if w.rain is None else round(w.rain, 1), "buy": None, "sell": None})
     left = sum(sun.get(t, 0.0) * min(1.0, (t + HOUR - now) / HOUR) for t in _hours_of(today, time_zone) if t + HOUR > now)
@@ -167,11 +170,11 @@ def attributes(sun: dict[datetime, float], weather: dict[datetime, Weather], now
         if not all(t in sun for t in hs):
             break
         lit = [weather[t].cloud for t in hs if weather[t].cloud is not None and clear_sky(t, latitude, longitude) > 0]
-        days.append({"d": day.isoformat(), "sun": _range(sum(sun[t] for t in hs)), "use": None,
+        days.append({"d": day.isoformat(), "sun": _range(sum(sun[t] for t in hs), spread), "use": None,
                      "cloud": round(sum(lit) / len(lit)) if lit else None,
                      "rain": round(sum(weather[t].rain or 0 for t in hs), 1)})
         day += timedelta(days=1)
-    return {"hours": hours, "left": {"sun": _range(left), "use": None}, "days": days}
+    return {"hours": hours, "left": {"sun": _range(left, spread), "use": None}, "days": days}
 
 
 def wh_hours(sun: dict[datetime, float], now: datetime, time_zone: ZoneInfo) -> dict[str, float]:
@@ -191,3 +194,40 @@ def update_pending(pending: dict[str, float], sun: dict[datetime, float], now: d
     for t, _ in done:
         del p[t.isoformat()]
     return p, done
+
+
+def record_pairs(ended: dict[str, float], pairs: dict[str, list[float]], rows: list[Row], now: datetime,
+                 time_zone: ZoneInfo) -> tuple[dict[str, float], dict[str, list[float]]]:
+    """Day-ahead forecast hours that have ended (`ended`, hour start -> kWh) against what was made: each local day that
+    ended over an hour ago becomes [forecast, made] in `pairs` (by its date), summed over the hours that have both and
+    were not throttled, as the roof profile leaves them out. Days with under 0.5 kWh on either side say nothing and
+    are dropped. Returns what is left of `ended` (days still running, nothing older than 3 days) and the newest
+    KEEP_PAIRS pairs."""
+    made = {r.start: r for r in rows if r.kwh is not None and math.isfinite(r.kwh)}
+    days: dict[date, list[datetime]] = {}
+    for k in ended:
+        t = datetime.fromisoformat(k)
+        days.setdefault(t.astimezone(time_zone).date(), []).append(t)
+    left, out = dict(ended), {k: list(v) for k, v in pairs.items()}
+    for day, hours in days.items():
+        if _midnight(day + timedelta(days=1), time_zone) > now - HOUR:
+            continue
+        both = [t for t in hours if t in made and not made[t].throttled]
+        f, a = sum(ended[t.isoformat()] for t in both), sum(made[t].kwh for t in both)
+        if f > 0.5 and a > 0.5 and day.isoformat() not in out:
+            out[day.isoformat()] = [round(f, 3), round(a, 3)]
+        for t in hours:
+            del left[t.isoformat()]
+    left = {k: v for k, v in left.items() if datetime.fromisoformat(k) > now - timedelta(days=3)}
+    return left, dict(sorted(out.items())[-KEEP_PAIRS:])
+
+
+def learned_spread(pairs: dict[str, list[float]]) -> tuple[float, float]:
+    """The low and high multiples of the mid: the 10th and 90th percentile of made over forecast, one range for every
+    day ahead (the day-ahead pairs are all there is, and on the owner's 245 backtest days a range by lead was not
+    clearly different). The mid stays inside it. FIXED until MIN_PAIRS days are on record."""
+    ratios = [a / f for f, a in pairs.values() if f > 0]
+    if len(ratios) < MIN_PAIRS:
+        return FIXED
+    q = statistics.quantiles(ratios, n=10, method="inclusive")
+    return round(min(1.0, q[0]), 3), round(max(1.0, q[-1]), 3)

@@ -59,7 +59,7 @@ The page can look ahead at four levels. Without a `level` key it picks the highe
 - **`none`**: no predictions. The page shows what happened and what happens now.
 - **`usual_days`**: the page learns your usual day from the last 14 days: how much the house uses and how much sun there is, hour by hour. It needs 3 days on record. Until then, Now says how many days are left.
 - **`usual_days_weather`**: the usual day, with the sun of the solar forecast in your Energy settings. This is the usual level for a home with a solar forecast.
-- **`weather`**: it reads the forecast sensor `sensor.solar_view_forecast`, from a companion integration that is planned but not published yet, and takes only its sun and sky.
+- **`weather`**: it reads the forecast sensor `sensor.solar_view_forecast`, which the Solar view integration writes (installed from this repository, see above), and takes only its sun and sky.
 
 A level without its data steps down to the next one that has it, and says so once in the browser console. For example, `usual_days_weather` without a solar forecast works as `usual_days`. The Setup check in the gear shows the level asked for and the level in use. The full table of what each level shows is in [How it works](how-it-works.md#prediction-levels).
 
