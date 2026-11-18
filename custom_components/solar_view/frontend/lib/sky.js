@@ -15,7 +15,7 @@ const SKY_LOW_SHARE = 0.3; // how much dawn or dusk the day keeps at SKY_DAY_DEG
 const CLOUD_GREY_FROM = 50; // forecast cloud cover in %: under this the sky keeps its colour
 const CLOUD_GREY_FULL = 90; // from here up the day sky is fully grey
 const RAIN_MM = 0.2;        // the forecast hour must bring more than this to show rain
-const RAIN_DAY_MM = 1;      // a coming day shows rain from this much in the day
+const RAIN_DAY_MM = 3;      // a coming day shows rain from this much in the day (less is drizzle a phone app calls dry)
 // [top, middle, bottom, sun glow]
 const SKY = {
   dark: {
