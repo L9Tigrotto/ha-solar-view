@@ -70,15 +70,15 @@ import { readConfig } from "../custom_components/solar_view/frontend/lib/config.
 import { STRINGS, LANGUAGES, loadLanguage } from "../custom_components/solar_view/frontend/solar-view.js";
 import { formats } from "../custom_components/solar_view/frontend/lib/format.js";
 import { clockOf, yearKeys } from "../custom_components/solar_view/frontend/lib/core.js";
-import { totals as statsTotals, socDay } from "../custom_components/solar_view/frontend/lib/stats.js";
+import { totals as statsTotals, chargeLevelDay } from "../custom_components/solar_view/frontend/lib/stats.js";
 import { SKY, skyAt, dawnOf, greyOf, moonPhase, monthSun } from "../custom_components/solar_view/frontend/lib/sky.js";
 import { wearOf } from "../custom_components/solar_view/frontend/lib/advice.js";
 import { ring } from "../custom_components/solar_view/frontend/lib/draw.js";
 import { paybackLeft, seasonGuess } from "../custom_components/solar_view/frontend/lib/money.js";
-import { shareRing, battDayView, battDayCard } from "../custom_components/solar_view/frontend/pages/energy.js";
+import { shareRing, hoursTodayView, hoursTodayCard } from "../custom_components/solar_view/frontend/pages/energy.js";
 import { paybackCard, moneyHtml } from "../custom_components/solar_view/frontend/pages/money.js";
 // The entities and settings in one object, as the panel keeps them (see _load).
-const fromConfig = (...a) => { const { ids, cfg } = readConfig(...a); return { ...ids, ...cfg }; };
+const fromConfig = (...a) => { const { ids, options } = readConfig(...a); return { ...ids, ...options }; };
 // totals as the checks call it: the entities and settings in one object, then the day, 5 minute and hour rows, the
 // solar forecast, the month rows and the machines' hour rows (see the fetch table in stats.js).
 const totals = (src, days, recent, usual, solarForecast, clock, now, months, machineHours) => statsTotals(src, src, { days, recent, usual, solarForecast, months, machineHours }, clock, now);
@@ -120,7 +120,7 @@ const HOURS = await (await fetch("./home-hours.json")).json();
 // Without a battery the charge is 0 and the grid takes all.
 const realHour = (t, battery = true) => {
   const i = hour2017(t), sun = HOURS.sun[i], use = HOURS.use[i];
-  const end = battery ? HOURS.soc[i] : 0, start = battery ? HOURS.soc[i - 1] ?? end : 0, d = ((end - start) / 100) * 10;
+  const end = battery ? HOURS.chargeLevel[i] : 0, start = battery ? HOURS.chargeLevel[i - 1] ?? end : 0, d = ((end - start) / 100) * 10;
   const charge = d > 0 ? d / 0.95 : 0, out = d < 0 ? -d * 0.95 : 0, spare = sun - use;
   return { sun, use, start, end, charge, out, imp: Math.max(0, -spare - out), exp: Math.max(0, spare - charge) };
 };
@@ -139,7 +139,7 @@ const realLive = (t) => {
 const realSun = (t) => HOME.days[day2017(t)][0] * bellKwh(new Date(t).getHours(), "sunny") / BELL_DAY;
 // The sensors of the fake house, named as its fake Energy settings name them.
 const ID = {
-  solarW: "sensor.solar_power", battW: "sensor.battery_power", gridW: "sensor.grid_power", soc: "sensor.battery_soc",
+  solarW: "sensor.solar_power", batteryW: "sensor.battery_power", gridW: "sensor.grid_power", chargeLevel: "sensor.battery_soc",
   solarKwh: "sensor.solar_energy", batteryKwh: "sensor.battery_out_energy", chargeKwh: "sensor.battery_in_energy",
   gridImportKwh: "sensor.grid_in_energy", gridExportKwh: "sensor.grid_out_energy",
   // The cost sensors Home Assistant makes for a grid with prices (see energy/info in fakeHass).
@@ -158,7 +158,7 @@ function roof2Rows(s, msg, res) {
 // What the fake grid's kWh cost and paid, as its cost sensors record them: today's prices of the fake
 // Energy settings, so the money reads as at a flat price unless a check changes them.
 const RECORDED = { buy: 0.3, sell: 0.1 };
-// v: solar W, battery W (+ discharging), grid W (+ importing), soc, sun elevation, rising. House use is their sum.
+// v: solar W, battery W (+ discharging), grid W (+ importing), chargeLevel, sun elevation, rising. House use is their sum.
 // today: [solar, house, import, export] in kWh.
 const SCENARIOS = {
   // Spare sun at 70 %: the sun is still filling the battery, so no laundry time.
@@ -196,7 +196,7 @@ const SCENARIOS = {
   // The first days after install: no usual day, and the service writes nothing until there is one.
   firstDays: { v: [0, 350, 0, 60, -20, false], today: [15.2, 12.4, 0.3, 0.1], firstDays: true, expect: "ok" },
   // A battery of unknown size: no battery figures from the forecast.
-  battUnknown: { v: [2500, -2100, 0, 70, 42, false], today: [7.8, 6.1, 0.2, 0], hourly: { solarKwh: 0.5 }, battKwh: null, expect: "ok" },
+  batteryUnknown: { v: [2500, -2100, 0, 70, 42, false], today: [7.8, 6.1, 0.2, 0], hourly: { solarKwh: 0.5 }, batterySizeKwh: null, expect: "ok" },
   // A zero-export inverter with a full battery: the spare sun is throttled (lost), so solar only meets the house.
   exportOffFull: { v: [600, 0, 0, 100, 40, false], today: [9.4, 6.6, 0.2, 0], ahead: "sunny", exportOff: true, expect: "ok" },
   // Payback done (see configOf): a 1000 system, back within the months on record, then one back before Home
@@ -247,8 +247,8 @@ const GREY = ["cloudy", "overcast", "rain", "snow"];
 const bellKwh = (h, sky) => (h >= 10 && h <= 15 ? 3.5 * Math.sin(((h - 9.5) / 6) * Math.PI) * (GREY.includes(sky) ? 0.5 : 1) : 0);
 const BELL_DAY = Array.from({ length: 24 }, (_, h) => bellKwh(h, "sunny")).reduce((a, v) => a + v, 0);
 const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
-// For the checks: English for a drawn panel, a text's {x} filled from `parts`, the same as JSON, 3 decimals.
-const en = { language: "en", locale: { language: "en" } }, say = (text, parts) => text.replace(/\{(\w)\}/g, (_, k) => parts[k]);
+// For the checks: English for a drawn panel, a text's {name} filled from `parts`, the same as JSON, 3 decimals.
+const en = { language: "en", locale: { language: "en" } }, say = (text, parts) => text.replace(/\{(\w+)\}/g, (_, k) => parts[k]);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b), r3 = (v) => (v == null ? v : Math.round(v * 1000) / 1000);
 
 // The Energy settings as energy/get_prefs returns them.
@@ -258,7 +258,7 @@ function fakePrefs(s) {
       number_energy_price: priced ? 0.3 : null, number_energy_price_export: priced ? 0.1 : null }];
   if (s.roof2 != null) sources.splice(1, 0, { type: "solar", stat_energy_from: ROOF2 });
   if (s.battery !== false) sources.push({ type: "battery", stat_energy_from: ID.batteryKwh, stat_energy_to: ID.chargeKwh,
-    stat_rate: ID.battW, stat_soc: ID.soc, capacity: s.battKwh === null ? 0 : 10 });
+    stat_rate: ID.batteryW, stat_soc: ID.chargeLevel, capacity: s.batterySizeKwh === null ? 0 : 10 });
   return { energy_sources: sources };
 }
 // Statistics rows: 62 finished days, and today as 5 minute rows, every 5 minutes so far (the last one up to now). ?gap=1
@@ -300,17 +300,17 @@ function fakeStats(s, msg) {
     const d = new Date(localMidnight()); d.setDate(1); d.setMonth(d.getMonth() - 23 + i); return { start: d.getTime(), mean: i < 23 ? 12 : 10 }; })]));
   // The charge sensors' hourly means today: back from the live charge by what went in and out since, so the line meets it.
   if (msg.types?.includes("mean")) {
-    const soc = Number.isFinite(Number(s.v[3])) ? Number(s.v[3]) : 50, net = (t) => soFar("chargeKwh", t) - soFar("batteryKwh", t);
+    const chargeLevel = Number.isFinite(Number(s.v[3])) ? Number(s.v[3]) : 50, net = (t) => soFar("chargeKwh", t) - soFar("batteryKwh", t);
     return Object.fromEntries(msg.statistic_ids.map((id) => [id, Array.from({ length: Math.floor(now) },
       (_, h) => ({ start: midnight + h * H, mean: s.real ? (realHour(midnight + h * H).start + realHour(midnight + h * H).end) / 2
-        : Math.min(100, Math.max(0, soc - (net(now) - net(h + 0.5)) * 10)) })).filter((r) => !down(r.start))])); // 10 % a kWh of 10
+        : Math.min(100, Math.max(0, chargeLevel - (net(now) - net(h + 0.5)) * 10)) })).filter((r) => !down(r.start))])); // 10 % a kWh of 10
   }
   // Past days: a real house's day of the same date in 2017 (HOME, see home-days.py): its sun, and its grid with a
   // 10 kWh battery simulated on its hours; without a battery its grid as measured. With export off, what it
   // sent is sun lost instead.
   const realDay = (d) => {
-    const [sun, gridIn, gridOut, out, charge, battIn, battOut] = HOME.days[Math.min(364, Math.round((Date.UTC(2017, d.getMonth(), d.getDate()) - Date.UTC(2017, 0, 1)) / 864e5))];
-    const x = battery ? { solarKwh: sun, batteryKwh: out, chargeKwh: charge, gridImportKwh: battIn, gridExportKwh: battOut } : { solarKwh: sun, batteryKwh: 0, chargeKwh: 0, gridImportKwh: gridIn, gridExportKwh: gridOut };
+    const [sun, gridIn, gridOut, out, charge, batteryIn, batteryOut] = HOME.days[Math.min(364, Math.round((Date.UTC(2017, d.getMonth(), d.getDate()) - Date.UTC(2017, 0, 1)) / 864e5))];
+    const x = battery ? { solarKwh: sun, batteryKwh: out, chargeKwh: charge, gridImportKwh: batteryIn, gridExportKwh: batteryOut } : { solarKwh: sun, batteryKwh: 0, chargeKwh: 0, gridImportKwh: gridIn, gridExportKwh: gridOut };
     if (s.exportOff) Object.assign(x, { solarKwh: x.solarKwh - x.gridExportKwh, gridExportKwh: 0 });
     return money(x);
   };
@@ -380,14 +380,14 @@ function fakeHass(s, loading = false) {
   const states = {};
   const set = (id, state, attributes = {}) => { states[id] = { state: String(state), attributes }; };
   if (s) {
-    const [solar, batt, grid, soc, elevation, rising] = s.v;
+    const [solar, battery, grid, chargeLevel, elevation, rising] = s.v;
     set("sun.sun", elevation > 0 ? "above_horizon" : "below_horizon", { elevation, rising });
     if (s.ahead) { states["sensor.solar_view_forecast"] = fakeForecast(s); states["sensor.solar_view_bills"] = fakeBills(s); }
     if (s.weather) set("weather.home", s.weather, s.cover === undefined ? {} : { cloud_coverage: s.cover }); // a weather entity's state, e.g. "rainy", and its cloud cover in %
     // Home Assistant still starting: everything is there except the energy sensors.
     if (!loading) {
       set(ID.solarW, solar, { unit_of_measurement: "W" }); set(ID.gridW, grid, { unit_of_measurement: "W" });
-      if (s.battery !== false) { set(ID.battW, batt, { unit_of_measurement: "W" }); set(ID.soc, soc); }
+      if (s.battery !== false) { set(ID.batteryW, battery, { unit_of_measurement: "W" }); set(ID.chargeLevel, chargeLevel); }
     }
   }
   const forecast = s && s.forecast === undefined ? [15, 14] : s && s.forecast;
@@ -439,8 +439,8 @@ const ctlOf = (s) => ({
   // A sensor scenario keeps its sky; otherwise a forecast switched on in the drawer is the real 2017 weather.
   weather: ["sunny", "cloudy", "rain"].includes(s?.ahead) ? s.ahead : s?.weather === "rainy" ? "rain" : s?.weather === "snowy" ? "snow" : "real",
   tariff: s?.tariff ?? "three",
-  solar: +s?.v[0] || 0, battW: +s?.v[1] || 0, gridW: +s?.v[2] || 0, soc: +s?.v[3] || 0, elev: s?.v[4] ?? 30, rising: !!s?.v[5],
-  battery: s?.battery === false ? "none" : s?.battKwh === null ? "unknown" : "known", floor: 20, exportOff: !!s?.exportOff,
+  solar: +s?.v[0] || 0, batteryW: +s?.v[1] || 0, gridW: +s?.v[2] || 0, chargeLevel: +s?.v[3] || 0, elev: s?.v[4] ?? 30, rising: !!s?.v[5],
+  battery: s?.battery === false ? "none" : s?.batterySizeKwh === null ? "unknown" : "known", floor: 20, exportOff: !!s?.exportOff,
   // The live values and today from the house's own hours (see realLive): on when the drawer picks a forecast.
   real: false,
 });
@@ -461,7 +461,7 @@ for (const [k, v] of Object.entries(ctl)) if (q.has(k) && k !== "scenario" && k 
 function current() {
   const p = SCENARIOS[ctl.scenario];
   if (!p || p.offline) return p;
-  const d = ctlOf(p), s = { ...p, v: [ctl.solar, ctl.battW, ctl.gridW, ctl.soc, ctl.elev, ctl.rising] };
+  const d = ctlOf(p), s = { ...p, v: [ctl.solar, ctl.batteryW, ctl.gridW, ctl.chargeLevel, ctl.elev, ctl.rising] };
   const sensor = SENSOR_MODES.includes(ctl.fc), stale = sensor && ctl.stale;
   if (ctl.fc !== d.fc || ctl.stale !== d.stale || ctl.weather !== d.weather) Object.assign(s, {
     ahead: sensor ? (stale ? "stale" : ctl.weather) : undefined, sky: ctl.weather,
@@ -475,15 +475,15 @@ function current() {
         cover: { sunny: 5, cloudy: 70 }[ctl.weather] ?? 95 }),
   });
   s.bell = true; // the visible panel: no Energy forecast sun at night
-  if (ctl.battery !== d.battery) Object.assign(s, { battery: ctl.battery !== "none", battKwh: ctl.battery === "unknown" ? null : 10 });
+  if (ctl.battery !== d.battery) Object.assign(s, { battery: ctl.battery !== "none", batterySizeKwh: ctl.battery === "unknown" ? null : 10 });
   s.tariff = ctl.tariff === "none" ? undefined : ctl.tariff;
   if (ctl.floor !== d.floor) s.floor = ctl.floor;
   s.exportOff = ctl.exportOff;
   s.level = ctl.level === "auto" ? undefined : ctl.level;
   if (ctl.real) {
-    [ctl.solar, ctl.battW, ctl.gridW, ctl.soc] = realLive(Date.now());
-    if (ctl.battery === "none") [ctl.battW, ctl.soc] = [0, 0];
-    Object.assign(s, { real: true, v: [ctl.solar, ctl.battW, ctl.gridW, ctl.soc, ctl.elev, ctl.rising] });
+    [ctl.solar, ctl.batteryW, ctl.gridW, ctl.chargeLevel] = realLive(Date.now());
+    if (ctl.battery === "none") [ctl.batteryW, ctl.chargeLevel] = [0, 0];
+    Object.assign(s, { real: true, v: [ctl.solar, ctl.batteryW, ctl.gridW, ctl.chargeLevel, ctl.elev, ctl.rising] });
   }
   return s;
 }
@@ -531,8 +531,8 @@ const form = document.querySelector("#dev form");
   <br>${check("stale", "sensor 4 h old")}
   <label title="the sky in the sensor's forecast and in the Solar Forecast; with no sensor, cloud and rain are the weather entity's; snow always is">weather <select name="weather">${opt([["real", "real (Konstanz 2017)"], ["sunny", "clear"], ["cloudy", "partly cloudy"], ["overcast"], ["rain"], ["snow"]])}</select></label>
   <label title="the tariff's time bands, with typed prices: the prices card shows the band now and a box per band">bands <select name="tariff">${opt([["none"], ["two", "F1, F23"], ["three", "F1, F2, F3"]])}</select></label></fieldset>
-<fieldset class="data"><legend>Live values</legend>${range("solar", "solar W", 0, 5000, 50)}${range("battW", "battery W (+ giving)", -3000, 3000, 50)}${range("gridW", "grid W (+ taking)", -3000, 3000, 50)}
-  ${range("soc", "battery %", 0, 100, 1)}${range("elev", "sun height, degrees", -30, 60, 1)}${check("rising", "sun rising")}
+<fieldset class="data"><legend>Live values</legend>${range("solar", "solar W", 0, 5000, 50)}${range("batteryW", "battery W (+ giving)", -3000, 3000, 50)}${range("gridW", "grid W (+ taking)", -3000, 3000, 50)}
+  ${range("chargeLevel", "battery %", 0, 100, 1)}${range("elev", "sun height, degrees", -30, 60, 1)}${check("rising", "sun rising")}
   <label title="the live values, today's numbers and the usual day's hours from the Konstanz house in 2017 at this date and time, with its simulated battery; moving a slider turns it off">${"<input type=checkbox name=real>"}real (Konstanz 2017)</label></fieldset>
 <fieldset class="data"><legend>Battery</legend><select name="battery">${opt([["known", "10 kWh"], ["unknown", "size unknown"], ["none", "no battery"]])}</select>
   <label>floor % <input type="number" name="floor" min="0" max="90"></label>${check("exportOff", "export off")}</fieldset>
@@ -541,7 +541,7 @@ const form = document.querySelector("#dev form");
   <select name="page">${opt([["now"], ["energy"], ["money"]])}</select>
   <label>advice day <input type="number" name="day" min="0" placeholder="today"></label>${check("admin", "admin")}
   <label title="the phone's font size, as the panel measures it in an app; 2 is about the largest">text <select name="text">${opt([["1"], ["1.5"], ["2"]])}</select></label>
-  <br>display: ${SWITCH_NAMES.map((n) => check("sw", n, n)).join("")}</fieldset>
+  <br>display: ${SWITCH_NAMES.map((n) => check("swatch", n, n)).join("")}</fieldset>
 <p><button type="button" data-do="checks">run checks</button> <button type="button" data-do="skeleton">skeleton check</button>
   <button type="button" data-do="sweep" title="about 49,000 combinations: the page is busy for three to four minutes">sweep (slow)</button> <button type="button" data-do="loading">loading 2s</button></p>
 <output name="status"></output>`;
@@ -563,7 +563,7 @@ function fill() {
   el.admin.checked = admin;
   el.text.value = q.get("text") ?? "1";
   const off = (q.get("display") ?? "").split(",").filter((x) => x.endsWith(":0")).map((x) => x.slice(0, -2));
-  for (const b of form.querySelectorAll("[name=sw]")) b.checked = !off.includes(b.value);
+  for (const b of form.querySelectorAll("[name=swatch]")) b.checked = !off.includes(b.value);
   for (const o of form.querySelectorAll("output[data-for]")) o.value = o.dataset.for === "minute" ? `${pad(Math.floor(el.minute.value / 60))}:${pad(el.minute.value % 60)}` : el[o.dataset.for].value;
 }
 // Only what differs from the preset goes into the URL.
@@ -576,7 +576,7 @@ function save() {
 }
 // What the panel made of it, in one line.
 function status() {
-  const o = panel._outlook, ih = o?.socInHour, r = (v) => Math.round(v);
+  const o = panel._outlook, ih = o?.chargeInHour, r = (v) => Math.round(v);
   el.status.value = [new Date(Date.now()).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: q.get("clock") === "12" }),
     `level: ${panel._mode?.level ?? "-"}`, `forecast: ${panel._ahead?.from ?? "none"}`, `advice: ${$(panel, ".advice")?.dataset.kind ?? "-"}`,
     ih ? `in an hour: ${r(ih[1])} % (${r(ih[0])} to ${r(ih[2])})` : "in an hour: -"].join(" · ");
@@ -592,7 +592,7 @@ form.addEventListener("input", (e) => {
   } else if (n in ctl) {
     ctl[n] = t.type === "checkbox" ? t.checked : typeof ctl[n] === "number" ? +t.value : t.value;
     // A slider moved by hand is no longer the house's; a forecast picked turns the house on (the usual day is its own).
-    if (["solar", "battW", "gridW", "soc"].includes(n)) ctl.real = false;
+    if (["solar", "batteryW", "gridW", "chargeLevel"].includes(n)) ctl.real = false;
     if (n === "fc") ctl.real = t.value !== "none";
   }
   else if (n === "theme") { t.value === "system" ? q.delete("dark") : q.set("dark", t.value === "dark" ? "1" : "0"); dark = t.value === "system" ? matchMedia("(prefers-color-scheme: dark)").matches : t.value === "dark"; }
@@ -607,9 +607,9 @@ form.addEventListener("input", (e) => {
     location.reload();
     return;
   }
-  else if (n === "sw") {
+  else if (n === "swatch") {
     // The panel reads its switches when it is made, so these take a reload, as the gear's do for a new page.
-    const off = [...form.querySelectorAll("[name=sw]")].filter((b) => !b.checked).map((b) => `${b.value}:0`);
+    const off = [...form.querySelectorAll("[name=swatch]")].filter((b) => !b.checked).map((b) => `${b.value}:0`);
     off.length ? q.set("display", off.join(",")) : q.delete("display");
     save();
     location.reload();
@@ -685,13 +685,13 @@ if (q.get("shot") === "1") document.getElementById("dev-open").hidden = true;
   const pick = p._gearDialog().querySelector('select[name="language"]'), tab = () => $(p, ".tabs button").textContent;
   pick.value = late;
   pick.dispatchEvent(new Event("change", { bubbles: true }));
-  const kept = tab() === STRINGS.en.tabNow && p.getAttribute("lang") === "en";
+  const kept = tab() === STRINGS.en.tabs.now && p.getAttribute("lang") === "en";
   await loadLanguage(late);
   await tick();
-  console.assert(kept && tab() === STRINGS[late].tabNow && p.getAttribute("lang") === late && textFiles().filter((l) => l === late).length === 1,
+  console.assert(kept && tab() === STRINGS[late].tabs.now && p.getAttribute("lang") === late && textFiles().filter((l) => l === late).length === 1,
     "a language loaded late: not kept until its file came, or not applied", late, { kept, tab: tab() });
-  console.assert($(p, ".advice p").textContent === STRINGS[late].adviceGo[1] && $(p, ".advice svg").innerHTML.includes("M20 21v-8"), "a language loaded late: its go line without its icon");
-  p.testDay = STRINGS[late].adviceGo.length;
+  console.assert($(p, ".advice p").textContent === STRINGS[late].now.advice.go[1] && $(p, ".advice svg").innerHTML.includes("M20 21v-8"), "a language loaded late: its go line without its icon");
+  p.testDay = STRINGS[late].now.advice.go.length;
   p._redraw();
   await tick();
   console.assert($(p, ".advice p").textContent === "Own line", "a language loaded late: the owner's own lines missing", $(p, ".advice p").textContent);
@@ -722,13 +722,13 @@ const TEXTS = Object.fromEntries(await Promise.all(Object.keys(LANGUAGES).map(as
 {
   const flat = await draw(fakeHass(SCENARIOS.sunny), en, { battery_floor: 30, entities: { load_energy: "sensor.x" } });
   const grouped = await draw(fakeHass(SCENARIOS.sunny), en, { plant: { battery_floor: 30 }, sensors: { load_energy: "sensor.x" } });
-  console.assert(flat._src.cfg.batt.floor === 30 && grouped._src.cfg.batt.floor === 30 && same(grouped._src.ids.loadKwh, ["sensor.x"]), "config: groups not read as the flat keys", grouped._src.cfg.batt, grouped._src.ids.loadKwh);
+  console.assert(flat._source.options.battery.floor === 30 && grouped._source.options.battery.floor === 30 && same(grouped._source.ids.loadKwh, ["sensor.x"]), "config: groups not read as the flat keys", grouped._source.options.battery, grouped._source.ids.loadKwh);
   const none = await draw(fakeHass(SCENARIOS.stale), en, { predictions: { level: "none" } }); // stale has hour rows: a usual day
-  const usual = await draw(fakeHass(SCENARIOS.sunny), en, { predictions: { level: "usual" } });
+  const usual = await draw(fakeHass(SCENARIOS.sunny), en, { predictions: { level: "usual_days_weather" } });
   // Machines by type, in the order written; a bare type is a run of 1 kWh over 2 hours; none at all is the washer.
   const mach = await draw(fakeHass(SCENARIOS.sunny), en, { machines: { quiet_hours: "1-6", dryer: { kwh: 2.5, hours: 2 }, dishwasher: null, oven: { kwh: 2 } } });
-  console.assert(same(mach._src.cfg.machines.map((m) => [m.type, m.kwh]), [["dryer", 2.5], ["dishwasher", 1]]) && mach._src.cfg.quiet[0] === 1 && same(flat._src.cfg.machines.map((m) => m.type), ["washer"]),
-    "config: machines not read by type", mach._src.cfg.machines, mach._src.cfg.quiet);
+  console.assert(same(mach._source.options.machines.map((m) => [m.type, m.kwh]), [["dryer", 2.5], ["dishwasher", 1]]) && mach._source.options.quiet[0] === 1 && same(flat._source.options.machines.map((m) => m.type), ["washer"]),
+    "config: machines not read by type", mach._source.options.machines, mach._source.options.quiet);
   console.assert(none._ahead === null && none._outlook === null && !$(none, ".best") && none._stats.usual === null && !$(none, ".today .usual") && usual._ahead?.from !== "sensor", "config: level none or usual not kept", none._ahead?.from, !!none._stats.usual, usual._ahead?.from);
   // Check: the help lines follow the level: month end and days to come only where Production draws them, the
   // small rings' line only with the rings, the weather line only with an icon drawn.
@@ -738,10 +738,10 @@ const TEXTS = Object.fromEntries(await Promise.all(Object.keys(LANGUAGES).map(as
   };
   for (const [what, p] of [["level none", none], ["level usual", usual], ["sensor", flat]]) {
     const rings = !!$(p, ".today.share .rings");
-    console.assert(shown(p, "helpProdEnd") === !!$(p, ".daily i.ghost") && shown(p, "helpProdAhead") === !!$(p, ".daily li.ahead")
-      && shown(p, "helpShareAhead") === rings
-      && shown(p, "helpDaysSky") === !!$(p, ".coming svg.wx > *"),
-      `help lines, ${what}: a line for a mark not drawn`, ["helpProdEnd", "helpProdAhead", "helpShareAhead", "helpDaysSky"].filter((k) => shown(p, k)), rings);
+    console.assert(shown(p, "help.monthEnd") === !!$(p, ".daily i.ghost") && shown(p, "help.monthAhead") === !!$(p, ".daily li.ahead")
+      && shown(p, "help.shareAhead") === rings
+      && shown(p, "help.daysSky") === !!$(p, ".coming svg.weather-icon > *"),
+      `help lines, ${what}: a line for a mark not drawn`, ["help.monthEnd", "help.monthAhead", "help.shareAhead", "help.daysSky"].filter((k) => shown(p, k)), rings);
   }
   // Check: with a tariff, the prices card buys at the band now and has a box per band, the band now outlined
   // with the buying price, each with its hours today (or none, or all day); without one, no boxes and no help line.
@@ -750,12 +750,12 @@ const TEXTS = Object.fromEntries(await Promise.all(Object.keys(LANGUAGES).map(as
     const boxes = [...p.shadowRoot.querySelectorAll("#money .bands li")], cur = boxes.filter((li) => li.hasAttribute("aria-current"));
     const buy = $(p, "#money .price:not(.out) b")?.firstChild?.textContent.trim();
     // Each box's share of this month's grid energy; the rounded shares add up to about 100.
-    const shares = boxes.map((li) => parseInt(li.querySelector(".band-pct")?.textContent));
+    const shares = boxes.map((li) => parseInt(li.querySelector(".band-percent")?.textContent));
     console.assert(boxes.length === n && (!n || (cur.length === 1 && cur[0].querySelector(".num").textContent === buy && boxes.every((li) => li.children.length >= 3)
       && shares.every(Number.isFinite) && Math.abs(shares.reduce((a, v) => a + v, 0) - 100) <= 2))
-      && shown(p, "helpPricesBands") === !!n, `prices, tariff ${type}: boxes, band now or help line wrong`, boxes.map((li) => li.textContent), buy);
+      && shown(p, "help.pricesBands") === !!n, `prices, tariff ${type}: boxes, band now or help line wrong`, boxes.map((li) => li.textContent), buy);
   }
-  console.assert(!$(flat, "#money .bands") && !shown(flat, "helpPricesBands"), "prices without a tariff: band boxes drawn");
+  console.assert(!$(flat, "#money .bands") && !shown(flat, "help.pricesBands"), "prices without a tariff: band boxes drawn");
   const itPanel = await draw(fakeHass(SCENARIOS.sunny), { language: "it", locale: { language: "it" } }, { plant: { system_cost: 9000 } });
   const pages = ["now", "energy", "money"].map((id) => itPanel.shadowRoot.getElementById(id));
   const text = pages.map((el) => [el?.textContent ?? "", ...[...(el?.querySelectorAll("[aria-label],[title],[data-hint]") ?? [])].map((x) => [x.getAttribute("aria-label"), x.getAttribute("title"), x.dataset.hint].join(" "))].join(" ")).join(" ");
@@ -787,12 +787,12 @@ for (const [k, s] of Object.entries(SCENARIOS)) {
   if (s.ahead) console.assert(p._ahead?.from === (s.ahead === "stale" ? "page" : "sensor"), `forecast for ${k}: from ${p._ahead?.from}`, p._ahead);
   // The fresh sensor is read for its sun alone (level weather): no outlook beside it.
   if (s.ahead && s.ahead !== "stale") console.assert(p._outlook === null, `forecast for ${k}: an outlook from the sensor's sun alone`, p._outlook);
-  if (s.ahead === "stale" && s.battKwh !== null) console.assert(p._outlook?.hoursAhead?.length && p._outlook.hoursAhead.every((r) => Object.values(r).every(Number.isFinite)) && p._outlook.restToday && (p._outlook.socInHour === null || range(p._outlook.socInHour)), `forecast for ${k}: no hours, money or ranges ahead`, p._outlook);
-  if (s.battKwh === null) console.assert(p._outlook && p._outlook.hoursAhead === null && p._outlook.best === null, `forecast for ${k}: figures with a battery of unknown size`, p._outlook);
-  if (s.firstDays) console.assert(p._outlook === null && !/\d/.test($(p, ".batt-say p").textContent), `forecast for ${k}: an outlook, or a lasts until without one`, p._outlook);
+  if (s.ahead === "stale" && s.batterySizeKwh !== null) console.assert(p._outlook?.hoursAhead?.length && p._outlook.hoursAhead.every((r) => Object.values(r).every(Number.isFinite)) && p._outlook.restToday && (p._outlook.chargeInHour === null || range(p._outlook.chargeInHour)), `forecast for ${k}: no hours, money or ranges ahead`, p._outlook);
+  if (s.batterySizeKwh === null) console.assert(p._outlook && p._outlook.hoursAhead === null && p._outlook.best === null, `forecast for ${k}: figures with a battery of unknown size`, p._outlook);
+  if (s.firstDays) console.assert(p._outlook === null && !/\d/.test($(p, ".battery-say p").textContent), `forecast for ${k}: an outlook, or a lasts until without one`, p._outlook);
   // The first days say when predictions start; a page with a usual day says nothing of the kind.
   const learn = $(p, ".learn")?.textContent ?? "";
-  if (s.firstDays) console.assert([p._t.learningOne, say(p._t.learning, { n: learn.match(/\d+/)?.[0] })].includes(learn), `first days for ${k}: no learning line`, learn);
+  if (s.firstDays) console.assert([p._lines.now.learningUsualDayOne, say(p._lines.now.learningUsualDay, { days: learn.match(/\d+/)?.[0] })].includes(learn), `first days for ${k}: no learning line`, learn);
   if (p._data?.usualToday) console.assert(!learn, `first days for ${k}: a learning line beside a usual day`, learn);
 }
 
@@ -856,12 +856,15 @@ for (const [k, s] of Object.entries(SCENARIOS)) {
 
 // Check: every language has every text, every advice pool has lines (the go lines as many as in en), and no
 // string can break out of an attribute (they go into data-hint and aria-label unescaped).
-for (const [code, other] of Object.entries(TEXTS)) for (const [key, en] of Object.entries(TEXTS.en)) {
+const flatLines = (o, path = "") => Object.entries(o).flatMap(([k, v]) => (v && typeof v === "object" && !Array.isArray(v) ? flatLines(v, `${path}${k}.`) : [[path + k, v]]));
+const lineAt = (lines, path) => path.split(".").reduce((section, k) => section?.[k], lines);
+for (const [code, own] of Object.entries(TEXTS)) for (const [key, en] of flatLines(TEXTS.en)) {
+  const other = { [key]: lineAt(own, key) };
   console.assert(other[key] !== undefined, `strings: ${key} missing in ${code}`);
   // Only the go lines are matched across languages (each names the appliance of its icon, see GO_ORDER).
-  if (Array.isArray(en)) console.assert(Array.isArray(other[key]) && other[key].length > 1 && (key !== "adviceGo" || other[key].length === en.length), `advice lines: ${key} too short in ${code}, or the go lines differ from en`);
+  if (Array.isArray(en)) console.assert(Array.isArray(other[key]) && other[key].length > 1 && (key !== "now.advice.go" || other[key].length === en.length), `advice lines: ${key} too short in ${code}, or the go lines differ from en`);
 }
-for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap((v) => (typeof v === "string" ? v : Object.values(v))))
+for (const text of Object.values(TEXTS).flatMap((t) => flatLines(t).map(([, v]) => v)).flatMap((v) => (typeof v === "string" ? v : Object.values(v))))
   console.assert(text && !/["<>&\u2014]/.test(text), `string not safe in an attribute: ${text}`);
 
 // Check: the day simulation against the shared cases (the integration's Python test runs the same file).
@@ -869,7 +872,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
   const { simulate } = await import("../custom_components/solar_view/frontend/lib/forecast.js");
   const cases = await (await fetch("./simulate-cases.json")).json();
   for (const c of cases) {
-    const got = simulate(c.hours, c.soc, c.battery, c.exportMaxKw, c.firstShare)
+    const got = simulate(c.hours, c.chargeLevel, c.battery, c.exportMaxKw, c.firstShare)
       .map((s) => Object.fromEntries(Object.entries(s).map(([k, v]) => [k, r3(v)])));
     console.assert(JSON.stringify(got) === JSON.stringify(c.expect), `simulate: ${c.name}`, got, c.expect);
   }
@@ -1038,69 +1041,69 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     // Whiskers: a sunny day with a spread, at 11:00.
     const sunnyAt = at("2026-10-24T11:00:00+02:00");
     const sunny = aheadOf(sunnyAt, (h) => (h >= 8 && h <= 16 ? 1.5 : 0), () => 0.3, 0.3);
-    const o = lookAhead(sunny, sunnyAt, clock, { soc: 60, loadW: 300, solarW: 1500 }, battery, settings, soFar);
+    const o = lookAhead(sunny, sunnyAt, clock, { chargeLevel: 60, loadW: 300, solarW: 1500 }, battery, settings, soFar);
     for (const [k, v] of Object.entries(o.restToday))
       console.assert(Number.isFinite(v) && v >= 0, `lookAhead: rest of today's ${k} wrong`, o.restToday);
-    console.assert(o.hoursAhead.length && o.hoursAhead.every((r) => Object.values(r).every(Number.isFinite) && [r.sun, r.batt, r.grid, r.use].every((v) => v >= 0)), "lookAhead: hours ahead wrong", o.hoursAhead);
-    console.assert(o.socInHour[0] < o.socInHour[2], "lookAhead: three runs give no whisker", o.socInHour);
-    const noBatt = lookAhead(sunny, sunnyAt, clock, { soc: null, loadW: 300, solarW: 1500 }, null, settings, soFar);
-    console.assert(noBatt.socAhead === null && noBatt.socInHour === null && noBatt.hoursAhead.every((r) => r.batt === 0 && Number.isFinite(r.grid)) && noBatt.lastsUntil === null, "lookAhead: no battery still has battery figures", noBatt);
+    console.assert(o.hoursAhead.length && o.hoursAhead.every((r) => Object.values(r).every(Number.isFinite) && [r.sun, r.battery, r.grid, r.use].every((v) => v >= 0)), "lookAhead: hours ahead wrong", o.hoursAhead);
+    console.assert(o.chargeInHour[0] < o.chargeInHour[2], "lookAhead: three runs give no whisker", o.chargeInHour);
+    const noBattery = lookAhead(sunny, sunnyAt, clock, { chargeLevel: null, loadW: 300, solarW: 1500 }, null, settings, soFar);
+    console.assert(noBattery.chargeAhead === null && noBattery.chargeInHour === null && noBattery.hoursAhead.every((r) => r.battery === 0 && Number.isFinite(r.grid)) && noBattery.lastsUntil === null, "lookAhead: no battery still has battery figures", noBattery);
     for (const kwh of [null, 0])
-      console.assert(same(lookAhead(sunny, sunnyAt, clock, { soc: 60, loadW: 300, solarW: 1500 }, { ...battery, kwh }, settings, soFar), { lastsUntil: null, best: null, socInHour: null, fills: false, socAhead: null, hoursAhead: null, restToday: null, daysMoney: null }), `lookAhead: battery size ${kwh} not hidden`);
+      console.assert(same(lookAhead(sunny, sunnyAt, clock, { chargeLevel: 60, loadW: 300, solarW: 1500 }, { ...battery, kwh }, settings, soFar), { lastsUntil: null, best: null, chargeInHour: null, fills: false, chargeAhead: null, hoursAhead: null, restToday: null, daysMoney: null }), `lookAhead: battery size ${kwh} not hidden`);
 
     // In an hour: at 11:00 sharp the end of the first hour; at 11:30 half way through the second. The
     // range holds the mid and stays within the floor to 100 %; at the floor the battery cannot fall.
     const flat = aheadOf(sunnyAt, () => 0, () => 0.5);
-    const inHour = (now, soc) => lookAhead(aheadOf(now, () => 0, () => 0.5), now, clock, { soc, loadW: 500, solarW: 0 }, battery, settings, soFar).socInHour;
+    const inHour = (now, chargeLevel) => lookAhead(aheadOf(now, () => 0, () => 0.5), now, clock, { chargeLevel, loadW: 500, solarW: 0 }, battery, settings, soFar).chargeInHour;
     console.assert(same(inHour(sunnyAt, 60).map(r3), [55, 55, 55]) && same(inHour(sunnyAt + H / 2, 60).map(r3), [55, 55, 55]), "in an hour: not 0.5 kWh down an hour on", inHour(sunnyAt, 60), inHour(sunnyAt + H / 2, 60));
     console.assert(same(inHour(sunnyAt, 20), [20, 20, 20]) && same(inHour(sunnyAt, 22).map(r3), [20, 20, 20]), "in an hour: fell under the floor", inHour(sunnyAt, 22));
     // The present draw counts here as in lasts until: 20:30 at 60 %, an oven at 2 kW to 21:00, then 0.5.
-    const oven = (loadW) => lookAhead(aheadOf(sunnyAt + 9.5 * H, () => 0, () => 0.5), sunnyAt + 9.5 * H, clock, { soc: 60, loadW, solarW: 0 }, battery, settings, soFar).socInHour.map(r3);
+    const oven = (loadW) => lookAhead(aheadOf(sunnyAt + 9.5 * H, () => 0, () => 0.5), sunnyAt + 9.5 * H, clock, { chargeLevel: 60, loadW, solarW: 0 }, battery, settings, soFar).chargeInHour.map(r3);
     console.assert(same(oven(500), [55, 55, 55]) && same(oven(2000), [47.5, 47.5, 47.5]), "in an hour: the present draw not used", oven(500), oven(2000));
     // And a cloud now: noon, 2 kWh of sun forecast against 0.5 of use, none read now.
-    const cloud = (solarW) => lookAhead(aheadOf(sunnyAt + H, () => 2, () => 0.5), sunnyAt + H, clock, { soc: 60, loadW: 500, solarW }, battery, settings, soFar).socInHour[1];
+    const cloud = (solarW) => lookAhead(aheadOf(sunnyAt + H, () => 2, () => 0.5), sunnyAt + H, clock, { chargeLevel: 60, loadW: 500, solarW }, battery, settings, soFar).chargeInHour[1];
     console.assert(cloud(0) < 60 && cloud(2000) > 60, "in an hour: the present sun not used", cloud(0), cloud(2000));
     // Every other figure keeps the machines' usual runs: lasts until is the same with them told apart.
     const eve = sunnyAt + 9 * H, eveAhead = aheadOf(eve, () => 0, () => 0.5);
-    console.assert(lookAhead({ ...eveAhead, machineW: Array(24).fill(300) }, eve, clock, { soc: 30, loadW: 500, solarW: 0 }, battery, settings, soFar).lastsUntil === eve + 2 * H,
+    console.assert(lookAhead({ ...eveAhead, machineW: Array(24).fill(300) }, eve, clock, { chargeLevel: 30, loadW: 500, solarW: 0 }, battery, settings, soFar).lastsUntil === eve + 2 * H,
       "lasts until: the machines' usual runs left out");
-    const spread = o.socInHour;
+    const spread = o.chargeInHour;
     console.assert(spread && spread[0] <= spread[1] && spread[1] <= spread[2] && spread[0] >= battery.floor && spread[2] <= 100 && spread[0] < spread[2], "in an hour: range wrong", spread);
-    console.assert(lookAhead(flat, sunnyAt, clock, { soc: null, loadW: 500, solarW: 0 }, battery, settings, soFar).socInHour === null && noBatt.socInHour === null, "in an hour: without a state of charge or a battery");
+    console.assert(lookAhead(flat, sunnyAt, clock, { chargeLevel: null, loadW: 500, solarW: 0 }, battery, settings, soFar).chargeInHour === null && noBattery.chargeInHour === null, "in an hour: without a state of charge or a battery");
     // Fills: 2 kWh of sun an hour from 10 to 15, use 0.3. From 50 % at 9:00 the battery fills and sends
     // the rest; a 40 kWh battery never fills; from 16:00 the sun is gone for today.
-    const fills = (now, b = battery) => lookAhead(aheadOf(now, day), now, clock, { soc: 50, loadW: 300, solarW: 0 }, b, settings, soFar).fills;
+    const fills = (now, b = battery) => lookAhead(aheadOf(now, day), now, clock, { chargeLevel: 50, loadW: 300, solarW: 0 }, b, settings, soFar).fills;
     console.assert(fills(at("2026-10-24T09:00:00+02:00")) === true && fills(at("2026-10-24T09:00:00+02:00"), { ...battery, kwh: 40 }) === false && fills(at("2026-10-24T16:00:00+02:00")) === false, "fills: wrong");
 
     // Lasts until: 10 kWh at 30 %, floor 20, 0.5 kWh an hour, no sun: 1 kWh, 2 hours.
     const night = at("2026-10-24T20:00:00+02:00"), half = at("2026-10-24T20:30:00+02:00");
     const lasts = (now, sun, n, use = () => 0.5, b = battery) => lookAhead(aheadOf(now, sun, use), now, clock, n, b, settings, soFar).lastsUntil;
-    console.assert(lasts(night, () => 0, { soc: 30, loadW: 500, solarW: 0 }) === night + 2 * H, "lasts until: no sun not 2 hours", lasts(night, () => 0, { soc: 30, loadW: 500, solarW: 0 }));
-    console.assert(lasts(night, (h) => (h >= 22 ? 0.5 : 0), { soc: 35, loadW: 500, solarW: 0 }) === Infinity, "lasts until: sun from the third hour is not until the sun takes over");
+    console.assert(lasts(night, () => 0, { chargeLevel: 30, loadW: 500, solarW: 0 }) === night + 2 * H, "lasts until: no sun not 2 hours", lasts(night, () => 0, { chargeLevel: 30, loadW: 500, solarW: 0 }));
+    console.assert(lasts(night, (h) => (h >= 22 ? 0.5 : 0), { chargeLevel: 35, loadW: 500, solarW: 0 }) === Infinity, "lasts until: sun from the third hour is not until the sun takes over");
     // Empty just as the sun takes over counts as empty (<=, see lastsUntil).
-    console.assert(lasts(night, (h) => (h >= 22 ? 0.5 : 0), { soc: 30, loadW: 500, solarW: 0 }) === night + 2 * H, "lasts until: empty as the sun takes over not empty");
+    console.assert(lasts(night, (h) => (h >= 22 ? 0.5 : 0), { chargeLevel: 30, loadW: 500, solarW: 0 }) === night + 2 * H, "lasts until: empty as the sun takes over not empty");
     // Inside the present hour: 0.2 kWh at 1 kW from 20:30 is 12 minutes.
-    console.assert(lasts(half, () => 0, { soc: 22, loadW: 1000, solarW: 0 }) === at("2026-10-24T20:42:00+02:00"), "lasts until: not 20:42 inside the present hour", lasts(half, () => 0, { soc: 22, loadW: 1000, solarW: 0 }));
+    console.assert(lasts(half, () => 0, { chargeLevel: 22, loadW: 1000, solarW: 0 }) === at("2026-10-24T20:42:00+02:00"), "lasts until: not 20:42 inside the present hour", lasts(half, () => 0, { chargeLevel: 22, loadW: 1000, solarW: 0 }));
     // Winter night, 8 kWh at 0.3 an hour: the floor at 26.7 h and sun from 16:00 tomorrow are both past 18 h; sun from 10:00 is not.
-    const winter = (sun) => lasts(night, sun, { soc: 100, loadW: 300, solarW: 0 }, () => 0.3);
+    const winter = (sun) => lasts(night, sun, { chargeLevel: 100, loadW: 300, solarW: 0 }, () => 0.3);
     console.assert(winter(() => 0) === null, "lasts until: a floor past 18 h gave a time", winter(() => 0));
     console.assert(winter((h, k) => (k === "2026-10-25" && h >= 16 ? 1 : 0)) === null, "lasts until: sun past 18 h gave until the sun takes over");
     console.assert(winter((h, k) => (k === "2026-10-25" && h >= 10 ? 1 : 0)) === Infinity, "lasts until: sun within 18 h not until the sun takes over");
     // The present hour at whichever is worse: 1 kW drawn now (0.5 kWh by 21:00), then 0.5 an hour.
-    console.assert(lasts(half, () => 0, { soc: 30, loadW: 1000, solarW: 0 }) === at("2026-10-24T22:00:00+02:00"), "lasts until: present draw not used for the present hour", lasts(half, () => 0, { soc: 30, loadW: 1000, solarW: 0 }));
-    console.assert(lasts(night, (h) => (h === 20 ? 0.5 : 0), { soc: 30, loadW: 500, solarW: 0 }) === night + 2 * H, "lasts until: forecast sun used over the present reading");
-    console.assert(lasts(night, () => 0, { soc: 100, loadW: 10, solarW: 0 }, () => 0.01) === null, "lasts until: a floor far away gave a time");
-    console.assert(lasts(night, () => 0, { soc: null, loadW: 500, solarW: 0 }) === null, "lasts until: no state of charge gave a time");
+    console.assert(lasts(half, () => 0, { chargeLevel: 30, loadW: 1000, solarW: 0 }) === at("2026-10-24T22:00:00+02:00"), "lasts until: present draw not used for the present hour", lasts(half, () => 0, { chargeLevel: 30, loadW: 1000, solarW: 0 }));
+    console.assert(lasts(night, (h) => (h === 20 ? 0.5 : 0), { chargeLevel: 30, loadW: 500, solarW: 0 }) === night + 2 * H, "lasts until: forecast sun used over the present reading");
+    console.assert(lasts(night, () => 0, { chargeLevel: 100, loadW: 10, solarW: 0 }, () => 0.01) === null, "lasts until: a floor far away gave a time");
+    console.assert(lasts(night, () => 0, { chargeLevel: null, loadW: 500, solarW: 0 }) === null, "lasts until: no state of charge gave a time");
     // Capped at 0.25 kW the battery gives 1 kWh in 4 hours; the grid gives the rest.
-    console.assert(lasts(night, () => 0, { soc: 30, loadW: 500, solarW: 0 }, undefined, { ...battery, maxDischargeKw: 0.25 }) === night + 4 * H, "lasts until: the discharge rate not kept");
+    console.assert(lasts(night, () => 0, { chargeLevel: 30, loadW: 500, solarW: 0 }, undefined, { ...battery, maxDischargeKw: 0.25 }) === night + 4 * H, "lasts until: the discharge rate not kept");
 
     // Machine advice: a washer of 1 kWh over 2 hours, peak 2 kW, quiet hours 0 to 7, the battery kept 10
     // points over its floor of 20. Sun by clock hour (day: 2 kWh an hour from 10 to 15), use 0.3. Bands:
     // F1 0.3, F2 0.4, F3 0.2. 2026-10-24 is a Saturday (F2 from 7 to 23), the 25th a Sunday (all F3).
     const W = { type: "washer", kwh: 1, hours: 2, peakKw: 2 };
     const bandsAt = (t) => { const c = clock(t), band = bandOf(c.key, c.hour, "three"); return { band, buy: { f1: 0.3, f2: 0.4, f3: 0.2 }[band] }; };
-    const plan = (now, sun, o = {}) => lookAhead({ ...aheadOf(now, sun, () => 0.3, o.spread ?? 0, () => 0.3, o.sell ?? (() => 0.1)), tomorrowSun: !o.guess, machineW: o.machineW ?? null }, now, clock, { soc: o.soc ?? 50, loadW: o.loadW ?? 300, solarW: sun(clock(now).hour, clock(now).key) * 1000 },
-      o.b === undefined ? battery : o.b, { ...settings, exportMaxKw: o.exportMaxKw ?? null, machines: o.machines ?? [W], quiet: o.quiet ?? [0, 7], marginPct: o.margin ?? 10, gridMaxKw: o.gridMaxKw ?? null, bandAt: o.bands ? bandsAt : undefined }, soFar).best;
+    const plan = (now, sun, o = {}) => lookAhead({ ...aheadOf(now, sun, () => 0.3, o.spread ?? 0, () => 0.3, o.sell ?? (() => 0.1)), tomorrowSun: !o.guess, machineW: o.machineW ?? null }, now, clock, { chargeLevel: o.chargeLevel ?? 50, loadW: o.loadW ?? 300, solarW: sun(clock(now).hour, clock(now).key) * 1000 },
+      o.b === undefined ? battery : o.b, { ...settings, exportMaxKw: o.exportMaxKw ?? null, machines: o.machines ?? [W], quiet: o.quiet ?? [0, 7], marginPercent: o.margin ?? 10, gridMaxKw: o.gridMaxKw ?? null, bandAt: o.bands ? bandsAt : undefined }, soFar).best;
     const one = (...a) => plan(...a)?.[0];
     const is = (b, kind, why, t) => b?.kind === kind && b.why === why && (t === undefined || b.t === at(t));
     const sat = (h) => `2026-10-24T${h}:00+02:00`, sun25 = (h) => `2026-10-25T${h}:00+01:00`;
@@ -1109,24 +1112,24 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     console.assert(is(one(at(sat("10:30")), day), "now", "sunNow", sat("10:30")), "advice: not now inside the present hour", one(at(sat("10:30")), day));
     // 20:00 at 90 %: 6 kWh above the raised floor carry 4.2 of night and the load: now, on the battery.
     // At 40 % the night already runs short: tomorrow at 10:00, when the sun takes it.
-    console.assert(is(one(at(sat("20:00")), day, { soc: 90 }), "now", "battNow"), "advice: not now on the battery", one(at(sat("20:00")), day, { soc: 90 }));
-    console.assert(is(one(at(sat("20:00")), day, { soc: 40 }), "at", "sunTomorrow", sun25("10:00")), "advice: not tomorrow's sun with a low battery", one(at(sat("20:00")), day, { soc: 40 }));
+    console.assert(is(one(at(sat("20:00")), day, { chargeLevel: 90 }), "now", "batteryNow"), "advice: not now on the battery", one(at(sat("20:00")), day, { chargeLevel: 90 }));
+    console.assert(is(one(at(sat("20:00")), day, { chargeLevel: 40 }), "at", "sunTomorrow", sun25("10:00")), "advice: not tomorrow's sun with a low battery", one(at(sat("20:00")), day, { chargeLevel: 40 }));
     // The margin: at 70 % a 0.1 kWh load and 4.2 of night fit over the real floor (5 kWh), not over the raised
     // one (4). With it, now takes 0.1 from the grid; tomorrow's sun saves less than the deferral margin.
-    const small = (margin) => one(at(sat("20:00")), day, { soc: 70, margin, machines: [{ ...W, kwh: 0.1 }] });
-    console.assert(is(small(10), "now", "bestNow") && is(small(0), "now", "battNow"), "advice: the battery margin not kept", small(10), small(0));
+    const small = (margin) => one(at(sat("20:00")), day, { chargeLevel: 70, margin, machines: [{ ...W, kwh: 0.1 }] });
+    console.assert(is(small(10), "now", "bestNow") && is(small(0), "now", "batteryNow"), "advice: the battery margin not kept", small(10), small(0));
     // Sun only in the quiet hours: no start there.
-    const quietPick = one(at(sat("20:00")), (h, k) => (k === "2026-10-25" && h >= 2 && h < 5 ? 2 : 0), { soc: 40 });
+    const quietPick = one(at(sat("20:00")), (h, k) => (k === "2026-10-25" && h >= 2 && h < 5 ? 2 : 0), { chargeLevel: 40 });
     console.assert(quietPick && clock(quietPick.t).hour >= 7, "advice: a start in the quiet hours", quietPick && new Date(quietPick.t));
     // Bands, no sun, no battery: from Saturday noon the first F3 hour (23:00); on Sunday now, nothing is cheaper.
     console.assert(is(one(at(sat("12:00")), () => 0, { b: null, bands: true }), "at", "cheaper", sat("23:00")) && one(at(sat("12:00")), () => 0, { b: null, bands: true }).band === "f3",
       "advice: not the first F3 hour", one(at(sat("12:00")), () => 0, { b: null, bands: true }));
     console.assert(is(one(at(sun25("12:00")), () => 0, { b: null, bands: true }), "now", "bestNow"), "advice: not now on a Sunday", one(at(sun25("12:00")), () => 0, { b: null, bands: true }));
     // The meter: Sunday 20:00, the battery at its floor, the house drawing 2 kW plus the 2 kW peak over 3 kW.
-    const meter = (gridMaxKw) => one(at(sun25("20:00")), () => 0, { soc: 20, loadW: 2000, bands: true, gridMaxKw });
+    const meter = (gridMaxKw) => one(at(sun25("20:00")), () => 0, { chargeLevel: 20, loadW: 2000, bands: true, gridMaxKw });
     console.assert(meter(3)?.kind === "wait" && meter(3).kw === 2 && is(meter(5), "now", "bestNow"), "advice: the meter limit", meter(3), meter(5));
     // Above the floor the battery helps, up to its discharge rate: 2 kW now plus the 2 kW peak less 0.5 is over 3.
-    const capped3 = (b) => one(at(sun25("20:00")), () => 0, { soc: 60, loadW: 2000, bands: true, gridMaxKw: 3, b });
+    const capped3 = (b) => one(at(sun25("20:00")), () => 0, { chargeLevel: 60, loadW: 2000, bands: true, gridMaxKw: 3, b });
     console.assert(capped3(battery)?.kind !== "wait" && capped3({ ...battery, maxDischargeKw: 0.5 })?.kind === "wait", "advice: the battery's discharge rate not in the meter check", capped3(battery), capped3({ ...battery, maxDischargeKw: 0.5 }));
     // Export forgone, no battery, 0.3 spare an hour from 10 to 15: the load takes 0.2 an hour from the grid
     // and forgoes 0.3 of export. Sold at 0.1: 10:00 (0.18) beats the dark (0.3); at 0.35, 16:00 wins (0.33 against 0.3).
@@ -1155,22 +1158,22 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     console.assert(is(one(at(sat("17:00")), thin25, { b: null }), "at", "grid", sun25("10:00")) && is(one(at(sat("17:00")), thin25, { b: null, sell: () => 0.2 }), "now", "bestNow"),
       "advice: a small saving tomorrow not given up for today", one(at(sat("17:00")), thin25, { b: null }), one(at(sat("17:00")), thin25, { b: null, sell: () => 0.2 }));
     // Tomorrow judged on the bad run too: 20:00 at 40 %, a wide spread leaves tomorrow's sun short on it.
-    const wideRun = (s) => one(at(sat("20:00")), day, { soc: 40, spread: s });
+    const wideRun = (s) => one(at(sat("20:00")), day, { chargeLevel: 40, spread: s });
     console.assert(is(wideRun(0.05), "at", "sunTomorrow", sun25("10:00")) && wideRun(0.9)?.why !== "sunTomorrow", "advice: tomorrow not judged on the bad run", wideRun(0.05), wideRun(0.9));
     // Tomorrow's sun only the usual day: the same 20:00 at 40 % starts today, not on tomorrow's sun.
-    const guess = one(at(sat("20:00")), day, { soc: 40, guess: true });
+    const guess = one(at(sat("20:00")), day, { chargeLevel: 40, guess: true });
     console.assert(guess && clock(guess.t).key === "2026-10-24", "advice: a start tomorrow on a guessed sun", guess);
     // But tomorrow's bands still count: Saturday noon, quiet from 22, no battery, sun only on Sunday.
     // Known sun: Sunday 10:00 on it; guessed: Sunday 07:00, the first F3 hour (0.2 against Saturday's F2 0.4).
     const sunday = (guessed) => one(at(sat("12:00")), (h, k) => (k === "2026-10-25" ? day(h) : 0), { b: null, bands: true, quiet: [22, 7], guess: guessed });
-    console.assert(is(sunday(false), "at", "sunTomorrowNoBatt", sun25("10:00")) && is(sunday(true), "at", "cheaper", sun25("07:00")) && sunday(true).band === "f3",
+    console.assert(is(sunday(false), "at", "sunTomorrowNoBattery", sun25("10:00")) && is(sunday(true), "at", "cheaper", sun25("07:00")) && sunday(true).band === "f3",
       "advice: tomorrow's bands lost with a guessed sun", sunday(false), sunday(true));
     // The night after tomorrow: 21:00, a full 20 kWh battery, 0.05 spare an hour from 10. The washer now
     // still leaves 4 kWh at Monday's sunrise: free, the charge missing then is export forgone.
-    const deep = one(at(sat("21:00")), (h) => (h >= 10 && h <= 15 ? 0.35 : 0), { soc: 100, b: { ...battery, kwh: 20 } });
-    console.assert(is(deep, "now", "battNow"), "advice: charge left at sunrise after tomorrow priced as grid", deep);
+    const deep = one(at(sat("21:00")), (h) => (h >= 10 && h <= 15 ? 0.35 : 0), { chargeLevel: 100, b: { ...battery, kwh: 20 } });
+    console.assert(is(deep, "now", "batteryNow"), "advice: charge left at sunrise after tomorrow priced as grid", deep);
     // 25 hour day from 01:00, the battery at its floor: 10:00 by the clock.
-    const long = one(at("2026-10-25T01:00:00+02:00"), day, { soc: 20 });
+    const long = one(at("2026-10-25T01:00:00+02:00"), day, { chargeLevel: 20 });
     console.assert(is(long, "at", "sun", sun25("10:00")) && clock(long.t).hour === 10, "advice: 25 hour day off by an hour", long);
 
     // Bands: Wednesday 4 November 2026, Saturday 24 October, holidays (8 December, Easter Monday 2026 and 2027).
@@ -1197,27 +1200,27 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     // Rest of today: saved 4 x 0.4 x 0.3 (dark hours 0, not below), cost 8 x 0.5 x 0.3, earned 4 x 1.5 x 0.1;
     // made 8, used 6, from the grid 4.
     const noon = at("2026-10-24T12:00:00+02:00");
-    const money = (buy, so = {}) => lookAhead(aheadOf(noon, (h) => (h >= 12 && h <= 15 ? 2 : 0), () => 0.5, 0, buy), noon, clock, { soc: null, loadW: 500, solarW: 2000 }, null,
+    const money = (buy, so = {}) => lookAhead(aheadOf(noon, (h) => (h >= 12 && h <= 15 ? 2 : 0), () => 0.5, 0, buy), noon, clock, { chargeLevel: null, loadW: 500, solarW: 2000 }, null,
       { exportMaxKw: null, standbyKwhPerHour: 0.1 }, { saved: 1, cost: 2, earned: 0, ...so });
     const sumOf = (o, i) => r3(o.hoursAhead.reduce((s, r) => s + r[i], 0));
     const m = money(() => 0.3);
     console.assert(same(Object.fromEntries(Object.entries(m.restToday).map(([k, v]) => [k, r3(v)])), { saved: 0.48, cost: 1.2, earned: 0.6 })
-      && sumOf(m, "sun") === 8 && sumOf(m, "batt") === 0 && sumOf(m, "grid") === 4 && sumOf(m, "use") === 6, "money: wrong", m.restToday, m.hoursAhead);
+      && sumOf(m, "sun") === 8 && sumOf(m, "battery") === 0 && sumOf(m, "grid") === 4 && sumOf(m, "use") === 6, "money: wrong", m.restToday, m.hoursAhead);
     const noBuy = money((h) => (h === 20 ? null : 0.3));
     console.assert(noBuy.restToday.saved === null && noBuy.restToday.cost === null && sumOf(noBuy, "sun") === 8, "money: an hour without buy still priced", noBuy);
     console.assert(money(() => 0.3, { saved: null }).restToday.saved === null, "money: saved without a so far value");
     // From 12:30, no sun, 0.5 an hour: half the present hour plus 11, the present hour scaled once.
     const half12 = at("2026-10-24T12:30:00+02:00"), zero = { saved: 0, cost: 0, earned: 0 };
-    const dark = lookAhead(aheadOf(half12, () => 0, () => 0.5), half12, clock, { soc: null, loadW: 500, solarW: 0 }, null, settings, zero);
+    const dark = lookAhead(aheadOf(half12, () => 0, () => 0.5), half12, clock, { chargeLevel: null, loadW: 500, solarW: 0 }, null, settings, zero);
     console.assert(sumOf(dark, "use") === 5.75 && sumOf(dark, "grid") === 5.75 && r3(dark.restToday.cost) === 1.725, "money: present hour scaled twice", dark);
     // Tomorrow's 25 hours on 2026-10-25 all count in its money: cost 25 x 0.5 x 0.3, not 24 hours (3.6).
     const eve24 = at("2026-10-24T20:00:00+02:00");
-    const dst25 = lookAhead(aheadOf(eve24, () => 0, () => 0.5), eve24, clock, { soc: null, loadW: 500, solarW: 0 }, null, { exportMaxKw: null, standbyKwhPerHour: 0.1 }, zero).daysMoney;
+    const dst25 = lookAhead(aheadOf(eve24, () => 0, () => 0.5), eve24, clock, { chargeLevel: null, loadW: 500, solarW: 0 }, null, { exportMaxKw: null, standbyKwhPerHour: 0.1 }, zero).daysMoney;
     console.assert(dst25[0]?.key === "2026-10-25" && r3(dst25[0].cost) === 3.75, "days money: not over the 25 hours of 2026-10-25", dst25);
 
     // 25 hour day from 01:00: lasts until on the second 02:00.
     const dst = at("2026-10-25T01:00:00+02:00");
-    const end = lasts(dst, () => 0, { soc: 30, loadW: 500, solarW: 0 });
+    const end = lasts(dst, () => 0, { chargeLevel: 30, loadW: 500, solarW: 0 });
     console.assert(end === at("2026-10-25T02:00:00+01:00") && clock(end).hour === 2, "lasts until: 25 hour day off by an hour", end);
   } catch (e) { console.assert(false, "lookAhead: threw", e); }
 }
@@ -1259,11 +1262,11 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
   // Every ring draws its parts in the mark colours, each part once. Not the same parts on each: before the
   // sun is up the ring so far has no sun, the end of the day's has.
   const marked = (el) => { const k = [...el.querySelectorAll(".val")].map((v) => v.getAttribute("style").match(/^--c:var\(--(\w+)-mark,var\(--\1\)\)$/)?.[1]);
-    return k.length > 0 && k.every((x) => ["sun", "batt", "grid"].includes(x)) && new Set(k).size === k.length; };
+    return k.length > 0 && k.every((x) => ["sun", "battery", "grid"].includes(x)) && new Set(k).size === k.length; };
   const readout = (p) => $(p, "#energy .today .readout")?.innerHTML ?? "";
   const rings = (p) => {
     const s = small(p), lastHour = Date.now() + H >= p._outlook?.hoursAhead?.at(-1)?.t + H;
-    return s.length === (lastHour ? 1 : 2) && clean(p) && s.at(-1).getAttribute("aria-label").startsWith(t.hShareEnd.split("{p}")[0])
+    return s.length === (lastHour ? 1 : 2) && clean(p) && s.at(-1).getAttribute("aria-label").startsWith(t.energy.hintShareEnd.split("{percent}")[0])
       && s.every((x, i) => !i || usedBy(x) >= usedBy(s[i - 1])) && [$(p, "#energy .today .rings > div > .ring-box svg"), ...s].every(marked)
       && has(p, "#now .best") === !!p._outlook?.best && !has(p, "#energy .best");
   };
@@ -1277,7 +1280,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
   console.assert(!has(p, ".savings") && !has(p, "#money .share"), "money: a today card still drawn");
   // The default washer: one line on the battery card, a start today or tomorrow on a whole hour outside the quiet hours.
   const fair = (b) => ["now", "wait"].includes(b.kind) || (b.kind === "at" && days.includes(clock(b.t).key) && b.t % H === 0 && clock(b.t).hour >= 7);
-  console.assert(best?.length === 1 && fair(best[0]) && p.shadowRoot.querySelectorAll("#now section.battery .best").length === 1 && $(p, ".best").textContent.includes(t.washer) && !has(p, "#energy .best"),
+  console.assert(best?.length === 1 && fair(best[0]) && p.shadowRoot.querySelectorAll("#now section.battery .best").length === 1 && $(p, ".best").textContent.includes(t.shared.washer) && !has(p, "#energy .best"),
     "today sunny: not one washer line on the battery card, today or tomorrow outside the quiet hours", best);
   console.assert(rings(p), "today sunny: not the share ring with its small rings for in an hour and the end of the day", named(p));
   const stale = await draw(fakeHass(SCENARIOS.stale), en);
@@ -1286,13 +1289,13 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
   // No battery: no battery part on any ring; what was sent in its own colour, apart from the grid's (nothing is
   // sent before the sun is up).
   p = await draw(fakeHass(own(SCENARIOS.nobattery)), en);
-  console.assert(rings(p) && !colours($(p, "#energy .today .ring-box svg")).includes("--batt") && (!(p._stats.today.gridExportKwh >= 0.05) || readout(p).includes("var(--sent")) && readout(p).includes("var(--grid"),
+  console.assert(rings(p) && !colours($(p, "#energy .today .ring-box svg")).includes("--battery") && (!(p._stats.today.gridExportKwh >= 0.05) || readout(p).includes("var(--sent")) && readout(p).includes("var(--grid"),
     "today without battery: a battery part, small rings missing, or sent drawn in the grid colour", named(p));
   // A battery of unknown size: nothing for tonight, so the share ring alone; no best time, no sentence. With a
   // usual day (14 days of hour rows, 0.5 kWh of sun an hour) still the ring alone: Power origin is always rings.
-  p = await draw(fakeHass(SCENARIOS.battUnknown), en);
+  p = await draw(fakeHass(SCENARIOS.batteryUnknown), en);
   console.assert(has(p, "#energy .today.share svg.ring") && !has(p, ".rings-ahead") && !has(p, ".best") && !has(p, ".by") && !has(p, ".savings") && clean(p), "today, battery of unknown size: forecast figures drawn");
-  p = await draw(fakeHass({ ...SCENARIOS.battUnknown, hourly: { solarKwh: 0.5 } }), en);
+  p = await draw(fakeHass({ ...SCENARIOS.batteryUnknown, hourly: { solarKwh: 0.5 } }), en);
   console.assert(p._stats.usualToday && has(p, "#energy .today.share svg.ring") && !has(p, ".rings-ahead"), "today with a usual day and no forecast: not the ring alone", named(p));
 
   // No buying price anywhere (Energy settings): no price now, the small rings stay.
@@ -1311,14 +1314,14 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
   // within what the house uses, what the battery gives back (and so can take again, before its losses) and what is sent.
   p = await draw(fakeHass(own(SCENARIOS.exportOffFull)), en, configOf(SCENARIOS.exportOffFull));
   const o = p._outlook, ahead = (k) => (o?.hoursAhead ?? []).reduce((s, r) => s + r[k], 0);
-  console.assert(o?.hoursAhead && ahead("sun") <= ahead("use") + ahead("batt") / p._stats.efficiency + 1e-6
+  console.assert(o?.hoursAhead && ahead("sun") <= ahead("use") + ahead("battery") / p._stats.efficiency + 1e-6
     && !(o.restToday.earned > 0) && rings(p) && !readout(p).includes("var(--sent"), "today export off and full: lost sun counted as made, or something sent", o);
   undo();
 }
 
 // Check: the Now page. In order: header, flow, advice, battery. The battery ring: the percentage alone in
 // its middle, the battery size in the gap when known. The battery in an hour, at fixed times today (the
-// mock's sun runs from 10:00 to 15:00): rising at 11:00 (a faded --batt piece past the solid end), falling at
+// mock's sun runs from 10:00 to 15:00): rising at 11:00 (a faded --battery piece past the solid end), falling at
 // 21:00 (a faded --low piece), never falling at the floor; the hint says it. The advice from the outlook: short, okLasts, fills. The
 // "?" opens a modal dialog and gives focus back. The tabs have icons. The icon over the flow follows the
 // present hour, the moon its phase.
@@ -1337,48 +1340,48 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
   const now = (p) => p.shadowRoot.getElementById("now");
   const ring = (p) => $(p, ".battery svg.ring"), soon = (p) => $(p, ".battery .ring .soon");
   const colour = (el) => el?.getAttribute("style").match(/var\(--(\w+)-mark/)?.[1];
-  const withSoc = (s, soc) => () => { const h = fakeHass(s); h.states[ID.soc] = { state: String(soc), attributes: {} }; return h; };
+  const withChargeLevel = (s, chargeLevel) => () => { const h = fakeHass(s); h.states[ID.chargeLevel] = { state: String(chargeLevel), attributes: {} }; return h; };
   const night = own(SCENARIOS.evening);
   try {
     let p = await at("sunny", null);
     console.assert([...now(p).children].map((el) => el.localName === "section" ? el.classList[1] : el.localName).join(" ") === "header div advice battery coming", "now: not header, flow, advice, battery, coming days", [...now(p).children].map((el) => el.className));
     console.assert(!$(p, ".battery .ring-mid .num") && $(p, ".battery .ring .size")?.textContent === "10 kWh", "now: the kWh line still under the percentage, or no size in the gap");
-    console.assert(!$(await at("battUnknown", null), ".battery .ring .size"), "now: a size for a battery of unknown size");
+    console.assert(!$(await at("batteryUnknown", null), ".battery .ring .size"), "now: a size for a battery of unknown size");
     // The tab bar: an icon above each label, hidden from screen readers.
     console.assert([...p.shadowRoot.querySelectorAll(".tabs button")].every((b) => b.querySelector("svg[aria-hidden=true]") && b.textContent.trim() === b.lastChild.textContent && b.lastChild.textContent), "tabs: a tab without its icon or label");
 
-    // Rising at 11:00: the piece past the solid end, in --batt; the hint says it.
+    // Rising at 11:00: the piece past the solid end, in --battery; the hint says it.
     p = await at(own(SCENARIOS.sunny), 11);
-    const up = p._outlook?.socInHour, s70 = 70;
-    console.assert(up && up[1] - s70 >= 1 && colour(soon(p)) === "batt", "in an hour, sunny at 11: no rising piece in --batt", up, soon(p)?.outerHTML);
+    const up = p._outlook?.chargeInHour, s70 = 70;
+    console.assert(up && up[1] - s70 >= 1 && colour(soon(p)) === "battery", "in an hour, sunny at 11: no rising piece in --battery", up, soon(p)?.outerHTML);
     console.assert(+ring(p).querySelector(".val").getAttribute("stroke-dasharray").split(" ")[0] === s70, "in an hour, rising: the solid arc does not end at now");
-    console.assert(ring(p).getAttribute("aria-label") === say(t.hRingSoonMid, { p: s70, a: Math.round(up[1]) }), "in an hour, rising: hint wrong", ring(p).getAttribute("aria-label"));
+    console.assert(ring(p).getAttribute("aria-label") === say(t.now.hintChargeSoon, { percent: s70, soonPercent: Math.round(up[1]) }), "in an hour, rising: hint wrong", ring(p).getAttribute("aria-label"));
     // Falling at 21:00: the solid arc ends at the battery in an hour, the piece up to now in --low.
     p = await at(night, 21);
-    const down = p._outlook?.socInHour;
+    const down = p._outlook?.chargeInHour;
     console.assert(down && 60 - down[1] >= 1 && colour(soon(p)) === "low" && Math.abs(+ring(p).querySelector(".val").getAttribute("stroke-dasharray").split(" ")[0] - down[1]) < 0.1, "in an hour, evening at 21: no falling piece in --low ending at the battery in an hour", down);
     console.assert(down[0] >= 20 && down[0] <= down[1] && down[1] <= down[2] && down[2] <= 100, "in an hour: range outside the floor to 100, or not around its mid", down);
     // At the floor it cannot fall: nothing drawn.
-    p = await at(withSoc(night, 20), 21);
-    console.assert(!soon(p) && ring(p).getAttribute("aria-label") === say(t.hRing, { p: 20, k: "2 kWh" }), "in an hour: a fall drawn at the floor", soon(p)?.outerHTML);
+    p = await at(withChargeLevel(night, 20), 21);
+    console.assert(!soon(p) && ring(p).getAttribute("aria-label") === say(t.now.hintCharge, { percent: 20, stored: "2 kWh" }), "in an hour: a fall drawn at the floor", soon(p)?.outerHTML);
     // Under 1 point of change, nothing: no sun and no use for the next hours nor drawn now (the present
     // draw counts for the present hour), a full battery.
     p = await at(() => {
       const h = fakeHass({ ...SCENARIOS.exportOffFull, ahead: undefined, hourly: () => 0 });
-      for (const id of [ID.solarW, ID.battW, ID.gridW]) h.states[id].state = "0";
+      for (const id of [ID.solarW, ID.batteryW, ID.gridW]) h.states[id].state = "0";
       return h;
     }, 21);
     console.assert(!soon(p), "in an hour: drawn under 1 point of change");
 
     // Advice from the outlook: at 21:00 the battery runs out before the sun takes over (short), or lasts (okLasts);
     // at 11:00 with no spare sun now it fills later and sends the rest (fills).
-    const adv = (p) => [$(p, ".advice").dataset.kind, $(p, ".advice p").textContent, $(p, ".batt-say p").textContent];
+    const adv = (p) => [$(p, ".advice").dataset.kind, $(p, ".advice p").textContent, $(p, ".battery-say p").textContent];
     let [kind, line, says] = adv(await at(night, 21));
-    console.assert(kind === "short" && t.adviceShort.includes(line) && /\d/.test(says), "advice: evening, battery out before the sun, not short", kind, line, says);
-    [kind, line, says] = adv(await at(withSoc(night, 100), 21));
-    console.assert(kind === "okLasts" && t.adviceOkLasts.includes(line) && says === t.untilSun, "advice: evening, battery lasts, not okLasts", kind, line, says);
+    console.assert(kind === "short" && t.now.advice.short.includes(line) && /\d/.test(says), "advice: evening, battery out before the sun, not short", kind, line, says);
+    [kind, line, says] = adv(await at(withChargeLevel(night, 100), 21));
+    console.assert(kind === "okLasts" && t.now.advice.okLasts.includes(line) && says === t.now.lastsUntilSun, "advice: evening, battery lasts, not okLasts", kind, line, says);
     [kind, line] = adv(await at(own(SCENARIOS.cloudy), 11));
-    console.assert(kind === "fills" && t.adviceFills.includes(line), "advice: by day, the battery fills, not fills", kind, line);
+    console.assert(kind === "fills" && t.now.advice.fills.includes(line), "advice: by day, the battery fills, not fills", kind, line);
     [kind] = adv(await at({ ...SCENARIOS.evening, forecast: null }, 21));
     console.assert(kind === "ok", "advice: short or okLasts without a forecast", kind);
 
@@ -1397,10 +1400,10 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     p = await at("sunny", null);
     attach(p);
     const help = $(p, ".battery button.help");
-    console.assert(help?.getAttribute("aria-label")?.startsWith(`${t.helpTitle}: `) && help.querySelector("svg[aria-hidden=true]"), "help: not a labelled button", help?.outerHTML);
+    console.assert(help?.getAttribute("aria-label")?.startsWith(`${t.help.title}: `) && help.querySelector("svg[aria-hidden=true]"), "help: not a labelled button", help?.outerHTML);
     help?.focus(); help?.click();
     const read = $(p, "dialog.read");
-    console.assert(read?.open && read.matches(":modal") && read.querySelector("h2").textContent === t.helpTitle && read.querySelectorAll("li span").length === 4
+    console.assert(read?.open && read.matches(":modal") && read.querySelector("h2").textContent === t.help.title && read.querySelectorAll("li span").length === 4
       && [...read.querySelectorAll("[data-t]")].every((el) => el.textContent.trim()), "help: no modal dialog with its title and lines");
     if (read?.requestClose) read.requestClose();
     else if (read?.dispatchEvent(new Event("cancel", { cancelable: true }))) read.close();
@@ -1436,7 +1439,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
 {
   const card = (p) => p.shadowRoot.querySelector("#energy .daily");
   try {
-    const p = await draw(fakeHass(SCENARIOS.stale), en, { predictions: { level: "usual" } }), c = card(p), s = p._stats, a = p._ahead;
+    const p = await draw(fakeHass(SCENARIOS.stale), en, { predictions: { level: "usual_days_weather" } }), c = card(p), s = p._stats, a = p._ahead;
     const coming = [...c.querySelectorAll(".week li.ahead")], d = new Date(Date.now()), today = s.monthDays.length;
     const left = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate() - today;
     const keys = coming.map((li) => new Date(s.monthDays[0].date + (+li.dataset.i) * 864e5).toISOString().slice(0, 10));
@@ -1463,21 +1466,21 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     console.assert(!card(none).querySelector(".week li.ahead, .year i.ghost, .series.later, .month-total .est"), "production, level none: predicts");
     // Weather alone: the sensor's days dashed on as far as they reach (15 in the mock), the month end only once
     // they reach it; on Today by hour the sun dashed on to midnight, but no use or grid ahead.
-    const wx = await draw(fakeHass(SCENARIOS.cloudy), en), wc = card(wx), c0 = clockOf(TZ)(Date.now());
-    const reach = wx._ahead.days.filter((x) => x.d > c0.key && x.d.startsWith(s.monthKey)).length;
-    const later = [...wx.shadowRoot.querySelectorAll("#energy .battday .series.later")].map((x) => x.getAttribute("d"));
+    const weatherAlone = await draw(fakeHass(SCENARIOS.cloudy), en), wc = card(weatherAlone), c0 = clockOf(TZ)(Date.now());
+    const reach = weatherAlone._ahead.days.filter((x) => x.d > c0.key && x.d.startsWith(s.monthKey)).length;
+    const later = [...weatherAlone.shadowRoot.querySelectorAll("#energy .hoursToday .series.later")].map((x) => x.getAttribute("d"));
     console.assert(wc.querySelectorAll(".week li.ahead").length === reach && !!wc.querySelector(".year i.ghost") === (reach === left)
       && (c0.hour >= 23 || later[0]?.includes("L") && !later[1].includes("L") && !later[2].includes("L")),
       "weather alone: the sensor's days to come, its month end, or the sun ahead on Today by hour wrong", reach, left, later);
     // Coming days beside the page's own forecast: the solar forecast's whole days after today (up to 7), no weather.
     const rows = [...p.shadowRoot.querySelectorAll("#now .coming .days li")], want = Math.min(7, Object.keys(s.sunDays).length);
-    console.assert(!extras || want > 0 && rows.length === want && rows.every((li) => !li.querySelector(".wx")?.innerHTML), // ?extras=0: no solar forecast
+    console.assert(!extras || want > 0 && rows.length === want && rows.every((li) => !li.querySelector(".weather-icon")?.innerHTML), // ?extras=0: no solar forecast
       "coming days, level usual: not the solar forecast's days", rows.length, want);
     // The usual day's sun follows the season by the clear sky at Home Assistant's location: each day to come
     // its own (within half and twice the usual day's); without a longitude, the usual day's as it is.
     const days = Object.values(s.usualSunDays), flat = fakeHass(SCENARIOS.stale);
     flat.config = { ...flat.config, longitude: undefined };
-    const noGeo = Object.values((await draw(flat, en, { predictions: { level: "usual" } }))._stats.usualSunDays);
+    const noGeo = Object.values((await draw(flat, en, { predictions: { level: "usual_days_weather" } }))._stats.usualSunDays);
     console.assert((!days.length || days.every((v) => v >= s.usualSun * 0.5 && v <= s.usualSun * 2) && new Set(days.map((v) => v.toFixed(3))).size > Math.min(1, days.length - 1))
       && noGeo.every((v) => Math.abs(v - s.usualSun) < 1e-6), "usual day: not moved by the season, or moved without a location", days, noGeo, s.usualSun);
     // Money ahead with the page's own forecast: every day left this month dashed on Daily returns, each with its
@@ -1487,7 +1490,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     console.assert(!priced || owed.length === left && owed.every((li) => /bring back about .+ from the grid/.test(li.dataset.hint ?? li.getAttribute("aria-label") ?? ""))
       && (q.get("gap") === "1" || !!money(p).querySelector(".months i.ghost") && money(p).textContent.includes("by the end of the month")), // ?gap=1: this month unknown
       "money, level usual: the days to come on Daily returns, or the month end on Month balance, missing", owed.length, left);
-    console.assert(!money(wx).querySelector(".recent li.ahead, .months i.ghost"), "money, weather alone: money predicted without house use");
+    console.assert(!money(weatherAlone).querySelector(".recent li.ahead, .months i.ghost"), "money, weather alone: money predicted without house use");
   } catch (e) {
     console.assert(false, "production, level usual: threw", e);
   }
@@ -1505,9 +1508,9 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
   const v = (el, name) => (el ? parseFloat(el.style.getPropertyValue(name)) : null);
   try {
     let p = await draw(fakeHass(SCENARIOS.sunny), en);
-    console.assert(order(p) === "today battday daily" && p.shadowRoot.querySelector("#now section.battery + section.coming"), "energy: cards not today, hour by hour, days, or coming days not under the battery on Now", order(p));
+    console.assert(order(p) === "today hoursToday daily" && p.shadowRoot.querySelector("#now section.battery + section.coming"), "energy: cards not today, hour by hour, days, or coming days not under the battery on Now", order(p));
     p = await draw(fakeHass(SCENARIOS.stale), en);
-    console.assert(!extras || $(p, ".coming") && !$(p, ".coming .wx path, .coming .wx circle"), "coming days without the sensor: not the solar forecast's, or with weather");
+    console.assert(!extras || $(p, ".coming") && !$(p, ".coming .weather-icon path, .coming .weather-icon circle"), "coming days without the sensor: not the solar forecast's, or with weather");
 
     // Coming days: 7 rows from tomorrow, each with the icon of its day's cloud and rain.
     p = await draw(fakeHass(SCENARIOS.sunny), en);
@@ -1517,13 +1520,13 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     const u = v(p.shadowRoot.querySelector(".coming .days"), "--u");
     const tomorrow = new Date(localMidnight(-1) + 12 * H);
     console.assert(rows.length === 7 && rows[0].firstChild.textContent === new Intl.DateTimeFormat("en", { weekday: "short" }).format(tomorrow).replace(".", "")
-      && rows.every((li) => li.querySelector(".wx circle") && !li.querySelector(".wx .cloud"))
+      && rows.every((li) => li.querySelector(".weather-icon circle") && !li.querySelector(".weather-icon .cloud"))
       && pills.every(([a, m, b]) => a >= 0 && a <= m && m <= b && b <= 100) && Math.max(u, ...pills.map((x) => x[2])) === 100
       && (u > 0) === !!p.shadowRoot.querySelector(".coming .days.with-use li:first-child .now-label") && rows.every((li) => !!li.querySelector(".use") === u > 0)
       && rows.every((li) => /\d/.test(li.getAttribute("aria-label")) && li.getAttribute("aria-label").includes(" kWh of sun")), "coming days: rows, icons or pills wrong", rows.map((li) => li.outerHTML));
-    const dayIcons = async (k) => [...(await draw(fakeHass(SCENARIOS[k]), en)).shadowRoot.querySelectorAll(".coming .days li")].map((li) => (li.querySelector(".wx .drop") ? "rain" : li.querySelector(".wx circle") ? (li.querySelector(".wx .cloud") ? "partly" : "sun") : li.querySelector(".wx .cloud") ? "cloud" : "-"));
+    const dayIcons = async (k) => [...(await draw(fakeHass(SCENARIOS[k]), en)).shadowRoot.querySelectorAll(".coming .days li")].map((li) => (li.querySelector(".weather-icon .drop") ? "rain" : li.querySelector(".weather-icon circle") ? (li.querySelector(".weather-icon .cloud") ? "partly" : "sun") : li.querySelector(".weather-icon .cloud") ? "cloud" : "-"));
     const cloudy = await dayIcons("cloudy"), rainy = await dayIcons("rain");
-    console.assert(cloudy.length === 7 && cloudy.every((i) => i === "partly") && p.shadowRoot.querySelector(".coming .days li").getAttribute("aria-label").includes(t.wxSunny)
+    console.assert(cloudy.length === 7 && cloudy.every((i) => i === "partly") && p.shadowRoot.querySelector(".coming .days li").getAttribute("aria-label").includes(t.now.weatherSunny)
       && rainy.every((i) => i === "rain"), "coming days: icons not from the day's cloud and rain", cloudy, rainy);
 
     // Days: one dot a day of this month numbered from 1, today last, faded and picked at first; a tap picks
@@ -1534,7 +1537,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     console.assert(days(p).length === new Date(new Date(Date.now()).getFullYear(), new Date(Date.now()).getMonth() + 1, 0).getDate() && days(p).slice(n).every((li) => li.classList.contains("future") && !li.dataset.hint || li.classList.contains("ahead")) && JSON.stringify(picked(p)) === JSON.stringify([n - 1, 1, String(n - 1)])
       && days(p)[n - 1].classList.contains("today") && days(p).filter((li) => li.classList.contains("today")).length === 1
       && days(p).map((li) => li.lastChild.textContent).join() === days(p).map((_, i) => i + 1).join()
-      && energy(p).querySelector(".daily .picked .day:not([hidden]) .period")?.textContent === t.todaySoFar, "days: not a dot a day numbered from 1, or today not last, faded and picked", picked(p));
+      && energy(p).querySelector(".daily .picked .day:not([hidden]) .period")?.textContent === t.shared.todaySoFar, "days: not a dot a day numbered from 1, or today not last, faded and picked", picked(p));
     if (n > 2) {
       days(p)[0].click();
       console.assert(JSON.stringify(picked(p)) === '[0,1,"0"]', "days: a tapped bar not picked", picked(p));
@@ -1549,10 +1552,10 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     console.assert(year(p).length === 12 && year(p).at(-1).dataset.month === k && year(p).every((b, i, a) => !i || a[i - 1].dataset.month < b.dataset.month)
       && year(p).every((b) => b.dataset.month <= k && b.dataset.month > `${+k.slice(0, 4) - 1}-${k.slice(5)}`)
       && year(p).filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.dataset.month).join() === k
-      && year(p).find((b) => b.dataset.month === k).querySelector("small").textContent === t.soFar
+      && year(p).find((b) => b.dataset.month === k).querySelector("small").textContent === t.shared.soFar
       && year(p).every((b, i, a) => (b.querySelector("small .wide")?.textContent ?? null) === (i < 11 && a[i + 1].dataset.month.slice(0, 4) !== b.dataset.month.slice(0, 4) ? b.dataset.month.slice(0, 4) : null))
-      && energy(p).querySelector(".daily .year + .stepped .month-total .period")?.textContent.startsWith(say(t.monthSoFar, { m: formats("en", "EUR", "h12").monthYear(k) })) // a day missing (?gap=1) adds how many
-      && energy(p).querySelector(".daily .month-total dt")?.textContent === t.prodMonths, "production: not the latest 12 months, this one so far with its total", year(p).map((b) => b.dataset.month));
+      && energy(p).querySelector(".daily .year + .stepped .month-total .period")?.textContent.startsWith(say(t.shared.monthSoFar, { month: formats("en", "EUR", "h12").monthYear(k) })) // a day missing (?gap=1) adds how many
+      && energy(p).querySelector(".daily .month-total dt")?.textContent === t.energy.monthlyProduction, "production: not the latest 12 months, this one so far with its total", year(p).map((b) => b.dataset.month));
     const back = year(p).find((b) => b.dataset.month < k);
     back.click();
     const all = days(p), [y, m] = back.dataset.month.split("-").map(Number), length = new Date(Date.UTC(y, m, 0)).getUTCDate();
@@ -1586,7 +1589,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
   const card = (p) => p.shadowRoot.querySelector("#money .months"), fig = (p, sel) => card(p)?.querySelector(sel)?.textContent;
   // A labelled figure under the bars (see readout), by its label.
   const said = (p, label) => [...card(p)?.querySelectorAll(".readout dl > div") ?? []].find((d) => d.querySelector("dt").textContent === label)?.querySelector("dd").textContent;
-  const read = (p) => ({ cost: fig(p, ".side.cost b"), back: fig(p, ".side.back b"), net: said(p, t.netBenefit), end: fig(p, ".note") });
+  const read = (p) => ({ cost: fig(p, ".side.cost b"), back: fig(p, ".side.back b"), net: said(p, t.money.netBenefit), end: fig(p, ".note") });
   const value = (v) => parseFloat(v.replace(/[^\d.-]/g, ""));
   const pickMonth = (p, key) => card(p).querySelector(`[data-month="${key}"]`).click();
   const prices = (p) => [...p.shadowRoot.querySelectorAll("#money .prices .price")].map((el) => `${el.querySelector("span").textContent}: ${el.querySelector("b").textContent}`).join("|");
@@ -1596,8 +1599,8 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     let p = await draw(fakeHass(SCENARIOS.sunny), en);
     const k = p._stats.monthKey, last = before(k), months = [...card(p).querySelectorAll(".year button")];
     console.assert(months.length === 12 && months.filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.dataset.month).join() === k
-      && fig(p, ".chart-title") === say(t.monthSoFar, { m: f.monthYear(k) }) && !read(p).end
-      && prices(p) === `${t.buyGrid}: ${money(0.3)} /kWh|${t.sellGrid}: ${money(0.1)} /kWh`, "money month sunny: months, a month end beside weather alone, or prices wrong", read(p), prices(p));
+      && fig(p, ".chart-title") === say(t.shared.monthSoFar, { month: f.monthYear(k) }) && !read(p).end
+      && prices(p) === `${t.money.buyGrid}: ${money(0.3)} /kWh|${t.money.sellGrid}: ${money(0.1)} /kWh`, "money month sunny: months, a month end beside weather alone, or prices wrong", read(p), prices(p));
     // The sensor's last month as it is: no month end.
     pickMonth(p, last);
     console.assert(read(p).cost === money(14.6) && value(read(p).back) >= 98 && read(p).net === money(value(read(p).back) - 14.6) && !read(p).end
@@ -1630,10 +1633,10 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     const real = Date.now; // at 15:00, when today has sent some (see fakeStats)
     Date.now = () => new Date(real()).setHours(15, 0, 0, 0);
     try { p = await draw(fakeHass({ ...SCENARIOS.full, ahead: "sunny" }), en); } finally { Date.now = real; }
-    console.assert(card(p)?.querySelector(".side.back span")?.textContent === t.savedEarned && said(p, t.savedLabel) && said(p, t.exportLabel), "money month with export: saved and earned not shown", card(p)?.innerHTML);
+    console.assert(card(p)?.querySelector(".side.back span")?.textContent === t.money.savedAndExport && said(p, t.shared.savedLabel) && said(p, t.shared.exportLabel), "money month with export: saved and earned not shown", card(p)?.innerHTML);
     // Export off: no selling price.
     p = await draw(fakeHass(SCENARIOS.exportOffFull), en, configOf(SCENARIOS.exportOffFull));
-    console.assert(prices(p) === `${t.buyGrid}: ${money(0.3)} /kWh`, "prices, export off: a selling price", prices(p));
+    console.assert(prices(p) === `${t.money.buyGrid}: ${money(0.3)} /kWh`, "prices, export off: a selling price", prices(p));
   }
 }
 
@@ -1693,7 +1696,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     // Installed on the 21st: October brought a third of its whole month's money. Gone by, the time left is the
     // true one (to the card's tenth of a year); counted as a whole month, it is too long.
     const ledger = battery.slice(9, 13).map((x, i) => (i ? x : { ...x, ...Object.fromEntries(["sun", "self", "out", "saved", "earned", "back"].map((k) => [k, x[k] / 3])) }));
-    const years = (since) => +paybackCard(ledger, { cost: 9000, before: 0, since }, { t, f: formats("en", "EUR") }, true, { lat: 47.7 }).match(/About ([\d.]+) years/)?.[1];
+    const years = (since) => +paybackCard(ledger, { cost: 9000, before: 0, since }, { lines: t, format: formats("en", "EUR") }, true, { lat: 47.7 }).match(/About ([\d.]+) years/)?.[1];
     let owed = 9000 - ledger.reduce((a, x) => a + x.back, 0) - battery[12].back, after = 0; // January under way, nothing so far
     while (owed > 0) owed -= battery[(13 + after++) % 12].back;
     console.assert(Math.abs(years("2025-10-21") - after / 12) <= 0.1 && years("2025-10-01") - after / 12 > 0.5, "payback: a part install month not gone by",
@@ -1705,13 +1708,13 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
   const shown = (sel) => [...p.shadowRoot.querySelectorAll(`${sel} .day:not([hidden])`)].map((d) => d.dataset.i).join();
   if (priced) {
     console.assert(bars.length === new Date(new Date(Date.now()).getFullYear(), new Date(Date.now()).getMonth() + 1, 0).getDate() && bars[n - 1].getAttribute("aria-current") === "true" && bars[n - 1].classList.contains("today") && shown("#money .recent") === String(n - 1)
-      && $(p, "#money .recent .day:not([hidden]) .period")?.textContent === t.todaySoFar
-      && [...p.shadowRoot.querySelectorAll("#money .recent .day:not([hidden]) dt")].map((d) => d.textContent).join() === [t.returns, t.gridCost, t.netBenefit].join()
+      && $(p, "#money .recent .day:not([hidden]) .period")?.textContent === t.shared.todaySoFar
+      && [...p.shadowRoot.querySelectorAll("#money .recent .day:not([hidden]) dt")].map((d) => d.textContent).join() === [t.shared.savings, t.money.gridCost, t.money.netBenefit].join()
       && !$(p, "#money .recent .month-total"), "money days: not a dot a day with today picked, or a month total (it is on Month balance)", bars.length);
     // ?gap=1 leaves out a day with days on record after it: their rows hold its energy, so payback still adds up.
-    if (q.get("gap") === "1" && new Date(Date.now()).getDate() > 2) console.assert($(p, "#money .payback .note")?.textContent !== t.paybackIncomplete, "payback with a gap: the incomplete note", $(p, "#money .payback")?.textContent);
+    if (q.get("gap") === "1" && new Date(Date.now()).getDate() > 2) console.assert($(p, "#money .payback .note")?.textContent !== t.money.paybackIncomplete, "payback with a gap: the incomplete note", $(p, "#money .payback")?.textContent);
     else console.assert(/^[\d,]+ €$/.test($(p, "#money .payback .ring-mid")?.textContent) && $(p, "#money .payback .ring .size")?.textContent === "9,000 €"
-      && $(p, "#money .payback .ring-name")?.textContent === t.plantCost && $(p, "#money .payback .money:not(.month)").textContent.startsWith("About ")
+      && $(p, "#money .payback .ring-name")?.textContent === t.money.plantCost && $(p, "#money .payback .money:not(.month)").textContent.startsWith("About ")
       && /^This month: [\d,]+ € saved( and sold)?$/.test($(p, "#money .payback .month")?.textContent)
       && !/%/.test($(p, "#money .payback").textContent), "payback: amount, cost, its name or time left missing, or a percentage shown", $(p, "#money .payback")?.textContent);
     // A day bar picks its own day; Energy's days keep today, also after a redraw.
@@ -1729,14 +1732,14 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
     console.assert(/^Paid back in \w+ \d{4}$/.test($(p, "#money .payback p").textContent) && /^Since then \+[\d,]+ € gained$/.test($(p, "#money .payback .money:not(.month)").textContent)
       && $(p, "#money .payback .ring-mid .done"), "payback paid: month, gain or check missing", $(p, "#money .payback")?.textContent);
     p = await draw(fakeHass(SCENARIOS.sunny), en, { system_cost: 500, saved_before: 600 });
-    console.assert($(p, "#money .payback p").textContent === t.paidBack, "payback paid before the records: a month named", $(p, "#money .payback p").textContent);
+    console.assert($(p, "#money .payback p").textContent === t.money.paidBack, "payback paid before the records: a month named", $(p, "#money .payback p").textContent);
   }
   // A battery in for 10 years shows the wear card above the advice; a new one does not.
   p = await draw(fakeHass(SCENARIOS.sunny), en, { battery_install_date: new Date(localMidnight(3700)).toISOString().slice(0, 10) });
-  const wear = $(p, `[aria-label="${t.wearTitle}"]`);
-  console.assert(wear?.textContent.trim() === t.wearAge.replace("{y}", 10) && wear.nextElementSibling?.getAttribute("aria-label") === t.adviceTitle, "wear: card missing, wrong or not above the advice", wear?.textContent);
+  const wear = $(p, `[aria-label="${t.now.wearTitle}"]`);
+  console.assert(wear?.textContent.trim() === t.now.wearAge.replace("{years}", 10) && wear.nextElementSibling?.getAttribute("aria-label") === t.now.advice.title, "wear: card missing, wrong or not above the advice", wear?.textContent);
   p = await draw(fakeHass(SCENARIOS.sunny), en, { battery_install_date: new Date(localMidnight(30)).toISOString().slice(0, 10) });
-  console.assert(!$(p, `[aria-label="${t.wearTitle}"]`), "wear: card for a new battery");
+  console.assert(!$(p, `[aria-label="${t.now.wearTitle}"]`), "wear: card for a new battery");
 }
 
 // Check: hour by hour on Energy. With a battery: its hourly means as a line, the floor, and with the outlook
@@ -1746,13 +1749,13 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
 // the energy alone.
 {
   let p = await draw(fakeHass(own(SCENARIOS.sunny)), en);
-  const card = (p) => p.shadowRoot.querySelector("#energy .battday"), hints = (p) => [...card(p)?.querySelector(".hours24")?.querySelectorAll("[data-hint]") ?? []].map((h) => h.dataset.hint);
+  const card = (p) => p.shadowRoot.querySelector("#energy .hoursToday"), hints = (p) => [...card(p)?.querySelector(".hours24")?.querySelectorAll("[data-hint]") ?? []].map((h) => h.dataset.hint);
   // Hours since midnight and in all today: not the clock's hour on a day the clocks change.
   const m0 = localMidnight(), m1 = new Date(m0).setDate(new Date(m0).getDate() + 1);
   const past = Math.floor((Date.now() - m0) / 36e5), floor = card(p)?.querySelector(".floor");
-  console.assert(card(p)?.querySelector(".past") && card(p).querySelector(".ahead") && +floor?.getAttribute("y1") === 100 - p._src.cfg.batt.floor && card(p).querySelector(".socline .series")
+  console.assert(card(p)?.querySelector(".past") && card(p).querySelector(".ahead") && +floor?.getAttribute("y1") === 100 - p._source.options.battery.floor && card(p).querySelector(".chargeLine .series")
     && hints(p).length === Math.round((m1 - m0) / 36e5) && hints(p).slice(0, past).every((h) => /^At .*, the panels made .* the house used .* the grid gave .* and the battery was at \d+%\.$/.test(h)
-      || (q.get("gap") === "1" && h.endsWith(STRINGS.en.noData))) // ?gap=1: 1:00 and 2:00 have no rows
+      || (q.get("gap") === "1" && h.endsWith(STRINGS.en.shared.noData))) // ?gap=1: 1:00 and 2:00 have no rows
     && / the panels made /.test(hints(p)[past]) && !/ battery /.test(hints(p)[past]) && hints(p).slice(past + 1).every((h) => /^At .*, the panels should make .* the grid give .* and the battery be at about \d+%\.$/.test(h))
     && (past === hints(p).length - 1 || card(p).querySelector(".series.later")?.getAttribute("d")),
     "hour by hour: charge line, dashes, floor, energy lines, their dashes or hour hints wrong", hints(p));
@@ -1761,15 +1764,15 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
   console.assert(picks(p) === `${past},${past}|${past}`, "hour by hour: this hour not picked on both charts", picks(p));
   // Now: one line on each chart at the same place, named once, over the top chart.
   const nowAt = [...card(p).querySelectorAll(".now-line")].map((l) => l.getAttribute("x1"));
-  console.assert(nowAt.length === 2 && nowAt[0] === nowAt[1] && card(p).querySelectorAll(".now-label").length === 1 && card(p).querySelector(".charge > .now-label")?.textContent === STRINGS.en.nowMark,
+  console.assert(nowAt.length === 2 && nowAt[0] === nowAt[1] && card(p).querySelectorAll(".now-label").length === 1 && card(p).querySelector(".charge > .now-label")?.textContent === STRINGS.en.shared.nowMark,
     "hour by hour: now not marked on both charts, or not named once over the top one", nowAt);
   // This hour's dots sit on the now line on both charts, with an outlook for its rest too; each energy line
   // turns from solid to dashed there.
   const dotsAt = [...card(p).querySelectorAll(".hours24 li[aria-current] i")].map((i) => i.style.getPropertyValue("--x"));
-  const turns = [...card(p).querySelectorAll(".socline .series.later")].filter((d) => d.getAttribute("d")).map((d) => +d.getAttribute("d").match(/^M([\d.]+)/)?.[1] - nowAt[0]);
+  const turns = [...card(p).querySelectorAll(".chargeLine .series.later")].filter((d) => d.getAttribute("d")).map((d) => +d.getAttribute("d").match(/^M([\d.]+)/)?.[1] - nowAt[0]);
   console.assert(dotsAt.length > 1 && new Set(dotsAt).size === 1 && turns.every((dx) => Math.abs(dx) < 0.02), "hour by hour: this hour's dots or dashes not at the now line", dotsAt, turns);
   card(p).querySelector(".charge .hours24 li").click();
-  console.assert(past === 0 || (picks(p) === "0,0|0" && [...card(p).querySelectorAll(".day:not([hidden]) dt")].some((d) => d.textContent === STRINGS.en.battAvg)), "hour by hour: a tap on the charge chart not picked on both", picks(p));
+  console.assert(past === 0 || (picks(p) === "0,0|0" && [...card(p).querySelectorAll(".day:not([hidden]) dt")].some((d) => d.textContent === STRINGS.en.shared.batteryAverage)), "hour by hour: a tap on the charge chart not picked on both", picks(p));
   // Pointing at an hour of the energy chart shows it on both, with the same hint, and picks nothing.
   if (past > 0) {
     const rows = [...card(p).querySelectorAll(".hours24")], at = rows[1].children[past - 1];
@@ -1786,13 +1789,13 @@ for (const text of Object.values(TEXTS).flatMap((t) => Object.values(t)).flatMap
   p = await draw(fakeHass(SCENARIOS.midday), en);
   console.assert(card(p)?.querySelector(".past") && !card(p).querySelector(".ahead") && hints(p).length === past + 1, "hour by hour: dashes without a forecast", hints(p).length);
   p = await draw(fakeHass(SCENARIOS.nobattery), en);
-  console.assert(card(p) && !card(p).querySelector(".floor, .past, .charge") && card(p).querySelector(".socline .series") && card(p).querySelectorAll(".legend li").length === 3, "hour by hour without a battery: not the energy alone");
+  console.assert(card(p) && !card(p).querySelector(".floor, .past, .charge") && card(p).querySelector(".chargeLine .series") && card(p).querySelectorAll(".legend li").length === 3, "hour by hour without a battery: not the energy alone");
 }
 
 // Check: ‹ and › beside a picked hour or day pick its neighbour, as a tap would, its figures shown, and are
 // greyed where there is none that way; a month's go to the month beside on screen (see steps).
 {
-  const p = await draw(fakeHass(SCENARIOS.sunny), en), cards = [...p.shadowRoot.querySelectorAll("#energy .battday, #energy .daily, #money .recent")];
+  const p = await draw(fakeHass(SCENARIOS.sunny), en), cards = [...p.shadowRoot.querySelectorAll("#energy .hoursToday, #energy .daily, #money .recent")];
   const at = (c) => c.querySelector(":is(.week, .hours24) li[aria-current]")?.dataset.i + "|" + c.querySelector(".picked .day:not([hidden])")?.dataset.i;
   const off = (c) => [...c.querySelectorAll("[data-step]")].map((b) => b.getAttribute("aria-disabled") === "true").join();
   const tap = (c, by) => c.querySelector(`[data-step="${by}"]`).click();
@@ -1851,11 +1854,11 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   attach(p);
   const buttons = [...p.shadowRoot.querySelectorAll(".page .help")];
   const cards = buttons.map((b) => b.dataset.card);
-  console.assert(!priced || cards.join(" ") === "battery days share battday daily recent prices table", "help: not one per card", cards); // ?extras=0: other money cards
+  console.assert(!priced || cards.join(" ") === "battery days share hoursToday daily recent prices table", "help: not one per card", cards); // ?extras=0: other money cards
   for (const b of buttons) {
     b.focus(); b.click();
     const read = $(p, `dialog.read[data-card="${b.dataset.card}"]`);
-    console.assert(b.getAttribute("aria-label")?.startsWith(`${t.helpTitle}: `) && read?.getAttribute("aria-label") === b.getAttribute("aria-label") && read?.open && read.matches(":modal") && read.querySelectorAll("li span").length >= 2
+    console.assert(b.getAttribute("aria-label")?.startsWith(`${t.help.title}: `) && read?.getAttribute("aria-label") === b.getAttribute("aria-label") && read?.open && read.matches(":modal") && read.querySelectorAll("li span").length >= 2
       && [...read.querySelectorAll("[data-t]")].every((el) => el.textContent.trim()), `help ${b.dataset.card}: no modal dialog with its lines`);
     if (read?.requestClose) read.requestClose();
     else if (read?.dispatchEvent(new Event("cancel", { cancelable: true }))) read.close();
@@ -1890,25 +1893,25 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   if (n > 1) {
     const days = [...p.shadowRoot.querySelectorAll(".daily .week li")];
     // ?gap=1 leaves out the 2nd too.
-    console.assert(days[0]?.classList.contains("none") && days[0].dataset.hint.endsWith(t.noData) && days.filter((li) => li.classList.contains("none")).length === (q.get("gap") === "1" && n > 2 ? 2 : 1)
-      && $(p, ".daily .day dt")?.textContent === t.noData, "days: a day with no rows not drawn as missing", days.map((li) => li.outerHTML));
+    console.assert(days[0]?.classList.contains("none") && days[0].dataset.hint.endsWith(t.shared.noData) && days.filter((li) => li.classList.contains("none")).length === (q.get("gap") === "1" && n > 2 ? 2 : 1)
+      && $(p, ".daily .day dt")?.textContent === t.shared.noData, "days: a day with no rows not drawn as missing", days.map((li) => li.outerHTML));
     if (priced) console.assert($(p, ".recent .week li")?.classList.contains("none"), "money days: a day with no rows not kept empty");
   }
   if (hour >= 2) {
-    const hint = $(p, ".battday .hours24 li:nth-child(2)")?.dataset.hint ?? "";
-    console.assert(hint.endsWith(t.noData) && p.shadowRoot.querySelectorAll(".battday .socline .past").length === 2, "hour by hour: an hour with no rows not said, or its line not broken", hint);
+    const hint = $(p, ".hoursToday .hours24 li:nth-child(2)")?.dataset.hint ?? "";
+    console.assert(hint.endsWith(t.shared.noData) && p.shadowRoot.querySelectorAll(".hoursToday .chargeLine .past").length === 2, "hour by hour: an hour with no rows not said, or its line not broken", hint);
   }
   // No rows today, nor last month (its day and month rows).
   const lastFirst = new Date(first); lastFirst.setMonth(lastFirst.getMonth() - 1);
   h = fakeHass(SCENARIOS.midday);
   p = await draw(h, without(h, (m, r) => m.period === "5minute" || (m.period !== "hour" && r.start >= lastFirst.getTime() && r.start < first)));
-  const today = $(p, "#energy .today"), noData = t.noData[0].toUpperCase() + t.noData.slice(1);
+  const today = $(p, "#energy .today"), noData = t.shared.noData[0].toUpperCase() + t.shared.noData.slice(1);
   console.assert(today?.textContent.includes(noData) && !today.querySelector(".cols, .ring") && $(p, `.daily .week li:nth-child(${n})`)?.classList.contains("none"), "today: no rows drawn as zeros", today?.innerHTML);
   if (priced) {
     const key = clockOf(TZ)(lastFirst.getTime() + 432e5).key.slice(0, 7), button = $(p, `#money .months [data-month="${key}"]`);
     button?.click();
     const months = $(p, "#money .months");
-    console.assert(button && !button.querySelector("i") && months?.querySelector(".note")?.textContent === t.noData && !months.querySelector(".split"),
+    console.assert(button && !button.querySelector("i") && months?.querySelector(".note")?.textContent === t.shared.noData && !months.querySelector(".split"),
       "money month: a month with no rows not said, or drawn", months?.innerHTML, key);
   }
 }
@@ -1971,13 +1974,13 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   const rowsOf = (d) => [...d.querySelectorAll(".check dt")].map((x) => x.textContent);
   const m = await draw(fakeHass(SCENARIOS.midday), { ...en, user: { is_admin: true } }), md = m._gearDialog();
   m._fillCheck(md);
-  console.assert(!rowsOf(md).includes("The washer") && rowsOf(md).includes(STRINGS.en.chkForecast), "setup check: no outlook, yet a washer row, or no forecast row", rowsOf(md));
+  console.assert(!rowsOf(md).includes("The washer") && rowsOf(md).includes(STRINGS.en.gear.checkForecast), "setup check: no outlook, yet a washer row, or no forecast row", rowsOf(md));
   const p = await draw(fakeHass({ ...own(SCENARIOS.sunny), ahead: "sunny" }), { ...en, user: { is_admin: true } }, { level: "usual_days_weather" });
   const d = p._gearDialog();
   p._fillCheck(d);
   const rows = rowsOf(d), said = d.querySelector(".check").textContent;
-  console.assert(!d.querySelector(".check").hidden && rows.includes(STRINGS.en.chkLevel) && rows.includes("The washer") && !rows.includes(STRINGS.en.chkForecast)
-    && said.includes(say(STRINGS.en.chkMachineTyped, { k: 1, h: 2 })), "setup check: not shown to an admin, or a row missing", rows);
+  console.assert(!d.querySelector(".check").hidden && rows.includes(STRINGS.en.gear.checkLevel) && rows.includes("The washer") && !rows.includes(STRINGS.en.gear.checkForecast)
+    && said.includes(say(STRINGS.en.gear.checkMachineAssumed, { energy: 1, hours: 2 })), "setup check: not shown to an admin, or a row missing", rows);
   p.hass = { ...p.hass, user: { is_admin: false } };
   p._fillCheck(d);
   console.assert(d.querySelector(".check").hidden, "setup check: shown to a viewer who is no admin");
@@ -2091,8 +2094,8 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
     const style = getComputedStyle(p);
     const sky = Object.values(SKY[theme]).flatMap((c) => c.slice(0, 3)).concat(skyAt(90, false, darkMode, 1).colors.slice(0, 3), darkMode ? [] : ["#ffffff"]);
     const lightest = sky.reduce((a, b) => (lum(b) > lum(a) ? b : a));
-    const marks = ["--sun", "--home", "--batt", "--grid", "--sent", "--low"].map((name) => [name, (style.getPropertyValue(`${name}-mark`) || style.getPropertyValue(name)).trim()]);
-    const drawn = { "share rings": "#energy .today .ring .val", "battery ring": ".battery .ring :is(.val,.ghost,.range)", "battery today line": [".socline .past", "stroke"], "picked month bar": [".year [aria-pressed=true] i:not(.ghost)", "backgroundColor"], "chart line": [".socline .series", "stroke"], gear: ".gear svg",
+    const marks = ["--sun", "--home", "--battery", "--grid", "--sent", "--low"].map((name) => [name, (style.getPropertyValue(`${name}-mark`) || style.getPropertyValue(name)).trim()]);
+    const drawn = { "share rings": "#energy .today .ring .val", "battery ring": ".battery .ring :is(.val,.ghost,.range)", "battery today line": [".chargeLine .past", "stroke"], "picked month bar": [".year [aria-pressed=true] i:not(.ghost)", "backgroundColor"], "chart line": [".chargeLine .series", "stroke"], gear: ".gear svg",
       "coming days pill": [".days .track i", "backgroundColor"], "day dot": [".week li:not(.today,.ahead) .col i", "backgroundColor"], "today outline": [".week li.today .col i", "outlineColor"] };
     for (const [what, how] of Object.entries(drawn)) {
       const [sel, prop = "stroke"] = [].concat(how);
@@ -2118,13 +2121,13 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
 {
   const it = { language: "it", locale: { language: "it" } };
   const adviceOf = async (config, day) => $(await draw(fakeHass(SCENARIOS.nobattery), { ...it, props: { testDay: day } }, config), ".advice p");
-  const n = STRINGS.it.adviceGo.length;
+  const n = STRINGS.it.now.advice.go.length;
   console.assert((await adviceOf({ advice: { it: { go: ["Riga mia"] } } }, n)).textContent === "Riga mia", "own advice: not added after the built-in lines");
-  console.assert((await adviceOf({ advice: { it: { go: ["Riga mia"] } } }, 0)).textContent === STRINGS.it.adviceGo[0], "own advice: built-in lines lost");
+  console.assert((await adviceOf({ advice: { it: { go: ["Riga mia"] } } }, 0)).textContent === STRINGS.it.now.advice.go[0], "own advice: built-in lines lost");
   console.assert((await adviceOf({ advice: { it: { go: ["Solo mia"] } }, advice_replace: true }, 3)).textContent === "Solo mia", "own advice: replace failed");
   const hostile = await adviceOf({ advice: { it: { go: ["<b>x</b>"] } }, advice_replace: true }, 0);
   console.assert(hostile.textContent === "<b>x</b>" && !hostile.querySelector("b"), "own advice: markup not escaped");
-  console.assert((await adviceOf({ advice: { it: { nope: ["x"], go: [] } } }, 0)).textContent === STRINGS.it.adviceGo[0], "own advice: bad config changed something");
+  console.assert((await adviceOf({ advice: { it: { nope: ["x"], go: [] } } }, 0)).textContent === STRINGS.it.now.advice.go[0], "own advice: bad config changed something");
   // Each go line shows its appliance (line 1: the oven, a cake); an own line keeps the plain go icon.
   const iconOf = async (day, config) => $(await draw(fakeHass(SCENARIOS.nobattery), { ...it, props: { testDay: day } }, config), ".advice svg").innerHTML;
   const cake = "M20 21v-8", washer = await iconOf(0);
@@ -2143,21 +2146,21 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   ] }, { entities: { solar_power: "sp", load_power: ["lp"] }, battery_floor: 20 });
   console.assert(JSON.stringify([src.gridImportKwh, src.gridExportKwh, src.gridW, src.solarW, src.loadW, src.batteryKwh, src.solarKwh])
     === JSON.stringify([["in1", "in2"], ["out1"], ["gw"], ["sp"], ["lp"], ["bo1", "bo2"], []]), "entities: wrong lists", src);
-  console.assert(src.batt.kwh === 20 && src.batt.floor === 20 && src.price.buy === 0.25 && src.price.sell === null, "entities: wrong battery or prices", src);
-  console.assert(fromConfig(null).solarW.length === 0 && fromConfig(null, { battery_kwh: 7 }).batt.kwh === 7, "entities: no Energy settings");
+  console.assert(src.battery.kwh === 20 && src.battery.floor === 20 && src.price.buy === 0.25 && src.price.sell === null, "entities: wrong battery or prices", src);
+  console.assert(fromConfig(null).solarW.length === 0 && fromConfig(null, { battery_kwh: 7 }).battery.kwh === 7, "entities: no Energy settings");
   // Battery wear: a health sensor alone decides; else the battery's age, from its own date before the system's.
-  const b = fromConfig(null, { install_date: "2020-01-01", battery_install_date: "2025-01-01" }).batt;
-  console.assert(b.since === "2025-01-01" && fromConfig(null, { install_date: "2020-01-01" }).batt.since === "2020-01-01", "wear: battery date not read", b);
-  console.assert(JSON.stringify(wearOf(b, 65.4, Date.parse("2026-01-01"))) === '{"kind":"health","p":65}' && wearOf(b, 80, Date.parse("2040-01-01")) === null, "wear: health sensor not deciding alone");
-  console.assert(wearOf(b, Infinity, Date.parse("2034-06-01")) === null && wearOf(b, Infinity, Date.parse("2034-08-01"))?.y === 9, "wear: age warning not at 9.5 years");
+  const b = fromConfig(null, { install_date: "2020-01-01", battery_install_date: "2025-01-01" }).battery;
+  console.assert(b.since === "2025-01-01" && fromConfig(null, { install_date: "2020-01-01" }).battery.since === "2020-01-01", "wear: battery date not read", b);
+  console.assert(JSON.stringify(wearOf(b, 65.4, Date.parse("2026-01-01"))) === '{"kind":"health","percent":65}' && wearOf(b, 80, Date.parse("2040-01-01")) === null, "wear: health sensor not deciding alone");
+  console.assert(wearOf(b, Infinity, Date.parse("2034-06-01")) === null && wearOf(b, Infinity, Date.parse("2034-08-01"))?.years === 9, "wear: age warning not at 9.5 years");
   // The older grid shape keeps the selling price on the export flow, under the same name as the buying price.
   const old = fromConfig({ energy_sources: [{ type: "grid", flow_from: [{ stat_energy_from: "in1" }], flow_to: [{ stat_energy_to: "out1", number_energy_price: 0.1 }] }] });
   console.assert(old.price.buy === null && old.price.sell === 0.1 && old.gridExportKwh[0] === "out1", "entities: old export price read as the buying price", old);
   // The forecast settings: numbers of 0 or more (text that is one too), else no limit and standby not set (see totals).
   const set = fromConfig(null, { battery_max_charge_kw: 2.1, export_max_kw: 0, standby_w: 100 });
   const unset = fromConfig(null, { battery_max_charge_kw: "2", export_max_kw: -1, standby_w: "x" });
-  console.assert(set.batt.maxChargeKw === 2.1 && set.exportMaxKw === 0 && set.standbyW === 100 && unset.batt.maxChargeKw === 2 && unset.exportMaxKw === null && unset.standbyW === null
-    && fromConfig(null, { standby_w: -5, battery_max_charge_kw: -2 }).standbyW === null && fromConfig(null, { battery_max_charge_kw: -2 }).batt.maxChargeKw === null,
+  console.assert(set.battery.maxChargeKw === 2.1 && set.exportMaxKw === 0 && set.standbyW === 100 && unset.battery.maxChargeKw === 2 && unset.exportMaxKw === null && unset.standbyW === null
+    && fromConfig(null, { standby_w: -5, battery_max_charge_kw: -2 }).standbyW === null && fromConfig(null, { battery_max_charge_kw: -2 }).battery.maxChargeKw === null,
     "entities: forecast settings not read, or a negative taken", set, unset);
 
   // Days are Home Assistant's days: 11:30 UTC is already tomorrow in Auckland. One row each side of
@@ -2237,7 +2240,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   const callWS = h.callWS;
   let p = await draw(h, { language: "ja-JP", locale: { language: "ja-JP" }, config: { ...h.config, currency: "USD" }, callWS: async (m) => (m.type === "energy/get_prefs" ? prefs : callWS(m)) });
   console.assert($(p, ".flowtext").textContent.includes("2000 W"), "units: kW and a second array not summed in W");
-  console.assert($(p, ".tabs button").textContent === STRINGS.en.tabNow && (!priced || /\$/.test($(p, "#money .prices b")?.textContent)), "language fallback or currency", $(p, "#money .prices b")?.textContent);
+  console.assert($(p, ".tabs button").textContent === STRINGS.en.tabs.now && (!priced || /\$/.test($(p, "#money .prices b")?.textContent)), "language fallback or currency", $(p, "#money .prices b")?.textContent);
 
   // No battery: no card, no place in the flow, no part of the share ring. No state of charge: the flow keeps the battery.
   const undo = dayUnderWay();
@@ -2300,15 +2303,15 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
 {
   const today = { loadKwh: 10, gridImportKwh: 2, batteryKwh: 3, gridExportKwh: 0 };
   const said = (html) => [html.match(/aria-label="([^"]*)"/)?.[1], html.match(/data-hint="([^"]*)"/)?.[1]];
-  for (const [l, t] of Object.entries(STRINGS)) for (const batt of [null, { kwh: 10, floor: 20 }]) {
-    const f = formats(l, "EUR"), [label, hinted] = said(shareRing({ today, batt, sends: true }, t, f));
-    console.assert(label?.includes(`${f.num(80)}%`) && label === hinted && !/\{\w\}/.test(label), `share ring ${l}: no percentage in its label`, label);
+  for (const [l, t] of Object.entries(STRINGS)) for (const battery of [null, { kwh: 10, floor: 20 }]) {
+    const f = formats(l, "EUR"), [label, hinted] = said(shareRing({ today, battery, sends: true }, t, f));
+    console.assert(label?.includes(`${f.num(80)}%`) && label === hinted && !/\{\w+\}/.test(label), `share ring ${l}: no percentage in its label`, label);
   }
   const t = STRINGS.en, f = formats("en", "EUR");
-  const part = shareRing({ today: { ...today, batteryKwh: null }, batt: { kwh: 10, floor: 20 }, sends: true }, t, f);
+  const part = shareRing({ today: { ...today, batteryKwh: null }, battery: { kwh: 10, floor: 20 }, sends: true }, t, f);
   console.assert(said(part)[0].startsWith("80%") && !part.includes('class="part') && part.includes("<dd>—</dd>") && !/NaN|Infinity/.test(part), "share ring: an unknown battery breaks the ring or loses the share", part);
-  const none = shareRing({ today: { ...today, gridImportKwh: null }, batt: { kwh: 10, floor: 20 }, sends: true }, t, f);
-  console.assert(!said(none)[0].includes("%") && none.includes('<span class="big">—</span>') && none.includes(t.shareIncomplete), "share ring: an unknown share shown as a number", none);
+  const none = shareRing({ today: { ...today, gridImportKwh: null }, battery: { kwh: 10, floor: 20 }, sends: true }, t, f);
+  console.assert(!said(none)[0].includes("%") && none.includes('<span class="big">—</span>') && none.includes(t.energy.shareIncomplete), "share ring: an unknown share shown as a number", none);
 }
 
 // Check: the install date is a calendar day, its month as written in any time zone (and as an older remembered
@@ -2317,12 +2320,12 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
 {
   const t = STRINGS.en, f = formats("en", "EUR"), since = (d) => fromConfig(null, { system_cost: 100, install_date: d }).payback.since;
   console.assert(since("2026-11-01") === "2026-11-01" && [since("2026-02-30"), since("2026-11-1"), since("1 Nov 2026"), since(20261101)].every((s) => s === null), "payback: install date not read as a calendar day");
-  const got = (pb, all) => paybackCard(all, { cost: 100, before: 0, ...pb }, { t, f }, false).match(/class="amount">([^<]*)</)?.[1];
+  const got = (pb, all) => paybackCard(all, { cost: 100, before: 0, ...pb }, { lines: t, format: f }, false).match(/class="amount">([^<]*)</)?.[1];
   for (const [d, before, month] of [["2026-11-01", "2026-10", "2026-11"], ["2027-01-01", "2026-12", "2027-01"]]) {
     const all = [{ key: before, back: 100 }, { key: month, back: 5 }];
     console.assert(got({ since: d }, all) === f.moneyWhole(5), `payback: install ${d} counts another month`, got({ since: d }, all));
   }
-  console.assert(paybackCard([{ key: "2026-11", back: null }], { cost: 100, before: 0, since: null }, { t, f }, false).includes(t.paybackIncomplete), "payback: unknown returns counted");
+  console.assert(paybackCard([{ key: "2026-11", back: null }], { cost: 100, before: 0, since: null }, { lines: t, format: f }, false).includes(t.money.paybackIncomplete), "payback: unknown returns counted");
 }
 
 // Check: Money with the statistics alone. A month missing from the month rows leaves payback unknown; a fixed
@@ -2333,10 +2336,10 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   const next = (k) => new Date(Date.UTC(+k.slice(0, 4), +k.slice(5, 7), 1)).toISOString().slice(0, 7);
   const x = { loadKwh: 10, gridImportKwh: 2, gridExportKwh: 1, costMoney: null, earnedMoney: null, days: 30 }, all = [];
   for (let k = "2025-01"; k < key; k = next(k)) all.push([k, x]);
-  const html = (months, { fee = 0, price = { buy: 0.3, sell: 0.1 }, pick = null } = {}) => moneyHtml({ t, f, clock: utc, now: Date.now(), pick, data: {
+  const html = (months, { fee = 0, price = { buy: 0.3, sell: 0.1 }, pick = null } = {}) => moneyHtml({ lines: t, format: f, clock: utc, now: Date.now(), pick, data: {
     price, sends: true, payback: { cost: 1e6, before: 0, since: null }, months, month: x, lastMonth: x, monthKey: key, ahead: null, outlook: null, usualToday: null,
     monthDays: [{ date: Date.parse(`${key}-01`) + 432e5, ...x }], billFixed: { months: {}, now: fee } } });
-  console.assert(!html(all).includes(t.paybackIncomplete) && html(all.filter((_, i) => i !== 1)).includes(t.paybackIncomplete), "payback: a month missing from the month rows counted as nothing");
+  console.assert(!html(all).includes(t.money.paybackIncomplete) && html(all.filter((_, i) => i !== 1)).includes(t.money.paybackIncomplete), "payback: a month missing from the month rows counted as nothing");
   console.assert(html(all, { fee: null }) !== html(all, { fee: 0 }), "money: a fixed fee with no value counted as 0");
   const low = html(all, { price: { buy: -0.1, sell: -0.2 } });
   console.assert(!/--[vw]:-/.test(low), "money: a negative tariff drawn below its chart", low.match(/--[vw]:-[^;"]*/g));
@@ -2354,8 +2357,8 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   const y = day - 3e5, both = (a, b) => [{ start: y, change: a }, { start: day, change: b }];
   const late = totals(src, {}, { s: both(6, 0), gi: both(1, 0), go: both(0, 0) }, {}, {}, utc, day + 0.5 * H);
   console.assert(late.monthDays[3]?.solarKwh === 6, "totals: just after midnight yesterday unknown while its 5 minute rows hold it", late.monthDays[3]);
-  const soc = socDay({ a: [{ start: day + 9 * H, mean: 20 }, { start: day + 10 * H, mean: 30 }], b: [{ start: day + 10 * H, mean: 60 }] }, { a: 5, b: 15 }, utc, day + 12 * H, ["a", "b"]);
-  console.assert(soc.length === 1 && soc[0][0] === day + 10 * H && soc[0][1] === 52.5, "battery charge: one battery's mean read as all of them", soc);
+  const chargeLevel = chargeLevelDay({ a: [{ start: day + 9 * H, mean: 20 }, { start: day + 10 * H, mean: 30 }], b: [{ start: day + 10 * H, mean: 60 }] }, { a: 5, b: 15 }, utc, day + 12 * H, ["a", "b"]);
+  console.assert(chargeLevel.length === 1 && chargeLevel[0][0] === day + 10 * H && chargeLevel[0][1] === 52.5, "battery charge: one battery's mean read as all of them", chargeLevel);
   const { moneySoFar } = await import("../custom_components/solar_view/frontend/lib/money.js");
   const m = moneySoFar({ [day]: { loadKwh: 1, gridImportKwh: null, gridExportKwh: 0.5 } }, () => 0.3, () => 0.1, 0, day + H);
   console.assert(m.saved === null && m.cost === null && m.earned === 0.05, "money so far: an unknown import counted as 0", m);
@@ -2367,11 +2370,11 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   const t = STRINGS.en, f = formats("en", "EUR", "h23", "Europe/Rome"), clock = clockOf("Europe/Rome"), H = 36e5, real = Date.now;
   const card = (midnightUtc, rows = []) => {
     Date.now = () => midnightUtc + 12 * H;
-    try { return battDayCard(battDayView({ batt: null, now: { soc: null }, battDay: rows, outlook: null }, Date.now(), clock, null), t, f, clock); } finally { Date.now = real; }
+    try { return hoursTodayCard(hoursTodayView({ battery: null, now: { chargeLevel: null }, todayByHour: rows, outlook: null }, Date.now(), clock, null), t, f, clock); } finally { Date.now = real; }
   };
   const cells = (html) => [...html.split('<ol class="hours24"')[1].split("</ol>")[0].matchAll(/<li([^>]*)>/g)].map((m) => m[1].match(/data-hint="([^"]*)"/)?.[1] ?? "");
   const spring = card(Date.UTC(2026, 2, 28, 23)), normal = card(Date.UTC(2026, 10, 4, 23));
-  const fall = card(Date.UTC(2026, 9, 24, 22), [{ t: Date.UTC(2026, 9, 25, 0), soc: null, charge: 0, batt: 0, sun: 1, house: 1, grid: 0 }, { t: Date.UTC(2026, 9, 25, 1), soc: null, charge: 0, batt: 0, sun: 2, house: 2, grid: 0 }]);
+  const fall = card(Date.UTC(2026, 9, 24, 22), [{ t: Date.UTC(2026, 9, 25, 0), chargeLevel: null, charge: 0, battery: 0, sun: 1, house: 1, grid: 0 }, { t: Date.UTC(2026, 9, 25, 1), chargeLevel: null, charge: 0, battery: 0, sun: 2, house: 2, grid: 0 }]);
   const back = cells(fall);
   console.assert(cells(spring).length === 23 && back.length === 25 && cells(normal).length === 24 && spring.includes("--n:23") && fall.includes("--n:25")
     && /<div class="ticks"><span style="left:0%">00</.test(spring + fall), "hour by hour: not the day's real hours, or not from midnight", cells(spring).length, back.length);
@@ -2384,12 +2387,12 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
 // month, an hour), and Escape hides a hint without moving focus until the viewer leaves it. The language
 // picker changes the page's language at once and is no switch.
 {
-  const undo = dayUnderWay(), seen = Date.now() - 30 * 60e3, aged = (h) => { for (const id of [ID.solarW, ID.gridW, ID.battW, ID.soc]) if (h.states[id]) h.states[id].last_updated = new Date(seen).toISOString(); return h; };
+  const undo = dayUnderWay(), seen = Date.now() - 30 * 60e3, aged = (h) => { for (const id of [ID.solarW, ID.gridW, ID.batteryW, ID.chargeLevel]) if (h.states[id]) h.states[id].last_updated = new Date(seen).toISOString(); return h; };
   const p = await draw(aged(fakeHass(SCENARIOS.offline)), en);
   attach(p);
   const tabs = [...p.shadowRoot.querySelectorAll(".tabs button")], page = (id) => p.shadowRoot.getElementById(id);
   const time = formats("en", "EUR", undefined, TZ).time(new Date(seen));
-  console.assert(!p.shadowRoot.querySelector(".pager").classList.contains("message") && $(p, "#now .empty")?.textContent.includes(say(STRINGS.en.lastUpdate, { t: time }))
+  console.assert(!p.shadowRoot.querySelector(".pager").classList.contains("message") && $(p, "#now .empty")?.textContent.includes(say(STRINGS.en.now.lastUpdate, { time }))
     && !$(p, "#now .flowbox") && !page("energy").hidden && $(p, "#energy .share") && !tabs[1].hidden && !tabs[0].hidden,
     "offline: Now without the message and its last update, or Energy and its tab gone", $(p, "#now").textContent);
   p.hass = { ...fakeHass(SCENARIOS.sunny), ...en };
@@ -2397,10 +2400,10 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   console.assert(!$(p, "#now .empty") && $(p, "#now .flowbox") && !$(p, "#now .stale") && !page("energy").hidden && !tabs[1].hidden, "offline: the flow not back with the numbers");
   p.hass = { ...aged(fakeHass(SCENARIOS.sunny)), ...en };
   await tick(100);
-  console.assert($(p, "#now .stale")?.textContent === say(STRINGS.en.lastUpdate, { t: time }), "frozen: a 30 minute old reading shown without its time", $(p, "#now header")?.textContent);
+  console.assert($(p, "#now .stale")?.textContent === say(STRINGS.en.now.lastUpdate, { time }), "frozen: a 30 minute old reading shown without its time", $(p, "#now header")?.textContent);
   const redraw = () => { p._html = {}; p._redraw(); };
   const active = () => p.shadowRoot.activeElement;
-  for (const sel of ['#energy .help[data-card="daily"]', "#energy .daily [data-month]", '#energy .battday .hours24 li[tabindex="0"]', '#now .node[data-focus-key="flow:170:146"]']) {
+  for (const sel of ['#energy .help[data-card="daily"]', "#energy .daily [data-month]", '#energy .hoursToday .hours24 li[tabindex="0"]', '#now .node[data-focus-key="flow:170:146"]']) {
     const el = $(p, sel);
     el.focus();
     redraw();
@@ -2439,11 +2442,11 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   const pick = p._gearDialog().querySelector('select[name="language"]');
   pick.value = "it";
   pick.dispatchEvent(new Event("change", { bubbles: true }));
-  console.assert(p.getAttribute("lang") === "it" && tabs[0].textContent === STRINGS.it.tabNow && getComputedStyle(pick).width !== "48px", "language: not applied at once, or styled as a switch");
+  console.assert(p.getAttribute("lang") === "it" && tabs[0].textContent === STRINGS.it.tabs.now && getComputedStyle(pick).width !== "48px", "language: not applied at once, or styled as a switch");
   pick.value = "";
   pick.dispatchEvent(new Event("change", { bubbles: true }));
-  console.assert(p.getAttribute("lang") === "en" && tabs[0].textContent === STRINGS.en.tabNow
-    && (!CSS.supports("appearance", "base-select") || $(p, "selectedcontent").textContent === STRINGS.en.languageAuto), "language: Automatic does not go back to the viewer's, or is not named");
+  console.assert(p.getAttribute("lang") === "en" && tabs[0].textContent === STRINGS.en.tabs.now
+    && (!CSS.supports("appearance", "base-select") || $(p, "selectedcontent").textContent === STRINGS.en.shared.languageAuto), "language: Automatic does not go back to the viewer's, or is not named");
   try { saved === null ? localStorage.removeItem("solar-view-language") : localStorage.setItem("solar-view-language", saved); } catch (e) { /* no storage */ }
   undo();
   p.remove();
@@ -2462,14 +2465,14 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
 
   // "Enough until": not in the morning, and counting what the setting sun still covers (0.2 h here).
   p = await draw(fakeHass(SCENARIOS.dawn));
-  console.assert(!/\d/.test($(p, ".batt-say p").textContent), "dawn: battery end time shown while the sun is rising");
+  console.assert(!/\d/.test($(p, ".battery-say p").textContent), "dawn: battery end time shown while the sun is rising");
   const firstLight = fakeHass(SCENARIOS.evening);
   firstLight.states["sun.sun"] = { state: "below_horizon", attributes: { elevation: -3, rising: true } };
   p = await draw(firstLight);
-  console.assert(!/\d/.test($(p, ".batt-say p").textContent), "first light: battery end time shown just before sunrise");
-  p = await draw(midday({ [ID.solarW]: val(900), [ID.battW]: val(100), [ID.soc]: val(22),
+  console.assert(!/\d/.test($(p, ".battery-say p").textContent), "first light: battery end time shown just before sunrise");
+  p = await draw(midday({ [ID.solarW]: val(900), [ID.batteryW]: val(100), [ID.chargeLevel]: val(22),
     "sun.sun": { state: "above_horizon", attributes: { elevation: 8, rising: false } } }));
-  console.assert(!/\d/.test($(p, ".batt-say p").textContent), "setting sun: battery end time ignores the sun's share");
+  console.assert(!/\d/.test($(p, ".battery-say p").textContent), "setting sun: battery end time ignores the sun's share");
   // The evening scenario with the mock's sunny usual day, its clock held at 21:00 today: the battery carries the house
   // until the mock's sun at 10:00 tomorrow, so it shows an end time. At a daytime ?at= the sun would take over.
   const eveningAt21 = async (...args) => {
@@ -2478,7 +2481,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
     try { return await draw(fakeHass(own(SCENARIOS.evening)), ...args); } finally { Date.now = real; }
   };
   p = await eveningAt21();
-  console.assert(/\d/.test($(p, ".batt-say p").textContent), "evening: no battery end time");
+  console.assert(/\d/.test($(p, ".battery-say p").textContent), "evening: no battery end time");
 
   const solarOnly = fromConfig({ energy_sources: [{ type: "solar", stat_energy_from: "s" }] });
   // The Solar Forecast by the hour start: at 02:30 on the night the clocks go back, the hour after is the
@@ -2491,38 +2494,38 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
 
   // No forecast, no outlook: no "enough until" of any kind, only what the battery does now.
   p = await draw(fakeHass({ ...SCENARIOS.evening, forecast: null, ahead: null }), en);
-  console.assert($(p, ".batt-say p").textContent === STRINGS.en.discharging, "no forecast: the battery end guessed anyway", $(p, ".batt-say p").textContent);
+  console.assert($(p, ".battery-say p").textContent === STRINGS.en.now.discharging, "no forecast: the battery end guessed anyway", $(p, ".battery-say p").textContent);
 
   // Battery ring: the percentage and, when the size is known, the stored kWh in its name. The bar is gone.
   const ringName = (p) => $(p, ".battery svg.ring")?.getAttribute("aria-label") ?? "";
   p = await draw(midday(), en);
   console.assert(ringName(p).includes("70%") && ringName(p).includes("kWh") && !$(p, ".gauge"), "battery ring: missing, unnamed, or the bar still drawn", ringName(p));
-  p = await draw(fakeHass(SCENARIOS.battUnknown), en);
+  p = await draw(fakeHass(SCENARIOS.batteryUnknown), en);
   console.assert(ringName(p).includes("70%") && !ringName(p).includes("kWh"), "battery ring: kWh named for a battery of unknown size", ringName(p));
   // Any ring: values past 0..1 stay on the ring, NaN never reaches the markup.
   {
     const box = document.body.appendChild(document.createElement("div"));
-    box.innerHTML = ring(1.2, "--batt", "x");
+    box.innerHTML = ring(1.2, "--battery", "x");
     const svg = box.firstElementChild, b = svg.getBBox(), v = svg.viewBox.baseVal;
     console.assert(b.x >= v.x && b.y >= v.y && b.x + b.width <= v.x + v.width && b.y + b.height <= v.y + v.height, "ring: drawn outside its box", b);
-    console.assert(!ring(NaN, "--batt", "x").includes("NaN"), "ring: NaN in the markup");
+    console.assert(!ring(NaN, "--battery", "x").includes("NaN"), "ring: NaN in the markup");
     box.remove();
   }
 
   // Battery words count from the floor (20 %): at the floor "Empty" and its advice, just above it "Low".
-  const socAt = (scenario, soc) => { const h = fakeHass(SCENARIOS[scenario]); h.states[ID.soc] = val(soc); return draw(h, en); };
-  p = await socAt("night", 20);
-  console.assert($(p, ".batt-word").textContent === STRINGS.en.empty && STRINGS.en.adviceEmpty.includes($(p, ".advice p").textContent), "battery at the floor: not called empty");
-  p = await socAt("night", 30);
-  console.assert($(p, ".batt-word").textContent === STRINGS.en.low && $(p, ".advice").dataset.kind === "low", "battery just above the floor: not called low");
+  const chargeLevelAt = (scenario, chargeLevel) => { const h = fakeHass(SCENARIOS[scenario]); h.states[ID.chargeLevel] = val(chargeLevel); return draw(h, en); };
+  p = await chargeLevelAt("night", 20);
+  console.assert($(p, ".battery-word").textContent === STRINGS.en.shared.empty && STRINGS.en.now.advice.empty.includes($(p, ".advice p").textContent), "battery at the floor: not called empty");
+  p = await chargeLevelAt("night", 30);
+  console.assert($(p, ".battery-word").textContent === STRINGS.en.shared.low && $(p, ".advice").dataset.kind === "low", "battery just above the floor: not called low");
   // Sun to spare that fades soon is no worry with a nearly full battery, and export alone is no spare sun without one.
-  p = await draw((() => { const h = fakeHass({ ...SCENARIOS.midday, fade: [3000, 400] }); h.states[ID.soc] = val(90); return h; })(), en);
+  p = await draw((() => { const h = fakeHass({ ...SCENARIOS.midday, fade: [3000, 400] }); h.states[ID.chargeLevel] = val(90); return h; })(), en);
   console.assert($(p, ".advice").dataset.kind === "go", "full battery: still warned that the sun fades");
-  p = await draw(midday({ [ID.solarW]: val(600), [ID.battW]: val(0), [ID.gridW]: val(-200) }));
+  p = await draw(midday({ [ID.solarW]: val(600), [ID.batteryW]: val(0), [ID.gridW]: val(-200) }));
   console.assert($(p, ".advice").dataset.kind !== "go", "200 W sent to the grid read as spare sun");
   // Charging from the grid at night is not "filling up with sun", and the sun arrow stays off.
-  p = await draw(midday({ [ID.solarW]: val(0), [ID.battW]: val(-1000), [ID.gridW]: val(1300) }), en);
-  console.assert($(p, ".batt-say p").textContent === STRINGS.en.chargingGrid && p.shadowRoot.querySelectorAll(".flow .streak").length === 1, "grid charging: shown as sun");
+  p = await draw(midday({ [ID.solarW]: val(0), [ID.batteryW]: val(-1000), [ID.gridW]: val(1300) }), en);
+  console.assert($(p, ".battery-say p").textContent === STRINGS.en.now.chargingGrid && p.shadowRoot.querySelectorAll(".flow .streak").length === 1, "grid charging: shown as sun");
   // This month's days: each from its day row, today from its 5 minute rows; a day with no rows is none.
   {
     const utcDay = (d) => Date.UTC(2026, 9, d), sunOnly = fromConfig({ energy_sources: [{ type: "solar", stat_energy_from: "s" }] });
@@ -2534,7 +2537,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   }
 
   // 12 or 24 hours: the panel config first, then the viewer's profile.
-  const clockText = async (more, config) => $(await eveningAt21({ language: "en", locale: { language: "en", ...more } }, config), ".batt-say p").textContent;
+  const clockText = async (more, config) => $(await eveningAt21({ language: "en", locale: { language: "en", ...more } }, config), ".battery-say p").textContent;
   console.assert(/[AP]M/.test(await clockText({})) && !/[AP]M/.test(await clockText({ time_format: "24" })) && !/[AP]M/.test(await clockText({}, { time_format: 24 }))
     && /[AP]M/.test(await clockText({ time_format: "24" }, { time_format: "12" })), "time format: 12 or 24 hours not followed");
 
@@ -2552,7 +2555,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   p = await draw(midday());
   focus(p, ".battery .ring");
   console.assert(hinted(p), "hint: not shown on focus");
-  p.hass = midday({ [ID.soc]: val(33) });
+  p.hass = midday({ [ID.chargeLevel]: val(33) });
   console.assert(!hinted(p), "hint: still showing the old numbers after a redraw");
 
   // Skeleton: really hidden from screen readers, and no hint from its placeholder numbers.
@@ -2568,11 +2571,11 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   bare.remove();
 
   // A remembered copy of an old shape is not used (see placeholder): the typical numbers stand in.
-  localStorage.setItem("solar-view-last", JSON.stringify({ now: { soc: 50 }, monthDays: [{ solarKwh: 3 }], batt: null }));
+  localStorage.setItem("solar-view-last", JSON.stringify({ now: { chargeLevel: 50 }, monthDays: [{ solarKwh: 3 }], battery: null }));
   p = await draw(fakeHass(SCENARIOS.midday, true));
   console.assert(p && $(p, "#now .advice"), "remembered copy of an old shape: blank page");
   // One of the right shape that still cannot be drawn: the draw fails, the copy goes, the typical numbers stand in.
-  localStorage.setItem("solar-view-last", JSON.stringify({ now: { soc: 50 }, monthDays: [{ solarKwh: 3 }], batt: null, sends: true }));
+  localStorage.setItem("solar-view-last", JSON.stringify({ now: { chargeLevel: 50 }, monthDays: [{ solarKwh: 3 }], battery: null, sends: true }));
   const error = console.error;
   let failedDraws = 0;
   console.error = () => { failedDraws++; }; // the panel reports the failed draw, which is expected here
@@ -2778,12 +2781,12 @@ if (q.get("check") === "skeleton" && current() && !current().offline) skeletonCh
 // solar-view.js on purpose, as a second opinion: tune one, tune the other.
 if (q.has("sweep")) {
   const t = STRINGS.en;
-  const FLOOR = fromConfig(null).batt.floor, LOW = FLOOR + 16, HIGH = 85;
+  const FLOOR = fromConfig(null).battery.floor, LOW = FLOOR + 16, HIGH = 85;
   const VALUES = {
     solar: [0, 60, 300, 1500, 4000],
-    batt: [-3000, -1000, 0, 30, 400, 2000], // + discharging
+    battery: [-3000, -1000, 0, 30, 400, 2000], // + discharging
     grid: [-2000, -200, 0, 30, 400, 3000],  // + importing
-    soc: [...new Set([0, FLOOR - 10, FLOOR, FLOOR + 1, FLOOR + 10, LOW - 1, LOW, 60, HIGH - 1, HIGH, 100])].filter((v) => v >= 0),
+    chargeLevel: [...new Set([0, FLOOR - 10, FLOOR, FLOOR + 1, FLOOR + 10, LOW - 1, LOW, 60, HIGH - 1, HIGH, 100])].filter((v) => v >= 0),
     sky: [[-30, false], [-3, true], [40, false], [1, false]], // night, first light, day, dusk: elevation and rising
   };
   // The statistics and the forecast load once per panel, so each kind of forecast gets its own.
@@ -2800,18 +2803,18 @@ if (q.has("sweep")) {
   const clock = clockOf(TZ), H = 36e5, hm = new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" });
   const days = [0, -1].map((i) => clock(localMidnight(i) + 12 * H).key);
   const fair = (b) => ["now", "wait"].includes(b.kind) || (b.kind === "at" && days.includes(clock(b.t).key) && b.t % H === 0 && clock(b.t).hour >= 7);
-  const bestText = (b) => (b.kind === "wait" ? t.adviseWait.replace("{a}", `${Math.round(b.kw * 10) / 10} kW`) : b.kind === "now" ? t.adviseNow
-    : (clock(b.t).key === days[0] ? t.adviseAt : t.adviseTomorrow).replace("{a}", hm.format(b.t))).replace("{n}", t.washer)
-    + (b.why ? t[`why${b.why[0].toUpperCase()}${b.why.slice(1)}`].replace("{a}", b.band?.toUpperCase()) : "");
+  const bestText = (b) => (b.kind === "wait" ? t.now.startWait.replace("{power}", `${Math.round(b.kw * 10) / 10} kW`) : b.kind === "now" ? t.now.startNow
+    : (clock(b.t).key === days[0] ? t.now.startAt : t.now.startTomorrow).replace("{time}", hm.format(b.t))).replace("{machine}", t.shared.washer)
+    + (b.why ? t.now[`why${b.why[0].toUpperCase()}${b.why.slice(1)}`].replace("{band}", b.band?.toUpperCase()) : "");
   // "Enough until" from the outlook, as nowHtml words it: the end rounded to the half hour.
-  const untilText = (end) => { const at = hm.format(Math.round(end / 18e5) * 18e5); return ((/^0?1\D/.test(at) && t.untilOne) || t.until).replace("{t}", at); };
-  const pools = Object.entries(t).filter(([, v]) => Array.isArray(v));
+  const untilText = (end) => { const at = hm.format(Math.round(end / 18e5) * 18e5); return ((/^0?1\D/.test(at) && t.now.lastsUntilOne) || t.now.lastsUntil).replace("{time}", at); };
+  const pools = Object.entries(t.now.advice).filter(([, v]) => Array.isArray(v));
   // Words that time the big loads: beside a washer line, neither the line shown nor a line its pool keeps there
   // (all but the built-in ones loadLines names) may use them.
   const LOADS = /\b(big|loads?|appliances?|wash\w*|laundry|dishwasher|oven)\b/i;
   const skipped = (await import("../custom_components/solar_view/frontend/lib/advice.js")).loadLines(t);
-  const LINES = { [t.charging]: "charging", [t.chargingGrid]: "chargingGrid", [t.untilSun]: "untilSun", [t.discharging]: "discharging", [t.resting]: "resting" };
-  const WORDS = Object.fromEntries(["empty", "low", "good", "nearlyFull", "full"].map((k) => [t[k], k]));
+  const LINES = { [t.now.charging]: "charging", [t.now.chargingGrid]: "chargingGrid", [t.now.lastsUntilSun]: "untilSun", [t.now.discharging]: "discharging", [t.now.resting]: "resting" };
+  const WORDS = Object.fromEntries(["empty", "low", "good", "nearlyFull", "full"].map((k) => [t.shared[k], k]));
   const seen = {}, combos = new Map(), failures = [];
   const note = (field, value) => { seen[field] ??= {}; seen[field][value] = (seen[field][value] || 0) + 1; };
   let count = 0;
@@ -2822,69 +2825,69 @@ if (q.has("sweep")) {
     if (extra.at !== undefined) { const when = new Date(Date.now()).setHours(extra.at, 0, 0, 0); Date.now = () => when; }
     const scenario = (v) => ({ today: [7.8, 6.1, 0.2, 0], ...extra, v });
     const p = await draw(fakeHass(scenario([0, 0, 300, 50, 40, false])), { ...en, props: { testDay: 0 } });
-    for (const solar of VALUES.solar) for (const batt of VALUES.batt) for (const grid of VALUES.grid) for (const soc of VALUES.soc) for (const sky of VALUES.sky) {
-      const load = solar + batt + grid;
+    for (const solar of VALUES.solar) for (const battery of VALUES.battery) for (const grid of VALUES.grid) for (const chargeLevel of VALUES.chargeLevel) for (const sky of VALUES.sky) {
+      const load = solar + battery + grid;
       if (load <= 0) continue; // a house cannot use less than nothing
       // The outlook is worked out when the statistics load or the sensor writes (the page also every 5
       // minutes), not on every state change; the sweep tries every state of charge, so forget the
       // sensor's state and the setter works it out again for this one.
       if (extra.ahead) p._seen = null;
-      p.hass = { ...fakeHass(scenario([solar, batt, grid, soc, ...sky])), ...en };
+      p.hass = { ...fakeHass(scenario([solar, battery, grid, chargeLevel, ...sky])), ...en };
       const text = (sel) => $(p, sel)?.textContent ?? "";
-      const head = text("#now h1"), sub = text(".sub"), word = WORDS[text(".batt-word")] ?? "?", says = text(".batt-say p");
+      const head = text("#now h1"), sub = text(".sub"), word = WORDS[text(".battery-word")] ?? "?", says = text(".battery-say p");
       const o = p._outlook, best = $(p, ".best")?.textContent;
       const line = LINES[says] ?? (/\d/.test(says) ? "until" : "?"), kind = $(p, ".advice").dataset.kind;
       const pool = pools.find(([, v]) => v.includes(text(".advice p")))?.[0] ?? "?";
-      const charge = Math.max(0, -batt), discharge = Math.max(0, batt), imp = Math.max(0, grid), exp = Math.max(0, -grid);
+      const charge = Math.max(0, -battery), discharge = Math.max(0, battery), imp = Math.max(0, grid), exp = Math.max(0, -grid);
       const night = sky[0] === -30, sunUp = sky[0] > 0;
       // The battery in an hour: the outlook's runs start from the floor at the lowest, so a reading under it
       // shifts them by as much. Drawn from 1 point of change.
-      const piece = $(p, ".battery .ring .soon"), ih = o?.socInHour;
-      const mid = ih && ih[1] + soc - Math.min(100, Math.max(soc, FLOOR)), dir = piece ? (mid > soc ? "rise" : "fall") : "none";
+      const piece = $(p, ".battery .ring .soon"), ih = o?.chargeInHour;
+      const mid = ih && ih[1] + chargeLevel - Math.min(100, Math.max(chargeLevel, FLOOR)), dir = piece ? (mid > chargeLevel ? "rise" : "fall") : "none";
       const hue = (el) => el?.getAttribute("style").match(/var\(--(\w+)-mark/)?.[1];
       const broken = {
         "NaN, undefined or null on the page": /NaN|undefined|null/.test($(p, "#now").textContent),
         "advice line from no pool, or an unknown battery word or line": pool === "?" || word === "?" || line === "?",
-        "battery word: not Empty at or under the floor": soc <= FLOOR && word !== "empty",
-        "battery word: not Low just above the floor": soc > FLOOR && soc < LOW && word !== "low",
-        "battery word: wrong above the low band": soc >= LOW && word !== (soc < HIGH ? "good" : soc < 100 ? "nearlyFull" : "full"),
+        "battery word: not Empty at or under the floor": chargeLevel <= FLOOR && word !== "empty",
+        "battery word: not Low just above the floor": chargeLevel > FLOOR && chargeLevel < LOW && word !== "low",
+        "battery word: wrong above the low band": chargeLevel >= LOW && word !== (chargeLevel < HIGH ? "good" : chargeLevel < 100 ? "nearlyFull" : "full"),
         "battery line: does not follow the battery power": charge > 20 ? !line.startsWith("charging") : discharge > 20 ? !["until", "untilSun", "discharging"].includes(line) : line !== "resting",
         "battery line: filling up with sun, with no sun": line === "charging" && solar === 0,
         "battery line: charging from the grid, with no import": line === "chargingGrid" && imp === 0,
-        "headline: names the grid, with no import": head.includes(t.src.grid) && imp === 0,
-        "headline: names the battery, while it gives nothing": (head.includes(t.src.battery) || head === t.sunBatt) && discharge === 0,
-        "headline: names the sun, with no sun": (head.includes(t.src.sun) || head === t.sunBatt) && solar === 0,
-        "sub-line: grid lending a hand, with no import": sub === t.subGrid && imp === 0,
-        "sub-line: panels named, with no sun, or the battery, while it gives nothing": (sub === t.subSun && solar === 0) || (sub === t.subBattery && discharge === 0),
-        "sub-line: the battery again, under a headline that names it": sub === t.subBattery && (head.includes(t.src.battery) || head === t.sunBatt),
-        "sub-line: the grid again, under a headline that names it": sub === t.subGrid && head.includes(t.src.grid),
-        "sub-line: extra sun, with no sun or nothing sent or stored": (sub === t.subExport && exp === 0) || (sub === t.subCharge && (charge === 0 || solar === 0)),
-        "advice go: no spare sun": kind === "go" && !(solar - load > 1000 || (soc >= HIGH && exp > 50)),
-        "advice: 1000 W of spare sun not mentioned": solar - load > 1000 && soc >= HIGH && kind !== "go" && best === undefined,
-        "advice go: battery not nearly full": kind === "go" && soc < HIGH,
-        "advice soon: battery nearly full": kind === "soon" && soc >= HIGH,
-        "advice low: battery not low, or there is sun and no grid": kind === "low" && !(soc < LOW && (solar < 100 || imp > 50)),
-        "advice: battery low, the grid helping, and no warning": soc < LOW && imp > 50 && kind !== "low",
-        "battery at the floor at night: in the alarm colours": night && soc === FLOOR && (/--low/.test($(p, ".batt-word i")?.getAttribute("style")) || !$(p, ".advice.rest")),
-        "advice: battery at the floor, no sun, and no warning": soc <= FLOOR && solar === 0 && kind !== "low",
-        "advice low: empty lines and the floor do not match": kind === "low" && (soc <= FLOOR) !== (pool === "adviceEmpty"),
-        "advice refill: battery not low, or not charging from the sun": pool === "adviceOkRefill" && !(soc < LOW && line === "charging"),
-        "advice: full battery line at night, or go-full without a full battery": (pool === "adviceOkFull" && night) || (pool === "adviceGoFull" && soc < 100),
-        "advice: night line with the sun up, or day line at night": (pool === "adviceOkNight" && sunUp) || (pool === "adviceOk" && night),
+        "headline: names the grid, with no import": head.includes(t.now.sourceNames.grid) && imp === 0,
+        "headline: names the battery, while it gives nothing": (head.includes(t.now.sourceNames.battery) || head === t.now.sunAndBattery) && discharge === 0,
+        "headline: names the sun, with no sun": (head.includes(t.now.sourceNames.sun) || head === t.now.sunAndBattery) && solar === 0,
+        "sub-line: grid lending a hand, with no import": sub === t.now.alsoFromGrid && imp === 0,
+        "sub-line: panels named, with no sun, or the battery, while it gives nothing": (sub === t.now.alsoFromSun && solar === 0) || (sub === t.now.alsoFromBattery && discharge === 0),
+        "sub-line: the battery again, under a headline that names it": sub === t.now.alsoFromBattery && (head.includes(t.now.sourceNames.battery) || head === t.now.sunAndBattery),
+        "sub-line: the grid again, under a headline that names it": sub === t.now.alsoFromGrid && head.includes(t.now.sourceNames.grid),
+        "sub-line: extra sun, with no sun or nothing sent or stored": (sub === t.now.alsoToGrid && exp === 0) || (sub === t.now.alsoChargingBattery && (charge === 0 || solar === 0)),
+        "advice go: no spare sun": kind === "go" && !(solar - load > 1000 || (chargeLevel >= HIGH && exp > 50)),
+        "advice: 1000 W of spare sun not mentioned": solar - load > 1000 && chargeLevel >= HIGH && kind !== "go" && best === undefined,
+        "advice go: battery not nearly full": kind === "go" && chargeLevel < HIGH,
+        "advice soon: battery nearly full": kind === "soon" && chargeLevel >= HIGH,
+        "advice low: battery not low, or there is sun and no grid": kind === "low" && !(chargeLevel < LOW && (solar < 100 || imp > 50)),
+        "advice: battery low, the grid helping, and no warning": chargeLevel < LOW && imp > 50 && kind !== "low",
+        "battery at the floor at night: in the alarm colours": night && chargeLevel === FLOOR && (/--low/.test($(p, ".battery-word i")?.getAttribute("style")) || !$(p, ".advice.rest")),
+        "advice: battery at the floor, no sun, and no warning": chargeLevel <= FLOOR && solar === 0 && kind !== "low",
+        "advice low: empty lines and the floor do not match": kind === "low" && (chargeLevel <= FLOOR) !== (pool === "empty"),
+        "advice refill: battery not low, or not charging from the sun": pool === "okRefill" && !(chargeLevel < LOW && line === "charging"),
+        "advice: full battery line at night, or go-full without a full battery": (pool === "okFull" && night) || (pool === "goFull" && chargeLevel < 100),
+        "advice: night line with the sun up, or day line at night": (pool === "okNight" && sunUp) || (pool === "ok" && night),
         "advice from the forecast, with no forecast": !("fade" in extra || fc === "flat" || fc === "poorToday") && ["soon", "later", "wait"].includes(kind),
         "advice short, okLasts or fills without an outlook": ["short", "okLasts", "fills"].includes(kind) && !o,
-        "advice short: no lasts until time": pool === "adviceShort" && line !== "until",
-        "advice okLasts: not until the sun takes over": pool === "adviceOkLasts" && line !== "untilSun",
-        "advice fills: at night, or the outlook does not fill the battery": pool === "adviceFills" && (night || !o?.fills),
+        "advice short: no lasts until time": pool === "short" && line !== "until",
+        "advice okLasts: not until the sun takes over": pool === "okLasts" && line !== "untilSun",
+        "advice fills: at night, or the outlook does not fill the battery": pool === "fills" && (night || !o?.fills),
         "battery in an hour: outside the floor to 100, or the range not around its mid": !!ih && !(FLOOR - 1e-9 <= ih[0] && ih[0] <= ih[1] && ih[1] <= ih[2] && ih[2] <= 100 + 1e-9),
-        "battery in an hour: drawn under 1 point of change, or missing from 1 point": !!piece !== (!!ih && Math.abs(mid - soc) >= 1),
-        "battery in an hour: rising not in --batt, or falling not in --low": !!piece && hue(piece) !== (dir === "rise" ? "batt" : "low"),
-        "battery in an hour: falling at the floor": dir === "fall" && soc <= FLOOR,
+        "battery in an hour: drawn under 1 point of change, or missing from 1 point": !!piece !== (!!ih && Math.abs(mid - chargeLevel) >= 1),
+        "battery in an hour: rising not in --battery, or falling not in --low": !!piece && hue(piece) !== (dir === "rise" ? "battery" : "low"),
+        "battery in an hour: falling at the floor": dir === "fall" && chargeLevel <= FLOOR,
         "lasts until: a time while the mid run never reaches the floor": !!o && (o.lastsUntil === Infinity || o.lastsUntil == null) && line === "until",
         "lasts until: not the time the outlook gives": !!o && Number.isFinite(o.lastsUntil) && line === "until" && says !== untilText(o.lastsUntil),
         "best time: not as the outlook says, or outside today and tomorrow, or in the quiet hours": best !== undefined && !(o?.best && fair(o.best[0]) && best === bestText(o.best[0])),
         "advice: go, soon, later or wait beside a washer line": best !== undefined && ["go", "soon", "later", "wait"].includes(kind),
-        "advice: a line of its pool speaks of the big loads beside a washer line": best !== undefined && (LOADS.test(text(".advice p")) || !!t[pool]?.some((l) => !skipped.has(l) && LOADS.test(l))),
+        "advice: a line of its pool speaks of the big loads beside a washer line": best !== undefined && (LOADS.test(text(".advice p")) || !!t.now.advice[pool]?.some((l) => !skipped.has(l) && LOADS.test(l))),
         "NaN, undefined or null on Energy or Money": /NaN|undefined|null/.test($(p, "#energy").textContent + $(p, "#money").textContent),
       };
       count++;
@@ -2892,7 +2895,7 @@ if (q.has("sweep")) {
         "battery in an hour": dir })) note(field, value);
       const combo = `${kind} | ${pool} | ${word} | ${line}`;
       combos.set(combo, (combos.get(combo) || 0) + 1);
-      for (const [rule, bad] of Object.entries(broken)) if (bad) failures.push({ rule, forecast: fc, solar, batt, grid, soc, sky: sky.join(" "), head, word, line, kind, pool });
+      for (const [rule, bad] of Object.entries(broken)) if (bad) failures.push({ rule, forecast: fc, solar, battery, grid, chargeLevel, sky: sky.join(" "), head, word, line, kind, pool });
     }
     await tick();
     Date.now = realNow;
@@ -2901,8 +2904,8 @@ if (q.has("sweep")) {
     lap = now;
   }
   ms.total = Math.round(lap - start);
-  // adviceSoon needs a house without a battery, which the sweep does not try.
-  const never = [...pools.map(([k]) => k).filter((k) => k !== "adviceSoon" && !seen.pool[k]), ...Object.values(LINES).concat("until").filter((k) => !seen["battery line"][k]),
+  // the soon pool needs a house without a battery, which the sweep does not try.
+  const never = [...pools.map(([k]) => k).filter((k) => k !== "soon" && !seen.pool[k]), ...Object.values(LINES).concat("until").filter((k) => !seen["battery line"][k]),
     // "soon": see the pools above; the scenario "fading" has it.
     ...Object.values(WORDS).filter((k) => !seen["battery word"][k]), ...["go", "later", "low", "wait", "ok", "short", "okLasts", "fills"].filter((k) => !seen.advice[k]),
     ...(seen["best time"].sunny || seen["best time"].noon || seen["best time"].evening ? [] : ["best time"]),

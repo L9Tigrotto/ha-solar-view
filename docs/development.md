@@ -22,7 +22,7 @@ There is no build step. The files in `custom_components/solar_view/frontend/` ar
 | `lib/shell.js` | The frame: sky, gear, tabs, dialogs. |
 | `lib/styles.js` | The stylesheet, as one string. |
 | `pages/now.js`, `pages/energy.js`, `pages/money.js` | One per page: a view model of plain data, then its HTML. |
-| `strings/en.js` | Every English text. Also the fallback: any key another language lacks reads in English. |
+| `strings/en.js` | Every English text, in sections by page: `lines.tabs`, `shared`, `now` (with `now.advice`), `energy`, `money`, `help`, `gear`, `setup`. Also the fallback: any line another language lacks reads in English. |
 | `strings/it.js`, `strings/es.js`, ... | Every text of one language, loaded the first time it is on screen. |
 
 Outside `frontend/`:
@@ -61,7 +61,7 @@ Then open `http://127.0.0.1:3000/preview/`. Always use `/preview/?…` for a lin
 | `sunny`, `cloudy`, `rain` | With the mock forecast sensor, in that weather. |
 | `stale` | The mock forecast sensor is 4 hours old, so the page builds its own forecast. |
 | `firstDays` | No usual day yet and no sensor: no forecast at all. |
-| `battUnknown` | A battery of unknown size. |
+| `batteryUnknown` | A battery of unknown size. |
 | `exportOffFull` | A zero-export inverter with a full battery: spare sun is lost. |
 | `paidBack`, `paidBefore` | Payback done within the months on record, or before Home Assistant recorded. |
 | `expanded` | A second solar meter whose rows start 2 days ago, as after adding an inverter. |
@@ -94,7 +94,7 @@ The forecast scenarios add a mock `sensor.solar_view_forecast`, written at the t
 | `check` | `skeleton` compares the loading skeleton with the loaded page. |
 | `sweep` | `1` runs every combination of sensor values through the page. |
 
-The drawer's own parameters (see below) also go in the URL: `fc`, `level`, `stale`, `weather`, `tariff`, `solar`, `battW`, `gridW`, `soc`, `elev`, `rising`, `real`, `battery`, `floor`, `exportOff`.
+The drawer's own parameters (see below) also go in the URL: `fc`, `level`, `stale`, `weather`, `tariff`, `solar`, `batteryW`, `gridW`, `chargeLevel`, `elev`, `rising`, `real`, `battery`, `floor`, `exportOff`.
 
 ### The preview drawer
 
@@ -105,7 +105,7 @@ The round sliders button beside the gear opens a drawer that changes the page li
 | Scenario | The preset. | `scenario` |
 | Time | The clock of the whole preview, the panel's and the fake data's. Moving it also moves the sun (up from 7:00 to 18:00) and today's fake statistics. Past days are the real house's day of the same date in 2017. "real time" goes back to the real clock. | `at` |
 | Data on record | What the fake Home Assistant has: `none` (no data), `usual_days` (past days' hours), `weather` (the mock sensor's sun and sky, no house use), `usual_days_weather` (past days' hours and a Solar Forecast). Then the panel's own `level`: `auto` (no key) or one of the four names, so a level whose data is missing can be tried. "sensor 4 h old" makes the sensor stale. The weather: `real` (Konstanz 2017), `sunny`, `cloudy`, `overcast`, `rain`, `snow`. The bands: `none`, `two`, `three` (the default). | `fc`, `level`, `stale=1`, `weather`, `tariff` |
-| Live values | Solar, battery and grid power, battery charge, sun height and whether it is rising. House use is what they add up to. "real (Konstanz 2017)" takes them from that house at the same date and time; it turns on when a forecast is picked, and off when a slider moves. | `solar`, `battW`, `gridW`, `soc`, `elev`, `rising`, `real` |
+| Live values | Solar, battery and grid power, battery charge, sun height and whether it is rising. House use is what they add up to. "real (Konstanz 2017)" takes them from that house at the same date and time; it turns on when a forecast is picked, and off when a slider moves. | `solar`, `batteryW`, `gridW`, `chargeLevel`, `elev`, `rising`, `real` |
 | Battery | `known` (10 kWh), `unknown` (size unknown) or `none`; the floor; export off. | `battery`, `floor`, `exportOff=1` |
 | View | Theme, language, page, the advice line's day, admin, text size and the display switches (the last two reload the page). | `dark`, `lang`, `page`, `day`, `admin`, `text`, `display` |
 
@@ -153,12 +153,12 @@ Do not push the page's move into `custom_components/solar_view/frontend/` while 
 
 Each language has its own file, `frontend/strings/xx.js`, named by the language code. To add a language, copy `strings/en.js` to the new code's file, rename its `en` key to the code, and translate it.
 
-- Every key of `en` must be there, and the language must have its own name in `LANGUAGES` (in `solar-view.js`). The gear lists it from there.
-- An advice pool can have its own lines, two or more, except `adviceGo`. That one needs the same number of lines as in `en`, in the same order, since each line names the appliance its icon shows.
+- Every line of `en` must be there, and the language must have its own name in `LANGUAGES` (in `solar-view.js`). The gear lists it from there.
+- An advice pool can have its own lines, two or more, except `now.advice.go`. That one needs the same number of lines as in `en`, in the same order, since each line names the appliance its icon shows.
 - A text must not contain a double quote, `<`, `>`, `&` or an em dash: some go into HTML attributes.
 - Advice lines must fit two rows on a phone. Tab names and the labels under the icons must stay short.
-- Many texts are fragments joined in code: `runOn` takes one of `src` as `{a}`, for example. Read how the pages use a key before you translate it.
-- `untilOne` is extra: `until` for an end time at one o'clock, only where the language says it differently.
+- Many texts are fragments joined in code: `now.houseUsing` takes one of `now.sourceNames` as `{source}`, for example. Read how the pages use a key before you translate it.
+- `now.lastsUntilOne` is extra: `now.lastsUntil` for an end time at one o'clock, only where the language says it differently.
 
 The preview checks every key, the advice lines and the characters on every load. Open it with `?lang=` set to your language, at `?text=2` too, and look at every page.
 

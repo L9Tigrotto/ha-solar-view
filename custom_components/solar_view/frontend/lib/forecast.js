@@ -4,7 +4,7 @@
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale core.js
 /** @type {typeof import("./core.js")} */
-const { HOUR, FIVE_MIN, FULL_SOC, LASTS_MAX_H, WHOLE_DAY_H, hourStart, dayHours, shiftKey, shiftMonth, sumKnown } = await import(`./core.js${v}`);
+const { HOUR, FIVE_MIN, FULL_CHARGE, LASTS_MAX_H, WHOLE_DAY_H, hourStart, dayHours, shiftKey, shiftMonth, sumKnown } = await import(`./core.js${v}`);
 
 // ---- Rules (tune here) ----
 const EFFICIENCY = 0.95;   // battery round trip until there are enough days to measure it
@@ -21,16 +21,16 @@ export const efficiencyOf = (outKwh, inKwh, days) =>
 // A shortfall takes the battery down to its floor (capped by the discharge rate), then the grid. The
 // present hour counts firstShare of its sun, use and limits. kwh 0 is no battery. kWh and percent out,
 // one step per hour.
-export function simulate(hours, soc, battery, exportMaxKw, firstShare) {
+export function simulate(hours, chargeLevel, battery, exportMaxKw, firstShare) {
   const { kwh, floor, maxChargeKw, maxDischargeKw = null, efficiency } = battery;
   const floorKwh = (kwh * floor) / 100;
   // A charge under the floor (floor typed wrong, grid charging) still counts from the floor: never negative.
   // Over 100 % or no value at all (sensor unavailable) would make energy from nothing or NaN everywhere.
-  let stored = kwh > 0 ? Math.min(kwh, Math.max((kwh * (Number.isFinite(soc) ? soc : floor)) / 100, floorKwh)) : 0;
+  let stored = kwh > 0 ? Math.min(kwh, Math.max((kwh * (Number.isFinite(chargeLevel) ? chargeLevel : floor)) / 100, floorKwh)) : 0;
   return hours.map((h, i) => {
     const share = i === 0 ? firstShare : 1;
     const sun = h.sun * share, use = h.use * share;
-    let fromBatt = 0, fromGrid = 0, toGrid = 0, lost = 0;
+    let fromBattery = 0, fromGrid = 0, toGrid = 0, lost = 0;
     if (sun >= use) {
       const spare = sun - use;
       const charge = Math.min(spare, maxChargeKw == null ? Infinity : maxChargeKw * share, (kwh - stored) / efficiency);
@@ -38,11 +38,11 @@ export function simulate(hours, soc, battery, exportMaxKw, firstShare) {
       toGrid = Math.min(spare - charge, exportMaxKw == null ? Infinity : exportMaxKw * share);
       lost = spare - charge - toGrid;
     } else {
-      fromBatt = Math.max(0, Math.min(use - sun, stored - floorKwh, maxDischargeKw == null ? Infinity : maxDischargeKw * share)); // 0 when the charge is under the floor
-      stored -= fromBatt;
-      fromGrid = use - sun - fromBatt;
+      fromBattery = Math.max(0, Math.min(use - sun, stored - floorKwh, maxDischargeKw == null ? Infinity : maxDischargeKw * share)); // 0 when the charge is under the floor
+      stored -= fromBattery;
+      fromGrid = use - sun - fromBattery;
     }
-    return { t: h.t, made: sun - lost, fromBatt, fromGrid, toGrid, lost, soc: kwh > 0 ? (stored / kwh) * 100 : 0 };
+    return { t: h.t, made: sun - lost, fromBattery, fromGrid, toGrid, lost, chargeLevel: kwh > 0 ? (stored / kwh) * 100 : 0 };
   });
 }
 
@@ -126,7 +126,7 @@ export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar
     // Low and high: a forecast day SOLAR_SPREAD either way; a usual day's sun, and house use, as its days
     // spread (usual.spread: [low, high] over the mean, see usualDay).
     const spread = usual.spread ?? { sun: [1, 1], use: [1, 1] }, solar = [1 - SOLAR_SPREAD, 1 + SOLAR_SPREAD];
-    const range = (v, [lo, hi]) => [v * lo, v, v * hi];
+    const range = (v, [low, high]) => [v * low, v, v * high];
     all = [];
     for (let t = first; clock(t).key !== end; t += HOUR) {
       const c = clock(t), inForecast = covered.has(c.key);
@@ -159,9 +159,9 @@ export function scenarioHours(ahead, kind, now, clock) {
   const i = { bad: 0, mid: 1, good: 2 }[kind];
   const today = clock(now).key, tomorrow = shiftKey(today, 1);
   const next = ahead.days.find((d) => d.d === tomorrow);
-  const factor = (field, idx) => Object.fromEntries([[today, ahead.left[field][idx]], [tomorrow, next?.[field]?.[idx]]].map(([key, target]) => {
-    const mid = sumOf(ahead.hours, field, clock, key, now)[1];
-    return [key, target == null ? 1 : mid > 0 ? target / mid : 0];
+  const factor = (field, index) => Object.fromEntries([[today, ahead.left[field][index]], [tomorrow, next?.[field]?.[index]]].map(([key, target]) => {
+    const middle = sumOf(ahead.hours, field, clock, key, now)[1];
+    return [key, target == null ? 1 : middle > 0 ? target / middle : 0];
   }));
   const sun = factor("sun", i), use = factor("use", 2 - i);
   return ahead.hours.filter((h) => h.t + HOUR > now && clock(h.t).key in sun)
@@ -199,9 +199,9 @@ function easterMonday(y) {
 // The band of the hour starting at `hour` on day `key` ("2026-11-04"), for a contract of `type`.
 export function bandOf(key, hour, type) {
   if (type === "single") return "f1";
-  const wd = new Date(`${key}T12:00:00Z`).getUTCDay(), md = key.slice(5);
-  const band = wd === 0 || HOLIDAYS.includes(md) || md === easterMonday(+key.slice(0, 4)) || hour < 7 || hour >= 23 ? "f3"
-    : wd === 6 || hour < 8 || hour >= 19 ? "f2" : "f1";
+  const weekday = new Date(`${key}T12:00:00Z`).getUTCDay(), monthDay = key.slice(5);
+  const band = weekday === 0 || HOLIDAYS.includes(monthDay) || monthDay === easterMonday(+key.slice(0, 4)) || hour < 7 || hour >= 23 ? "f3"
+    : weekday === 6 || hour < 8 || hour >= 19 ? "f2" : "f1";
   return type === "two" && band !== "f1" ? "f23" : band;
 }
 // Each band's price: the one given (a number), else the mean of the price sensor's rows ({ start, mean })
@@ -233,8 +233,8 @@ function runsOf(rows, step, min, gap) {
   const runs = [];
   for (const r of rows ?? []) {
     if (!(r.change >= min)) continue;
-    const cur = runs.at(-1);
-    if (cur && r.start - cur.to <= gap * step) Object.assign(cur, { to: r.start + step, kwh: cur.kwh + r.change, peak: Math.max(cur.peak, r.change) });
+    const lastRun = runs.at(-1);
+    if (lastRun && r.start - lastRun.to <= gap * step) Object.assign(lastRun, { to: r.start + step, kwh: lastRun.kwh + r.change, peak: Math.max(lastRun.peak, r.change) });
     else runs.push({ from: r.start, to: r.start + step, kwh: r.change, peak: r.change });
   }
   return runs.slice(-RUN_COUNT);
@@ -257,17 +257,17 @@ const FREE_KWH = 0.01;     // a start "takes nothing from the grid" up to this (
 const DEFER_KWH = 0.3;     // a start tomorrow must save what this much grid costs (mean buy price) over today's best
 const NIGHT_MAX_H = 12;    // the night after tomorrow is followed for at most this many hours
 const NO_BATTERY = { kwh: 0, floor: 0, maxChargeKw: null, efficiency: 1 };
-const FILLS_MIN_KWH = 1;   // "fills": the mid run reaches FULL_SOC today, then sends or loses this much or more
+const FILLS_MIN_KWH = 1;   // "fills": the mid run reaches FULL_CHARGE today, then sends or loses this much or more
 const TIE = 1e-9;
 
 // One simulated hour's money added to m { saved, cost, earned }: what the grid gave at `buy`, the house's own use
 // (`ownUse`, standby taken off) less the grid's part at `buy`, what was sent at `sell`. null + a number is a
 // number in JS: a figure whose price is unknown must stay unknown (null).
-const addMoney = (m, st, ownUse, price) => {
+const addMoney = (m, step, ownUse, price) => {
   const { buy, sell } = price ?? {}, plus = (sum, kwh, rate) => (rate == null || sum == null ? null : sum + kwh * rate);
-  m.cost = plus(m.cost, st.fromGrid, buy);
-  m.saved = plus(m.saved, Math.max(0, ownUse - st.fromGrid), buy);
-  m.earned = plus(m.earned, st.toGrid, sell);
+  m.cost = plus(m.cost, step.fromGrid, buy);
+  m.saved = plus(m.saved, Math.max(0, ownUse - step.fromGrid), buy);
+  m.earned = plus(m.earned, step.toGrid, sell);
 };
 // [low, mid, high] over the bad, mid and good runs; null when any run has no value.
 const range3 = (v) => (v.some((x) => x == null) ? null : [Math.min(...v), v[1], Math.max(...v)]);
@@ -276,9 +276,9 @@ const range3 = (v) => (v.some((x) => x == null) ? null : [Math.min(...v), v[1], 
 // needs nothing from it first, null when neither within LASTS_MAX_H. The rows' present hour already
 // holds the present reading (lookAhead).
 function lastsUntil(rows, now, n, battery, firstShare) {
-  if (!Number.isFinite(n.soc)) return null;
+  if (!Number.isFinite(n.chargeLevel)) return null;
   const { kwh, floor } = battery, floorKwh = (kwh * floor) / 100;
-  let left = Math.min(kwh, Math.max((kwh * n.soc) / 100, floorKwh)) - floorKwh;
+  let left = Math.min(kwh, Math.max((kwh * n.chargeLevel) / 100, floorKwh)) - floorKwh;
   const end = now + LASTS_MAX_H * HOUR;
   for (const [i, r] of rows.entries()) {
     const start = Math.max(now, r.t);
@@ -310,17 +310,17 @@ function withLoad(rows, now, from, kwh, hours, firstShare) {
 function withNight(runs, clock, tomorrow) {
   const end = runs[0].at(-1).t + HOUR;
   if (clock(end - HOUR).key !== tomorrow || clock(end).key === tomorrow) return runs;
-  const src = runs.map((rs) => rs.filter((r) => clock(r.t).key === tomorrow));
-  const up = src[0].findIndex((r) => r.sun >= r.use);
+  const source = runs.map((runRows) => runRows.filter((r) => clock(r.t).key === tomorrow));
+  const up = source[0].findIndex((r) => r.sun >= r.use);
   if (up < 0 || up > NIGHT_MAX_H) return runs;
-  return runs.map((rs, k) => rs.concat(src[k].slice(0, up).map((r, i) => ({ ...r, t: end + i * HOUR, from: r.t }))));
+  return runs.map((runRows, k) => runRows.concat(source[k].slice(0, up).map((r, i) => ({ ...r, t: end + i * HOUR, from: r.t }))));
 }
 
 // Inside the quiet hours [from, to) by the clock (hours, a range may pass midnight).
 const inQuiet = (c, q) => { const h = c.hour + c.minute / 60; return !!q && q[0] !== q[1] && (q[0] < q[1] ? h >= q[0] && h < q[1] : h >= q[0] || h < q[1]); };
 
 // When to start each movable machine (settings.machines, in order, each planned after the ones before),
-// with the battery floor raised by settings.marginPct, so a forecast a little off still leaves it above
+// with the battery floor raised by settings.marginPercent, so a forecast a little off still leaves it above
 // the real floor. The rows run through the night after tomorrow (withNight); starts are now and every
 // whole hour of today and tomorrow, never inside the quiet hours. A start is free when it takes nothing
 // more from the grid to the end of the rows, counting the charge it leaves missing then (not at sunrise);
@@ -334,10 +334,10 @@ const inQuiet = (c, q) => { const h = c.hour + c.minute / 60; return !!q && q[0]
 // less the sun now and, above the raised floor, the battery (up to its discharge rate). [{ type, kind:
 // "now" | "at" | "wait", t, why, band, kw }] or null.
 function advise(rows, bad, now, n, battery, settings, firstShare, clock) {
-  const { machines = [], quiet = null, gridMaxKw = null, marginPct = 0, exportMaxKw } = settings;
+  const { machines = [], quiet = null, gridMaxKw = null, marginPercent = 0, exportMaxKw } = settings;
   if (!machines.length) return null;
-  const batt = battery.kwh > 0 ? { ...battery, floor: Math.min(100, battery.floor + marginPct) } : battery;
-  const sim = (r) => simulate(r, n.soc, batt, exportMaxKw, firstShare), end = rows.at(-1).t + HOUR;
+  const marginBattery = battery.kwh > 0 ? { ...battery, floor: Math.min(100, battery.floor + marginPercent) } : battery;
+  const runSimulation = (r) => simulate(r, n.chargeLevel, marginBattery, exportMaxKw, firstShare), end = rows.at(-1).t + HOUR;
   const today = clock(now).key, lastStart = rows.find((r) => r.from != null)?.t ?? end;
   // Without a buy price for every hour, kWh: the export forgone then costs nothing.
   const priced = rows.every((r) => Number.isFinite(r.buy)), buy = (r) => (priced ? r.buy : 1), sell = (r) => (priced ? r.sell ?? 0 : 0);
@@ -345,27 +345,27 @@ function advise(rows, bad, now, n, battery, settings, firstShare, clock) {
   // What starting m at t adds over the rows rs, whose plain run is base. Charge left missing at sunrise
   // (rows through the night) is refilled by that day's sun: export forgone, not grid.
   const dawn = rows.at(-1).from != null;
-  const tryOn = (rs, base, t, m) => {
-    const loaded = withLoad(rs, now, t, m.kwh, m.hours, firstShare), steps = sim(loaded);
-    const missing = batt.kwh > 0 ? Math.max(0, (((base.at(-1).soc - steps.at(-1).soc) / 100) * batt.kwh) / batt.efficiency) : 0;
-    let grid = dawn ? 0 : missing, fromBatt = 0, cost = missing * (dawn ? sell : buy)(rs.at(-1));
-    steps.forEach((st, i) => {
-      const more = st.fromGrid - base[i].fromGrid;
-      grid += more; fromBatt += st.fromBatt - base[i].fromBatt;
-      cost += more * buy(rs[i]) + (base[i].toGrid - st.toGrid) * sell(rs[i]);
+  const tryOn = (runRows, base, t, m) => {
+    const loaded = withLoad(runRows, now, t, m.kwh, m.hours, firstShare), steps = runSimulation(loaded);
+    const missing = marginBattery.kwh > 0 ? Math.max(0, (((base.at(-1).chargeLevel - steps.at(-1).chargeLevel) / 100) * marginBattery.kwh) / marginBattery.efficiency) : 0;
+    let grid = dawn ? 0 : missing, fromBattery = 0, cost = missing * (dawn ? sell : buy)(runRows.at(-1));
+    steps.forEach((step, i) => {
+      const more = step.fromGrid - base[i].fromGrid;
+      grid += more; fromBattery += step.fromBattery - base[i].fromBattery;
+      cost += more * buy(runRows[i]) + (base[i].toGrid - step.toGrid) * sell(runRows[i]);
     });
-    return { t, loaded, grid, fromBatt, cost };
+    return { t, loaded, grid, fromBattery, cost };
   };
   const pickOf = (list) => list.find((w) => w.free) ?? list.reduce((b, w) => (w.cost < b.cost - TIE ? w : b), list[0]);
   const out = [];
   for (const m of machines) {
-    const base = sim(rows), baseBad = sim(bad);
+    const base = runSimulation(rows), baseBad = runSimulation(bad);
     const starts = [now, ...rows.map((r) => r.t).filter((t) => t > now && t < lastStart)].filter((t) => t + m.hours * HOUR <= end + TIE && !inQuiet(clock(t), quiet));
     const tried = starts.map((t) => {
-      const mid = tryOn(rows, base, t, m);
-      if (clock(t).key === today) return { ...mid, free: mid.grid <= FREE_KWH };
+      const middle = tryOn(rows, base, t, m);
+      if (clock(t).key === today) return { ...middle, free: middle.grid <= FREE_KWH };
       const worse = tryOn(bad, baseBad, t, m);
-      return { ...mid, cost: Math.max(mid.cost, worse.cost), free: mid.grid <= FREE_KWH && worse.grid <= FREE_KWH };
+      return { ...middle, cost: Math.max(middle.cost, worse.cost), free: middle.grid <= FREE_KWH && worse.grid <= FREE_KWH };
     });
     if (!tried.length) continue;
     const first = tried[0].t === now ? tried[0] : null;
@@ -375,12 +375,12 @@ function advise(rows, bad, now, n, battery, settings, firstShare, clock) {
       if (near && near.cost - pick.cost < deferMin - TIE) pick = near;
     }
     const c = clock(pick.t), band = settings.bandAt?.(pick.t) ?? null, bandNow = settings.bandAt?.(now) ?? null;
-    const free = pick.free, onBatt = pick.fromBatt > m.kwh / 2;
-    const why = pick === first ? (free ? (onBatt ? "battNow" : "sunNow") : "bestNow")
-      : free ? (onBatt ? "batt" : c.key === today ? "sun" : batt.kwh > 0 ? "sunTomorrow" : "sunTomorrowNoBatt")
+    const free = pick.free, onBattery = pick.fromBattery > m.kwh / 2;
+    const why = pick === first ? (free ? (onBattery ? "batteryNow" : "sunNow") : "bestNow")
+      : free ? (onBattery ? "marginBattery" : c.key === today ? "sun" : marginBattery.kwh > 0 ? "sunTomorrow" : "sunTomorrowNoBattery")
         : band && bandNow && band.buy < bandNow.buy - TIE ? "cheaper" : "grid";
     // The meter: only for now, the forecast knows hour means, not peaks.
-    const room = batt.kwh > 0 && n.soc > batt.floor ? batt.maxDischargeKw ?? Infinity : 0;
+    const room = marginBattery.kwh > 0 && n.chargeLevel > marginBattery.floor ? marginBattery.maxDischargeKw ?? Infinity : 0;
     const draw = ((n.loadW ?? 0) - (n.solarW ?? 0)) / 1000 + m.peakKw - room;
     if (pick === first && gridMaxKw != null && draw > gridMaxKw + TIE) { out.push({ type: m.type, kind: "wait", t: now, why: null, band: null, kw: (n.loadW ?? 0) / 1000 }); continue; }
     out.push({ type: m.type, kind: pick === first ? "now" : "at", t: pick.t, why, band: why === "cheaper" ? band.band : null, kw: null });
@@ -390,22 +390,22 @@ function advise(rows, bad, now, n, battery, settings, firstShare, clock) {
 }
 
 // The rest of today simulated for the bad, mid and good runs: when the battery runs to its floor, the
-// best time for each machine, the state of charge in an hour (socInHour, [low, mid, high] over the runs),
+// best time for each machine, the state of charge in an hour (chargeInHour, [low, mid, high] over the runs),
 // whether the mid run fills the battery later today with spare sun left over (fills), and the mid run's
-// charge, hours and money ahead. n is the present reading { soc, loadW, solarW }; battery null is no
+// charge, hours and money ahead. n is the present reading { chargeLevel, loadW, solarW }; battery null is no
 // battery; soFar is today's money so far { saved, cost, earned }. A battery of unknown size hides all of
 // it: every figure would be a guess.
 /** @typedef {{ saved: number | null, cost: number | null, earned: number | null }} Money */
-/** What follows from the forecast (see lookAhead); socAhead's [t, %] rows as its comment below says.
+/** What follows from the forecast (see lookAhead); chargeAhead's [t, %] rows as its comment below says.
  * @typedef {{ lastsUntil: number | null, best: { type: string, kind: string, t: number, why: string, band: string | null,
- *   kw: number | null }[] | null, socInHour: number[] | null, fills: boolean, socAhead: number[][] | null,
- *   hoursAhead: { t: number, sun: number, batt: number, grid: number, use: number }[] | null, restToday: Money | null,
+ *   kw: number | null }[] | null, chargeInHour: number[] | null, fills: boolean, chargeAhead: number[][] | null,
+ *   hoursAhead: { t: number, sun: number, battery: number, grid: number, use: number }[] | null, restToday: Money | null,
  *   daysMoney: ({ key: string } & Money)[] | null }} Outlook */
 /** @param {Ahead} ahead @returns {Outlook} */
 export function lookAhead(ahead, now, clock, n, battery, settings, soFar) {
-  const none = { lastsUntil: null, best: null, socInHour: null, fills: false, socAhead: null, hoursAhead: null, restToday: null, daysMoney: null };
+  const none = { lastsUntil: null, best: null, chargeInHour: null, fills: false, chargeAhead: null, hoursAhead: null, restToday: null, daysMoney: null };
   if (battery && !battery.kwh) return none;
-  const batt = battery || NO_BATTERY, today = clock(now).key, standby = settings.standbyKwhPerHour;
+  const activeBattery = battery || NO_BATTERY, today = clock(now).key, standby = settings.standbyKwhPerHour;
   // The present hour at whichever is worse, the present reading or the forecast hour: an oven switched
   // on now, or a cloud now, counts on every card.
   const present = (r, i) => (i ? r : { ...r, use: Math.max(r.use, (n.loadW ?? 0) / 1000), sun: Math.min(r.sun, (n.solarW ?? Infinity) / 1000) });
@@ -414,13 +414,13 @@ export function lookAhead(ahead, now, clock, n, battery, settings, soFar) {
   // The rows hold whole hours; simulate takes the present hour's part itself.
   const firstShare = Math.min(1, (rows[0].t + HOUR - now) / HOUR);
   const price = new Map(ahead.hours.map((h) => [h.t, h]));
-  const sims = runs.map((r) => simulate(r, n.soc, batt, settings.exportMaxKw, firstShare));
+  const simulations = runs.map((r) => simulate(r, n.chargeLevel, activeBattery, settings.exportMaxKw, firstShare));
   // The mid run's money by midnight, from today's so far.
   const money = { saved: soFar.saved, cost: soFar.cost, earned: soFar.earned };
-  sims[1].forEach((st, i) => {
-    if (clock(st.t).key !== today) return;
+  simulations[1].forEach((step, i) => {
+    if (clock(step.t).key !== today) return;
     const share = i ? 1 : firstShare;
-    addMoney(money, st, rows[i].use * share - standby * share, price.get(st.t));
+    addMoney(money, step, rows[i].use * share - standby * share, price.get(step.t));
   });
   // The mid run's money for the rest of today, and on through every whole day the forecast has after today
   // (with a usual day at least to the month's end, see forecastOf), the battery carried from hour to hour:
@@ -429,12 +429,12 @@ export function lookAhead(ahead, now, clock, n, battery, settings, soFar) {
   const restToday = { saved: minus(money.saved, soFar.saved), cost: minus(money.cost, soFar.cost), earned: minus(money.earned, soFar.earned) };
   const long = ahead.hours.filter((h) => h.t + HOUR > now && Array.isArray(h.use)).map((h, i) => present({ t: h.t, sun: h.sun[1], use: h.use[1] }, i));
   const byDay = new Map();
-  simulate(long, n.soc, batt, settings.exportMaxKw, firstShare).forEach((st, i) => {
-    const key = clock(st.t).key;
+  simulate(long, n.chargeLevel, activeBattery, settings.exportMaxKw, firstShare).forEach((step, i) => {
+    const key = clock(step.t).key;
     if (key === today) return;
     const d = byDay.get(key) ?? byDay.set(key, { hours: 0, saved: 0, cost: 0, earned: 0 }).get(key);
     d.hours++;
-    addMoney(d, st, long[i].use - standby, price.get(st.t));
+    addMoney(d, step, long[i].use - standby, price.get(step.t));
   });
   // A day the forecast stops inside (not whole, see WHOLE_DAY_H) is left out, and every day after it.
   const whole = [...byDay].sort(([a], [b]) => (a < b ? -1 : 1)), cut = whole.findIndex(([, d]) => d.hours < WHOLE_DAY_H);
@@ -442,34 +442,34 @@ export function lookAhead(ahead, now, clock, n, battery, settings, soFar) {
   // Now + 60 minutes falls inside the second hour, by the part of the first already gone. Read in a
   // straight line across that hour.
   // ponytail: a battery that fills or empties inside that hour reads a little off; split the hour if that ever shows.
-  const inHour = (steps) => (steps.length < 2 ? steps[0].soc : steps[0].soc + (steps[1].soc - steps[0].soc) * (1 - firstShare));
+  const inHour = (steps) => (steps.length < 2 ? steps[0].chargeLevel : steps[0].chargeLevel + (steps[1].chargeLevel - steps[0].chargeLevel) * (1 - firstShare));
   // The mid run's spare sun today from the hour the battery is full on.
-  const full = sims[1].findIndex((st) => clock(st.t).key === today && st.soc >= FULL_SOC);
-  const spare = full < 0 ? 0 : sims[1].slice(full).reduce((s, st) => s + (clock(st.t).key === today ? st.toGrid + st.lost : 0), 0);
+  const full = simulations[1].findIndex((step) => clock(step.t).key === today && step.chargeLevel >= FULL_CHARGE);
+  const spare = full < 0 ? 0 : simulations[1].slice(full).reduce((s, step) => s + (clock(step.t).key === today ? step.toGrid + step.lost : 0), 0);
   // Tomorrow's sun only the usual day (no forecast): the bad run, which tomorrow's starts must pass too,
   // has none after today, so a start tomorrow wins on prices or the battery, never on a guessed sun.
   const bad = ahead.tomorrowSun === false ? runs[0].map((r) => (clock(r.t).key === today ? r : { ...r, sun: 0 })) : runs[0];
   // Each row with its prices: the band's buy price, else the forecast hour's. A night hour after tomorrow
   // takes its band from its own time, a forecast price from its source hour.
-  const priced = (rs) => rs.map((r) => {
+  const priced = (runRows) => runRows.map((r) => {
     const b = settings.bandAt?.(r.t), h = price.get(r.from ?? r.t);
     return { ...r, buy: b ? b.buy : h?.buy ?? null, sell: h?.sell ?? null };
   });
   // The advice adds each machine run where it plans it: its usual runs of the next 24 hours come out of
   // house use first (the run it plans is the next one; a day later the habit runs again), on the advice's
   // rows only (every other figure keeps them, the machines will run).
-  const bare = (rs) => (ahead.machineW ? rs.map((r) => (r.t < now + 24 * HOUR ? { ...r, use: Math.max(0, r.use - ahead.machineW[clock(r.t).hour] / 1000) } : r)) : rs);
+  const bare = (runRows) => (ahead.machineW ? runRows.map((r) => (r.t < now + 24 * HOUR ? { ...r, use: Math.max(0, r.use - ahead.machineW[clock(r.t).hour] / 1000) } : r)) : runRows);
   const [night, nightBad] = withNight([bare(rows), bare(bad)], clock, shiftKey(today, 1)).map(priced);
   return {
-    lastsUntil: battery ? lastsUntil(rows, now, n, batt, firstShare) : null,
-    best: advise(night, nightBad, now, n, batt, settings, firstShare, clock),
-    socInHour: battery && Number.isFinite(n.soc) ? range3(sims.map(inHour)) : null,
+    lastsUntil: battery ? lastsUntil(rows, now, n, activeBattery, firstShare) : null,
+    best: advise(night, nightBad, now, n, activeBattery, settings, firstShare, clock),
+    chargeInHour: battery && Number.isFinite(n.chargeLevel) ? range3(simulations.map(inHour)) : null,
     fills: !!battery && spare >= FILLS_MIN_KWH - TIE,
     // The mid run's charge at the end of each hour left today, for Today by hour's charge chart: [end, %].
-    socAhead: battery ? sims[1].filter((st) => clock(st.t).key === today).map((st) => [st.t + HOUR, Math.round(st.soc * 10) / 10]) : null,
+    chargeAhead: battery ? simulations[1].filter((step) => clock(step.t).key === today).map((step) => [step.t + HOUR, Math.round(step.chargeLevel * 10) / 10]) : null,
     // The mid run's hours left today, for Today by hour and Power origin's small rings: { t: start, sun made,
-    // batt: battery gave, grid gave, use: house used }, in kWh; this hour's from now on only.
-    hoursAhead: sims[1].map((st, i) => ({ t: st.t, sun: st.made, batt: st.fromBatt, grid: st.fromGrid, use: rows[i].use * (i ? 1 : firstShare) }))
+    // battery: battery gave, grid gave, use: house used }, in kWh; this hour's from now on only.
+    hoursAhead: simulations[1].map((step, i) => ({ t: step.t, sun: step.made, battery: step.fromBattery, grid: step.fromGrid, use: rows[i].use * (i ? 1 : firstShare) }))
       .filter(({ t }) => clock(t).key === today),
     restToday, daysMoney,
   };

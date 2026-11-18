@@ -41,7 +41,7 @@ What each level shows:
 
 ### Old names
 
-`usual` is the old name of `usual_days_weather`, and still works. `learned_weather` (the sensor's sun and house use) was dropped; it now works as `usual_days_weather` and says so once in the browser console. Any other value that is not one of the four says so once in the browser console, and the level is automatic.
+Any other value that is not one of the four says so once in the browser console, and the level is automatic.
 
 ### Step down
 

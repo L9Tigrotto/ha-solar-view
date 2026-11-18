@@ -19,15 +19,15 @@ def utc(s):
 
 
 # ---- clear sky: the page's clearSky (frontend/lib/sky.js), values printed by node ----
-@pytest.mark.parametrize("t,lat,lon,want", [
+@pytest.mark.parametrize("t,latitude,longitude,want", [
     ("2026-06-21T10:00", 43.4, 11.9, 958.9013240934609),
     ("2026-12-21T11:00", 43.4, 11.9, 371.27494811661995),
     ("2026-03-20T06:00", 47.7, 9.2, 143.0957981317),
     ("2026-11-16T07:00", 43.4, 11.9, 124.50864457182718),
     ("2026-11-16T22:00", 43.4, 11.9, 0),
 ])
-def test_clear_sky_matches_page(t, lat, lon, want):
-    assert f.clear_sky(utc(t), lat, lon) == pytest.approx(want, rel=1e-9, abs=1e-9)
+def test_clear_sky_matches_page(t, latitude, longitude, want):
+    assert f.clear_sky(utc(t), latitude, longitude) == pytest.approx(want, rel=1e-9, abs=1e-9)
 
 
 # ---- throttled hours ----

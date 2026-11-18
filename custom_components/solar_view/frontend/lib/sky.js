@@ -59,7 +59,7 @@ function skyAt(elevation, rising, dark, grey = 0) {
 // How much the low sky is dawn's (1) rather than dusk's (0), by the sun's direction: 1 east, 0 west, half
 // and half at noon and midnight, so a low winter noon does not jump from dawn to dusk when `rising` turns.
 // Without an azimuth, by `rising`. Rounded, so the redraw key does not move with every digit.
-const dawnOf = (a) => { const az = parseFloat(a?.azimuth); return Number.isFinite(az) ? Math.round(50 * (1 + Math.sin((az * Math.PI) / 180))) / 100 : !!a?.rising; };
+const dawnOf = (a) => { const azimuth = parseFloat(a?.azimuth); return Number.isFinite(azimuth) ? Math.round(50 * (1 + Math.sin((azimuth * Math.PI) / 180))) / 100 : !!a?.rising; };
 // Forecast cloud cover in % to how grey the day sky is: 0 under 50, 1 from 90 up, 0 when unknown.
 const greyOf = (cloud) => (Number.isFinite(cloud) ? clamp01((cloud - CLOUD_GREY_FROM) / (CLOUD_GREY_FULL - CLOUD_GREY_FROM)) : 0);
 
@@ -92,31 +92,31 @@ const coverOf = (cloud, rain, snow = false) => (snow ? "snow" : rain ? "rain" : 
 // The moon's phase in 8 steps (0 new, 2 first quarter, 4 full, 6 last quarter), from a known new moon
 // and the mean length of a lunar month.
 const NEW_MOON = Date.UTC(2000, 0, 6, 18, 14), LUNAR_DAYS = 29.530588853;
-const moonPhase = (ms) => Math.round(((((ms - NEW_MOON) / DAY / LUNAR_DAYS) % 1) + 1) % 1 * 8) % 8;
+const moonPhase = (timestamp) => Math.round(((((timestamp - NEW_MOON) / DAY / LUNAR_DAYS) % 1) + 1) % 1 * 8) % 8;
 
 // The sun's declination in radians on day `n` of the year (0 is 1 January, fractions allowed).
 const declination = (n) => 23.45 * (Math.PI / 180) * Math.sin((2 * Math.PI * (284 + n)) / 365);
 // Clear-sky sunlight on flat ground at the middle of the hour starting at `t` (ms), in W/m2: the sun's height
 // from the date, the hour and the longitude, then Haurwitz's clear sky. The equation of time is left out (a
 // quarter hour at most): the usual day only compares nearby days by it, which shifts them alike.
-function clearSky(t, lat, lon) {
-  const rad = Math.PI / 180, d = new Date(t + HALF_HOUR), n = (d.getTime() - Date.UTC(d.getUTCFullYear(), 0, 1)) / DAY;
-  const decl = declination(n);
-  const ha = (d.getUTCHours() + d.getUTCMinutes() / 60 + lon / 15 - 12) * 15 * rad;
-  const c = Math.sin(lat * rad) * Math.sin(decl) + Math.cos(lat * rad) * Math.cos(decl) * Math.cos(ha);
+function clearSky(t, latitude, longitude) {
+  const radiansPerDegree = Math.PI / 180, d = new Date(t + HALF_HOUR), n = (d.getTime() - Date.UTC(d.getUTCFullYear(), 0, 1)) / DAY;
+  const solarDeclination = declination(n);
+  const hourAngle = (d.getUTCHours() + d.getUTCMinutes() / 60 + longitude / 15 - 12) * 15 * radiansPerDegree;
+  const c = Math.sin(latitude * radiansPerDegree) * Math.sin(solarDeclination) + Math.cos(latitude * radiansPerDegree) * Math.cos(solarDeclination) * Math.cos(hourAngle);
   return c > 0.01 ? 1098 * c * Math.exp(-0.057 / c) : 0;
 }
 
 // Sunlight on flat ground above the air at latitude `lat` over month `key`, summed by day, in no particular
 // unit: only months against each other matter. Clouds and the panels' tilt are left to the scale seasonGuess fits.
-function monthSun(key, lat) {
-  const rad = Math.PI / 180, f = lat * rad, [y, m] = key.split("-").map(Number);
+function monthSun(key, latitude) {
+  const radiansPerDegree = Math.PI / 180, f = latitude * radiansPerDegree, [y, m] = key.split("-").map(Number);
   const first = Math.round((Date.UTC(y, m - 1, 1) - Date.UTC(y, 0, 1)) / DAY);
   let s = 0;
   for (let n = first + 1; n <= first + daysIn(key); n++) {
-    const decl = declination(n);
-    const set = Math.acos(Math.max(-1, Math.min(1, -Math.tan(f) * Math.tan(decl))));
-    s += (1 + 0.033 * Math.cos((2 * Math.PI * n) / 365)) * (Math.cos(f) * Math.cos(decl) * Math.sin(set) + set * Math.sin(f) * Math.sin(decl));
+    const solarDeclination = declination(n);
+    const set = Math.acos(Math.max(-1, Math.min(1, -Math.tan(f) * Math.tan(solarDeclination))));
+    s += (1 + 0.033 * Math.cos((2 * Math.PI * n) / 365)) * (Math.cos(f) * Math.cos(solarDeclination) * Math.sin(set) + set * Math.sin(f) * Math.sin(solarDeclination));
   }
   return s;
 }

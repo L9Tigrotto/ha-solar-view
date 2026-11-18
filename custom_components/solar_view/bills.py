@@ -22,8 +22,8 @@ GROUPS = ("plant", "battery", "grid", "payback", "predictions", "machines", "pri
 # Each figure: its name under sensors:, and the Energy settings source type and field it comes from otherwise.
 ENERGY = {"bought": ("grid_in_energy", "grid", "stat_energy_from"), "sent": ("grid_out_energy", "grid", "stat_energy_to"),
           "solar": ("solar_energy", "solar", "stat_energy_from"),
-          "batt_out": ("battery_out_energy", "battery", "stat_energy_from"),
-          "batt_in": ("battery_in_energy", "battery", "stat_energy_to"), "load": ("load_energy", None, None)}
+          "battery_out": ("battery_out_energy", "battery", "stat_energy_from"),
+          "battery_in": ("battery_in_energy", "battery", "stat_energy_to"), "load": ("load_energy", None, None)}
 SHARE = 0.95  # hours with bought known a month needs before it is priced
 # A month without a bill: each band moves from the last bill's by K x the PUN Index GME's move (spec part 2).
 LOSSES = 0.10  # grid losses on the PUN (ARERA may revise them)
@@ -95,18 +95,18 @@ def estimate(bill: dict[str, float], pun_bill: dict[str, float], pun_month: dict
 
 
 def month_money(hours: list[tuple[datetime, float | None, float | None]], prices: dict[str, float],
-                tz: ZoneInfo, month: str, until: datetime | None = None) -> dict | None:
+                time_zone: ZoneInfo, month: str, until: datetime | None = None) -> dict | None:
     """What `month` ("2026-09") cost and saved at its bill's prices. `hours` are (start, bought kWh, house kWh):
     cost is bought x price, saved is house above bought x price. With `until` (this month: its last full hour),
     only the hours before it count, and the result also has each local day's {"cost", "saved"} under "days".
     None when the bands make no contract, no hour came before `until`, or fewer than 95 % of the month's hours
-    up to `until` (in `tz`, clock changes counted) have bought known."""
+    up to `until` (in `time_zone`, clock changes counted) have bought known."""
     kind = kind_of(prices)
     if kind is None:
         return None
     y, m = map(int, month.split("-"))
-    first = datetime(y, m, 1, tzinfo=tz)
-    end = datetime(y + m // 12, m % 12 + 1, 1, tzinfo=tz)
+    first = datetime(y, m, 1, tzinfo=time_zone)
+    end = datetime(y + m // 12, m % 12 + 1, 1, tzinfo=time_zone)
     if until is not None:
         end = min(end, until)
     total = (end.astimezone(timezone.utc) - first.astimezone(timezone.utc)) / timedelta(hours=1)
@@ -116,7 +116,7 @@ def month_money(hours: list[tuple[datetime, float | None, float | None]], prices
     for start, bought, house in hours:
         if bought is None or (until is not None and start >= until):
             continue
-        local = start.astimezone(tz)
+        local = start.astimezone(time_zone)
         price = prices[band_of(local.date(), local.hour, kind)]
         known += 1
         day = days.setdefault(local.date().isoformat(), [0.0, 0.0])
@@ -179,7 +179,7 @@ def hour_rows(stats: dict[str, list[dict]], ids: dict[str, list[str]]
         if ids.get("load"):
             house = part("load", t)
         else:
-            flows = [part(k, t) for k in ("solar", "batt_out", "batt_in", "sent")]
+            flows = [part(k, t) for k in ("solar", "battery_out", "battery_in", "sent")]
             house = None if bought is None or None in flows else max(0.0, flows[0] + flows[1] + bought - flows[2] - flows[3])
         out.append((datetime.fromtimestamp(t, timezone.utc), bought, house))
     return out
@@ -382,7 +382,7 @@ class Bills:
 
         async with self._lock:
             stored = dict(self.stored)  # a call may change it while this one waits on the statistics
-            tz = dt_util.get_default_time_zone()
+            time_zone = dt_util.get_default_time_zone()
             now = dt_util.now()
             this_month = now.strftime("%Y-%m")
             estimated = estimated_months(stored, this_month) if self.pun else {}
@@ -416,12 +416,12 @@ class Bills:
                     # the others priced: it says so and keeps its statistics' figure on the page.
                     try:
                         y, m = map(int, month.split("-"))
-                        start = datetime(y, m, 1, tzinfo=tz)
-                        end = datetime(y + m // 12, m % 12 + 1, 1, tzinfo=tz)
+                        start = datetime(y, m, 1, tzinfo=time_zone)
+                        end = datetime(y + m // 12, m % 12 + 1, 1, tzinfo=time_zone)
                         stats = await get_instance(self.hass).async_add_executor_job(
                             statistics_during_period, self.hass, start, end, wanted, "hour", {"energy": "kWh"},
                             {"change"})
-                        money[month] = month_money(hour_rows(stats, ids), prices, tz, month, until)
+                        money[month] = month_money(hour_rows(stats, ids), prices, time_zone, month, until)
                         if until is None and money[month] is not None:
                             self._priced[month] = (key, money[month])
                     except Exception as err:  # noqa: BLE001

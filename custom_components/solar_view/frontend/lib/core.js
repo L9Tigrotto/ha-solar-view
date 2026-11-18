@@ -11,7 +11,7 @@ export const DAY = 24 * HOUR;
 export const noonOf = (key) => Date.parse(key) + 12 * HOUR;
 
 // Rules both the page and the forecast part keep.
-export const FULL_SOC = 97;    // from here up the battery is full: with export capped, spare sun is held back
+export const FULL_CHARGE = 97;    // from here up the battery is full: with export capped, spare sun is held back
 export const LASTS_MAX_H = 18; // past this many hours "enough until" says nothing
 export const WHOLE_DAY_H = 23; // a day with this many hours or more counts whole (a day the clocks go forward has 23)
 
@@ -21,35 +21,35 @@ export const WHOLE_DAY_H = 23; // a day with this many hours or more counts whol
 // formatToParts costs about 4 µs a call. Cleared past CLOCK_KEEP times, so it never grows for ever.
 const CLOCK_KEEP = 5000;
 const clocks = new Map();
-export function clockOf(tz) {
-  if (clocks.has(tz)) return clocks.get(tz);
+export function clockOf(timeZone) {
+  if (clocks.has(timeZone)) return clocks.get(timeZone);
   /** @type {Intl.DateTimeFormatOptions} */
   const opts = { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
   let f;
-  try { f = new Intl.DateTimeFormat("en-CA", { ...opts, timeZone: tz }); } catch (e) { f = new Intl.DateTimeFormat("en-CA", opts); }
+  try { f = new Intl.DateTimeFormat("en-CA", { ...opts, timeZone: timeZone }); } catch (e) { f = new Intl.DateTimeFormat("en-CA", opts); }
   const seen = new Map();
   // Kept by the minute: the clock read on every update is one entry a minute, not one each time.
   const clock = (time) => {
-    const ms = time - time % MINUTE;
-    let c = seen.get(ms);
+    const timestamp = time - time % MINUTE;
+    let c = seen.get(timestamp);
     if (!c) {
-      const p = Object.fromEntries(f.formatToParts(ms).map((x) => [x.type, x.value]));
+      const p = Object.fromEntries(f.formatToParts(timestamp).map((x) => [x.type, x.value]));
       c = { key: `${p.year}-${p.month}-${p.day}`, hour: +p.hour, minute: +p.minute };
       if (seen.size >= CLOCK_KEEP) seen.clear();
-      seen.set(ms, c);
+      seen.set(timestamp, c);
     }
     return c;
   };
-  clocks.set(tz, clock);
+  clocks.set(timeZone, clock);
   return clock;
 }
 // Start of the hour holding ms, from the clock's minute: right in half hour time zones too.
-export const hourStart = (ms, clock) => ms - clock(ms).minute * MINUTE - (ms % MINUTE);
+export const hourStart = (timestamp, clock) => timestamp - clock(timestamp).minute * MINUTE - (timestamp % MINUTE);
 // The hour starts of the day holding ms, midnight to midnight by the clock: 23 the day the clocks go forward,
 // 25 the day they go back.
-export function dayHours(ms, clock) {
-  const key = clock(ms).key, hours = [];
-  let t = hourStart(ms, clock);
+export function dayHours(timestamp, clock) {
+  const key = clock(timestamp).key, hours = [];
+  let t = hourStart(timestamp, clock);
   while (clock(t - HOUR).key === key) t -= HOUR;
   for (; clock(t).key === key; t += HOUR) hours.push(t);
   return hours;
@@ -57,7 +57,7 @@ export function dayHours(ms, clock) {
 // The next quarter past the hour after `now`: Home Assistant's new hour rows are in by then.
 export const quarterPast = (now) => { const q = Math.floor(now / HOUR) * HOUR + 15 * MINUTE; return q > now ? q : q + HOUR; };
 // The hour starting at ms holds now.
-export const inHour = (ms, now) => ms <= now && now < ms + HOUR;
+export const inHour = (timestamp, now) => timestamp <= now && now < timestamp + HOUR;
 // A day key moved by whole days. Plain calendar arithmetic, so daylight saving cannot bend it.
 export const shiftKey = (key, days) => new Date(Date.parse(key) + days * DAY).toISOString().slice(0, 10);
 // A month key ("2026-10") moved by whole months.
@@ -92,15 +92,17 @@ export const pricedEnergy = (kwh, rate) => (!Number.isFinite(kwh) ? null : kwh =
 // What the house used that the grid did not give, in kWh, never below 0; null when either figure is unknown.
 export const selfKwh = (d) => ([d.loadKwh, d.gridImportKwh].every(Number.isFinite) ? Math.max(0, d.loadKwh - d.gridImportKwh) : null);
 // The outlook's battery runs start from the floor at the lowest: a reading under it moves them by this much.
-export const socShift = (soc, floor) => soc - Math.min(100, Math.max(soc, floor));
+export const chargeShift = (chargeLevel, floor) => chargeLevel - Math.min(100, Math.max(chargeLevel, floor));
 export const clamp01 = (x) => Math.min(1, Math.max(0, x));
-export const pct = (v) => Math.round(v * 100);
+export const percent = (v) => Math.round(v * 100);
 // x rounded to 1/to (100: 2 places), null when it is not a number.
 export const roundTo = (x, to) => (Number.isFinite(x) ? Math.round(x * to) / to : null);
 
-// say("{a} and {b}", { a, b }): placeholders are one letter.
-export const say = (text, parts) => text.replace(/\{(\w)\}/g, (_, k) => parts[k]);
+// say("{first} and {second}", { first, second }): placeholders are words.
+export const say = (text, parts) => text.replace(/\{(\w+)\}/g, (_, k) => parts[k]);
 export const cap = (text) => text[0].toUpperCase() + text.slice(1);
+// A line by its path as the markup keeps it, "gear.showDone".
+export const lineAt = (lines, path) => path.split(".").reduce((section, key) => section?.[key], lines);
 // Text typed by the owner goes into the page as text, never as markup.
 export const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 

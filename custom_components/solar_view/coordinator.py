@@ -24,7 +24,7 @@ from homeassistant.util import dt as dt_util
 
 from .bills import Bills
 from .const import (
-    CONF_EXPORT_LIMIT, CONF_MODEL, CONF_SOC, DOMAIN, ISSUE_PICK, ISSUE_WEATHER, STALE_AFTER_HOURS, STAT_ID,
+    CONF_EXPORT_LIMIT, CONF_MODEL, CONF_CHARGE_SENSOR, DOMAIN, ISSUE_PICK, ISSUE_WEATHER, STALE_AFTER_HOURS, STAT_ID,
 )
 from .forecast import (
     AIFS, WINDOW_DAYS, Row, attributes, forecast_linked, is_throttled, merge_weather, roof_profile, sun_hours,
@@ -53,17 +53,17 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
     async def _async_update_data(self) -> dict[str, Any] | None:
         if self._saved is None:
             self._saved = await self._store.async_load() or {}
-        cfg = self.config_entry.options or self.config_entry.data
-        lat, lon = cfg[CONF_LATITUDE], cfg[CONF_LONGITUDE]
-        model = (cfg.get(CONF_MODEL) or "").strip() or AIFS  # saved before the options flow stripped it
-        now, tz = dt_util.utcnow(), dt_util.get_default_time_zone()
-        hourly = await self._weather(lat, lon, model, now)
+        entry_config = self.config_entry.options or self.config_entry.data
+        latitude, longitude = entry_config[CONF_LATITUDE], entry_config[CONF_LONGITUDE]
+        model = (entry_config.get(CONF_MODEL) or "").strip() or AIFS  # saved before the options flow stripped it
+        now, time_zone = dt_util.utcnow(), dt_util.get_default_time_zone()
+        hourly = await self._weather(latitude, longitude, model, now)
         if hourly is None:  # stale: nothing old may pass for a forecast, in the sensor or the Energy settings
             await self._store.async_save(self._saved)
             return None
         weather = merge_weather(hourly, model)
-        rows = await self._rows(cfg, now)
-        profile = roof_profile(rows, lat, lon, tz, now) if rows is not None else None
+        rows = await self._rows(entry_config, now)
+        profile = roof_profile(rows, latitude, longitude, time_zone, now) if rows is not None else None
         if rows == []:
             self._say("no_stats", "Solar view: the Energy settings' solar panels have no statistics yet, no forecast")
         elif rows is not None and profile is None:
@@ -72,8 +72,8 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
             await self._store.async_save(self._saved)
             return None
         self._said -= {"no_stats", "not_ready"}
-        sun = sun_hours(profile, weather, tz)
-        pending, done = update_pending(self._saved.get("pending", {}), sun, now, tz)
+        sun = sun_hours(profile, weather, time_zone)
+        pending, done = update_pending(self._saved.get("pending", {}), sun, now, time_zone)
         if done:
             async_add_external_statistics(self.hass, {
                 "source": DOMAIN, "statistic_id": STAT_ID, "name": "Solar view sun forecast",
@@ -82,15 +82,15 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
             }, [{"start": t, "mean": v} for t, v in done])
         self._saved["pending"] = pending
         await self._store.async_save(self._saved)
-        return {"written": now, "attributes": attributes(sun, weather, now, tz, lat, lon),
-                "wh_hours": wh_hours(sun, now, tz)}
+        return {"written": now, "attributes": attributes(sun, weather, now, time_zone, latitude, longitude),
+                "wh_hours": wh_hours(sun, now, time_zone)}
 
-    async def _weather(self, lat: float, lon: float, model: str, now: datetime) -> dict[str, Any] | None:
+    async def _weather(self, latitude: float, longitude: float, model: str, now: datetime) -> dict[str, Any] | None:
         """Open-Meteo's hourly block: a fresh one, else the last good one while under STALE_AFTER_HOURS old.
         Older: the repair issue and None. Never any: UpdateFailed, so setup retries (no issue: setup shows it)."""
         try:
             session = async_get_clientsession(self.hass)
-            async with session.get(weather_url(lat, lon, model), timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            async with session.get(weather_url(latitude, longitude, model), timeout=aiohttp.ClientTimeout(total=30)) as resp:
                 resp.raise_for_status()
                 hourly = (await resp.json())["hourly"]
         except (aiohttp.ClientError, TimeoutError, KeyError, ValueError) as err:
@@ -115,7 +115,7 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
         ir.async_delete_issue(self.hass, DOMAIN, ISSUE_WEATHER)
         return hourly
 
-    async def _rows(self, cfg: Any, now: datetime) -> list[Row] | None:
+    async def _rows(self, entry_config: Any, now: datetime) -> list[Row] | None:
         """The past 14 days' hours: kWh made (all solar sources in the Energy settings), throttled or not.
         None without a solar source."""
         prefs = (await async_get_manager(self.hass)).data or {}
@@ -132,9 +132,9 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
         else:
             ir.async_create_issue(self.hass, DOMAIN, ISSUE_PICK, is_fixable=False,
                                   severity=ir.IssueSeverity.WARNING, translation_key=ISSUE_PICK)
-        soc, limit = cfg.get(CONF_SOC), cfg.get(CONF_EXPORT_LIMIT)
+        charge_sensor_id, limit = entry_config.get(CONF_CHARGE_SENSOR), entry_config.get(CONF_EXPORT_LIMIT)
         end = now.replace(minute=0, second=0, microsecond=0)
-        ids = set(solar) | set(export) | ({soc} if soc else set())
+        ids = set(solar) | set(export) | ({charge_sensor_id} if charge_sensor_id else set())
         stats = await get_instance(self.hass).async_add_executor_job(
             statistics_during_period, self.hass, end - timedelta(days=WINDOW_DAYS), end, ids, "hour",
             {"energy": "kWh"}, {"change", "max", "mean"})
@@ -148,7 +148,7 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
             return out
 
         made, exported = summed(solar), summed(export)
-        charge = {r["start"]: r["max"] if r.get("max") is not None else r.get("mean") for r in stats.get(soc, [])}
+        charge = {r["start"]: r["max"] if r.get("max") is not None else r.get("mean") for r in stats.get(charge_sensor_id, [])}
         return [Row(datetime.fromtimestamp(t, timezone.utc), kwh,
                     is_throttled(charge.get(t), exported.get(t) if export else None, limit))
                 for t, kwh in made.items()]

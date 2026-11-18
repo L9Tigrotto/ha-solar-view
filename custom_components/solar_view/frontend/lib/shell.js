@@ -2,7 +2,7 @@
    the help dialogs ("How to read this"), and how much the browser enlarges text. */
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
 /** @type {typeof import("./draw.js")} */
-const { battRing, sw, wxIcon } = await import(`./draw.js${v}`);
+const { batteryRing, swatch, weatherIcon } = await import(`./draw.js${v}`);
 
 const PAGES = ["now", "energy", "money"];
 
@@ -20,11 +20,11 @@ const FLAG = {
 };
 // Rich options where the browser draws them (see .language select); elsewhere the parser drops the button,
 // the flags and the spans, and each option keeps its name as plain text. `languages`: LANGUAGES of solar-view.js.
-const languagePicker = (languages) => `<fieldset class="language"><legend id="language-title" data-t="language"></legend>
+const languagePicker = (languages) => `<fieldset class="language"><legend id="language-title" data-t="shared.language"></legend>
 <select name="language" aria-labelledby="language-title"><button type="button"><selectedcontent></selectedcontent></button>${
   Object.entries({ "": "", ...languages }).map(([code, name]) => `<option value="${code}"><svg viewBox="0 0 24 16" width="24" height="16" aria-hidden="true" focusable="false">${FLAG[code]}</svg><span>${name}</span></option>`).join("")}</select></fieldset>`;
 // The display switches, grouped by the heading they go under (see SHOW_KEY in solar-view.js).
-const SWITCHES = { showSky: ["sunHeight", "clouds", "rain"] };
+const SWITCHES = { skyTitle: ["sunHeight", "clouds", "rain"] };
 
 // The tab bar's icons (24 x 24, drawn with the text colour).
 const TAB_ICON = {
@@ -36,17 +36,17 @@ const TAB_ICON = {
 // How to read each card: one line per mark, its drawing and its text. The battery's has its two
 // example rings above the lines (see readDialog).
 const READ = {
-  battery: ["solid", "gain", "use", "low"].map((k) => [`<i class="${k}"></i>`, `help${k[0].toUpperCase() + k.slice(1)}`]),
-  days: [[sw("pill", "--sun"), "helpDaysPill"], [sw("mark", "--ink"), "helpDaysUse"], [wxIcon("partly"), "helpDaysSky"]],
-  daily: [[sw("solid", "--sun"), "helpProdMonths"], [sw("ghost", "--sun"), "helpProdEnd"], [sw("line", "--sun"), "helpWeekBar"], [sw("lineAhead", "--sun"), "helpProdAhead"],
-    [sw("hollow", "--sun"), "helpDayToday"], [sw("dotPick", "--sun"), "helpWeekPick"]],
-  share: [[sw("arc", "--sun"), "helpShareSun"], [sw("arc", "--batt"), "helpShareBatt"], [sw("arc", "--grid"), "helpShareGrid"],
-    [`<b class="sw-num">%</b>`, "helpShareNum"], ["", "helpShareTotal"], ["", "helpShareAhead"]],
-  recent: [[sw("line", "--sun"), "helpRecentBar"], ["", "helpRecentSold"], [sw("lineAhead", "--sun"), "helpRecentAhead"], [sw("hollow", "--sun"), "helpDayToday"], [sw("dotPick", "--sun"), "helpRecentPick"]],
-  payback: [[sw("arc", "--sun"), "helpPaybackArc"], ["", "helpPaybackCost"], ["", "helpPaybackLeft"]],
-  battday: [[sw("line", "--sun"), "helpBattDayBars"], [sw("lineAhead", "--sun"), "helpBattDayGhost"], [sw("line", "--batt"), "helpBattDayLine"], [sw("lineAhead", "--batt"), "helpBattDayAhead"], [sw("usual", "--low"), "helpBattDayFloor"], [sw("dotPick", "--batt"), "helpBattDayPick"]],
-  table: [[sw("solid", "--batt"), "helpBalMonths"], [sw("ghost", "--batt"), "helpBalEnd"], [sw("arc", "--grid"), "helpBalSplit"], ["", "helpBalNet"]],
-  prices: [[sw("buy", "--grid"), "helpPricesBuy"], ["", "helpPricesBands"], [sw("sell", "--sent"), "helpPricesSell"], ["", "helpPricesRates"]],
+  battery: ["solid", "gain", "use", "low"].map((k) => [`<i class="${k}"></i>`, `help.battery${k[0].toUpperCase() + k.slice(1)}`]),
+  days: [[swatch("pill", "--sun"), "help.daysBar"], [swatch("mark", "--ink"), "help.daysUse"], [weatherIcon("partly"), "help.daysSky"]],
+  daily: [[swatch("solid", "--sun"), "help.monthBars"], [swatch("ghost", "--sun"), "help.monthEnd"], [swatch("line", "--sun"), "help.dayLine"], [swatch("lineAhead", "--sun"), "help.monthAhead"],
+    [swatch("hollow", "--sun"), "help.dayToday"], [swatch("dotPick", "--sun"), "help.dayPick"]],
+  share: [[swatch("arc", "--sun"), "help.shareSun"], [swatch("arc", "--battery"), "help.shareBattery"], [swatch("arc", "--grid"), "help.shareGrid"],
+    [`<b class="swatch-num">%</b>`, "help.shareNumber"], ["", "help.shareTotal"], ["", "help.shareAhead"]],
+  recent: [[swatch("line", "--sun"), "help.returnsBar"], ["", "help.returnsSold"], [swatch("lineAhead", "--sun"), "help.returnsAhead"], [swatch("hollow", "--sun"), "help.dayToday"], [swatch("dotPick", "--sun"), "help.returnsPick"]],
+  payback: [[swatch("arc", "--sun"), "help.paybackArc"], ["", "help.paybackCost"], ["", "help.paybackLeft"]],
+  hoursToday: [[swatch("line", "--sun"), "help.hoursBars"], [swatch("lineAhead", "--sun"), "help.hoursGhost"], [swatch("line", "--battery"), "help.hoursLine"], [swatch("lineAhead", "--battery"), "help.hoursAhead"], [swatch("usual", "--low"), "help.hoursFloor"], [swatch("dotPick", "--battery"), "help.hoursPick"]],
+  table: [[swatch("solid", "--battery"), "help.balanceBars"], [swatch("ghost", "--battery"), "help.balanceEnd"], [swatch("arc", "--grid"), "help.balanceSplit"], ["", "help.balanceNet"]],
+  prices: [[swatch("buy", "--grid"), "help.pricesBuy"], ["", "help.pricesBands"], [swatch("sell", "--sent"), "help.pricesSell"], ["", "help.pricesRates"]],
 };
 
 // The shadow root's markup: the stylesheet, the sky and its rain and snow, the gear, one empty section per
@@ -63,19 +63,19 @@ const shellHtml = (css) => `<style>${css}</style>
 
 // The gear's dialog: the display switches, the language, and for admins the setup check (see _fillCheck). Texts
 // come later (see _dialogTexts).
-const gearDialog = (languages) => `<dialog class="show" aria-labelledby="show-title"><form method="dialog"><h2 id="show-title" data-t="showTitle"></h2><p data-t="showNote"></p>
-${Object.entries(SWITCHES).map(([group, names]) => `<fieldset><legend data-t="${group}"></legend>${names.map((n) =>
-  `<label><span data-t="sw${n[0].toUpperCase() + n.slice(1)}"></span><input type="checkbox" role="switch" name="${n}"></label>`).join("")}</fieldset>`).join("")}
+const gearDialog = (languages) => `<dialog class="show" aria-labelledby="show-title"><form method="dialog"><h2 id="show-title" data-t="gear.showOnDevice"></h2><p data-t="gear.showOnDeviceNote"></p>
+${Object.entries(SWITCHES).map(([group, names]) => `<fieldset><legend data-t="gear.${group}"></legend>${names.map((n) =>
+  `<label><span data-t="gear.switch${n[0].toUpperCase() + n.slice(1)}"></span><input type="checkbox" role="switch" name="${n}"></label>`).join("")}</fieldset>`).join("")}
 ${languagePicker(languages)}
-<fieldset class="check" hidden><legend data-t="chkTitle"></legend><dl></dl></fieldset>
-<button data-t="showDone"></button></form></dialog>`;
+<fieldset class="check" hidden><legend data-t="gear.checkTitle"></legend><dl></dl></fieldset>
+<button data-t="gear.showDone"></button></form></dialog>`;
 
 // How to read one card, "" for a card without one.
-const readDialog = (card) => (Object.hasOwn(READ, card) ? `<dialog class="read" data-card="${card}" aria-labelledby="read-${card}"><form method="dialog"><h2 id="read-${card}" data-t="helpTitle"></h2>
-${card === "battery" ? `<div class="pair"><figure>${battRing(60, 75, "--batt", null, "")}<figcaption data-t="helpRise"></figcaption></figure>
-<figure>${battRing(60, 45, "--batt", null, "")}<figcaption data-t="discharging"></figcaption></figure></div>` : ""}
+const readDialog = (card) => (Object.hasOwn(READ, card) ? `<dialog class="read" data-card="${card}" aria-labelledby="read-${card}"><form method="dialog"><h2 id="read-${card}" data-t="help.title"></h2>
+${card === "battery" ? `<div class="pair"><figure>${batteryRing(60, 75, "--battery", null, "")}<figcaption data-t="help.charging"></figcaption></figure>
+<figure>${batteryRing(60, 45, "--battery", null, "")}<figcaption data-t="now.discharging"></figcaption></figure></div>` : ""}
 <ul>${READ[card].map(([mark, key]) => `<li>${mark}<span data-t="${key}"></span></li>`).join("")}</ul>
-<button data-t="helpClose"></button></form></dialog>` : "");
+<button data-t="help.close"></button></form></dialog>` : "");
 
 // How much the browser enlarges text on its own: [page text, chart text], 1 where it does not. The
 // Home Assistant app on Android shows the panel in a web view that grows text by the phone's font size

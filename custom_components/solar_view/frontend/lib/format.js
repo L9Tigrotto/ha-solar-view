@@ -15,16 +15,16 @@ export function hourCycle(timeFormat, locale) {
 export function formats(lang, currency, cycle, zone) {
   // A decimal point in every language, as the owner asked: "2.8 kW", "0.30 €". A group mark that is a
   // point too ("1.234" in Italian) becomes a narrow space, so the two never mix.
-  const pointed = (nf) => {
-    const formatToParts = (v) => nf.formatToParts(v).map((p) => (p.type === "decimal" ? { ...p, value: "." } : p.type === "group" && p.value === "." ? { ...p, value: "\u202f" } : p));
+  const pointed = (numberFormat) => {
+    const formatToParts = (v) => numberFormat.formatToParts(v).map((p) => (p.type === "decimal" ? { ...p, value: "." } : p.type === "group" && p.value === "." ? { ...p, value: "\u202f" } : p));
     return { formatToParts, format: (v) => formatToParts(v).map((p) => p.value).join("") };
   };
   const number = pointed(new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }));
   const money = pointed(new Intl.NumberFormat(lang, { style: "currency", currency }));
   const whole = pointed(new Intl.NumberFormat(lang, { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: 0 })); // payback's sums
   // The currency sign after the number, whatever the language: "1.77 €".
-  const after = (nf, v) => {
-    const parts = nf.formatToParts(v), sign = parts.filter((p) => p.type === "currency").map((p) => p.value).join("");
+  const after = (numberFormat, v) => {
+    const parts = numberFormat.formatToParts(v), sign = parts.filter((p) => p.type === "currency").map((p) => p.value).join("");
     return `${parts.filter((p) => p.type !== "currency" && (p.type !== "literal" || p.value.trim())).map((p) => p.value).join("")} ${sign}`;
   };
   // A zone this browser's Intl does not know (an older WebView): the browser's own, as in clockOf.

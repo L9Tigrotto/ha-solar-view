@@ -23,7 +23,7 @@ export const CSS = `
   /* Accents: amber, teal green, rose, plum, blue. They double as the marks on charts and rings (see markOf),
      3:1 or more on the lightest sky and on white. Sent is the grid colour, faded; savings (the money
      page's marks) a teal of their own. */
-  --range:#fe640b; --sun:#a3650c; --batt:#277c61; --low:#b64259; --grid:#7956a8; --home:#2f6eae;
+  --range:#fe640b; --sun:#a3650c; --battery:#277c61; --low:#b64259; --grid:#7956a8; --home:#2f6eae;
   --sent-mark:#8965b3; --return-mark:#277b72;
   --f:ui-rounded,"SF Pro Rounded","Segoe UI Variable Text","Segoe UI",system-ui,Roboto,"Helvetica Neue",Arial,sans-serif;
   --ease:cubic-bezier(.22,1,.36,1);
@@ -43,7 +43,7 @@ export const CSS = `
   --ink:#ffffff; --ink-2:#d3def0; --paper:#0b1626;
   --card:rgba(8,16,36,.7); --card-line:rgba(255,255,255,.13);
   --track:rgba(255,255,255,.17);
-  --range:#fe640b; --sun:#e9bf69; --batt:#72c6a4; --low:#ed9cad; --grid:#b4a0d7; --home:#87b5df;
+  --range:#fe640b; --sun:#e9bf69; --battery:#72c6a4; --low:#ed9cad; --grid:#b4a0d7; --home:#87b5df;
   /* Marks: the plain colours where they reach 3:1 on the lightest night sky, lighter where not. */
   --home-mark:#94bde3; --grid-mark:#c2b1de; --low-mark:#efa5b4; --sent-mark:#d9ccec; --return-mark:#80cfbf;
 }
@@ -141,9 +141,9 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .flow .moon-dark{opacity:.14}
 .flow .moon-lit{opacity:.8}
 .flow .crater{fill:var(--paper);opacity:.3}
-:is(.flow,.wx) .cloud{fill:var(--paper);stroke:var(--ink)}
-:is(.flow,.wx) .cloud.rainy{fill:none}
-:is(.flow,.wx) .drop{fill:none;stroke:var(--ink)}
+:is(.flow,.weather-icon) .cloud{fill:var(--paper);stroke:var(--ink)}
+:is(.flow,.weather-icon) .cloud.rainy{fill:none}
+:is(.flow,.weather-icon) .drop{fill:none;stroke:var(--ink)}
 
 /* Hint box: whatever is hovered, tapped or focused (anything with data-hint), its name small over its
    value, a dot in its colour, and a pointer to it. */
@@ -183,10 +183,10 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 /* The digits are what the eye centres, so an unseen % on the left balances the one on the right. */
 .ring-mid .big:has(small)::before{content:"%";visibility:hidden;font-size:.42em;font-weight:300;letter-spacing:0;margin-right:3px}
 /* The battery's word and what it is doing centred under its ring. */
-.batt-say{min-width:0;text-align:center}
-.batt-word{display:flex;align-items:center;justify-content:center;gap:8px;font-size:calc(24px / var(--zt));font-weight:600;letter-spacing:-.01em;line-height:1.2}
-.batt-word i{flex:none;width:12px;height:12px;border-radius:50%;background:var(--c)}
-.batt-say p{color:var(--ink-2);font-size:var(--t-m);text-wrap:pretty}
+.battery-say{min-width:0;text-align:center}
+.battery-word{display:flex;align-items:center;justify-content:center;gap:8px;font-size:calc(24px / var(--zt));font-weight:600;letter-spacing:-.01em;line-height:1.2}
+.battery-word i{flex:none;width:12px;height:12px;border-radius:50%;background:var(--c)}
+.battery-say p{color:var(--ink-2);font-size:var(--t-m);text-wrap:pretty}
 
 /* Rings (see ring()): the track is decoration, the coloured marks carry the meaning. */
 .ring{display:block;width:100%;height:auto;overflow:visible}
@@ -229,17 +229,17 @@ h1,h2,h3,p,ol{margin:0;padding:0}
    before the data (titles, headings, labels, units, weekdays) stays readable, as does the
    "Loading" headline. Every mark is one grey layer: a fill drawn over its track is hidden.
    A bar hugs its text (fit-content), and must stay where that text sits when loaded. */
-.skel :is(.sub,.batt-say p,:is(.advice,.wear,.best) p > *,p.money,.day:not(:has(.readout)),.big,.readout dd,.amount,.side b,.price b,.batt-word > span,.card > .note,.flowtext .tv){
+.skel :is(.sub,.battery-say p,:is(.advice,.wear,.best) p > *,p.money,.day:not(:has(.readout)),.big,.readout dd,.amount,.side b,.price b,.battery-word > span,.card > .note,.flowtext .tv){
   color:transparent!important;background:var(--track);border-radius:var(--r-s);width:fit-content}
 /* The advice and washer sentences grey as spans, a bar a line, so a tile floated beside them (big text) stays clear. */
 .skel .big{display:inline-block}
-.skel :is(.readout dd,.batt-say p){margin-inline:auto}
+.skel :is(.readout dd,.battery-say p){margin-inline:auto}
 /* The headline keeps the box of the sentence shown last time, with the loading word over it. */
 .skel .now h1{position:relative;color:transparent}
 .skel .now h1::before{content:attr(data-wait);position:absolute;inset:0 0 auto;color:var(--ink)}
 .skel .now .sub{margin-inline:auto}
-.skel :is(.week .col i,.year i,.batt-word i,.advice .tile,.wear .tile,.best .tile,.days .track i){background:var(--track)!important;border-color:transparent!important;outline-color:transparent!important}
-.skel :is(.socline :not(.floor),.now-label,.days .track :is(b,.use),.tick,.hours24 i,.ring :not(.track,.sk),.flow .lvl,.wx){visibility:hidden}
+.skel :is(.week .col i,.year i,.battery-word i,.advice .tile,.wear .tile,.best .tile,.days .track i){background:var(--track)!important;border-color:transparent!important;outline-color:transparent!important}
+.skel :is(.chargeLine :not(.floor),.now-label,.days .track :is(b,.use),.tick,.hours24 i,.ring :not(.track,.sk),.flow .lvl,.weather-icon){visibility:hidden}
 .skel .week li[aria-current] > .date{background:none;color:inherit}
 .skel .step{visibility:hidden}
 .skel .legend i{background:var(--track)}
@@ -314,9 +314,9 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .card :is(h2,h3):has(.num){display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:0 12px}
 
 /* The weather icons of the coming days. */
-.wx{display:block;width:26px;height:24px;overflow:visible}
-.wx circle{fill:var(--sun-mark,var(--sun))}
-.wx .ray{stroke:var(--sun-mark,var(--sun))}
+.weather-icon{display:block;width:26px;height:24px;overflow:visible}
+.weather-icon circle{fill:var(--sun-mark,var(--sun))}
+.weather-icon .ray{stroke:var(--sun-mark,var(--sun))}
 /* Coming days: a row per day, its pill from low to high on a track from 0 to the highest high. */
 .days{list-style:none;display:grid;margin:0;padding:0}
 .days li{display:grid;grid-template-columns:3.4em 26px minmax(0,1fr) 2.4em;align-items:center;gap:8px;min-height:36px;font-size:var(--t-m);font-weight:500}
@@ -371,34 +371,34 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .stepped :is(.period,.chart-title),.stepped .day:not(:has(.readout)){padding-inline:36px}
 .stepped > .chart-title{text-align:center}
 .stepped.total{--cap-top:12px}
-/* ENERGY: Today by hour (see battDayCard): a chart of the charge, and under it one of each hour's energy,
+/* ENERGY: Today by hour (see hoursTodayCard): a chart of the charge, and under it one of each hour's energy,
    on one timeline, each under its own title and unit. They stretch with the card, their strokes keep their
    width; 24 hour cells over each take the taps and drags, the top ones the hints, and hold the picked hour's dots. */
 
-.battday .legend{margin:8px 0 0}
-.battday .plot{position:relative;height:120px;margin-top:22px}
-.battday .plot.charge{height:72px}
+.hoursToday .legend{margin:8px 0 0}
+.hoursToday .plot{position:relative;height:120px;margin-top:22px}
+.hoursToday .plot.charge{height:72px}
 /* Now: a thin line across both charts, named once over the top one, inside the card at either end. */
-.socline .now-line{stroke:var(--ink);stroke-width:1.25;opacity:.55}
-.battday .plot:has(> .now-label){margin-top:32px}
+.chargeLine .now-line{stroke:var(--ink);stroke-width:1.25;opacity:.55}
+.hoursToday .plot:has(> .now-label){margin-top:32px}
 .now-label{position:absolute;top:-28px;left:var(--x);translate:-50% 0;font-size:var(--t-xs);font-weight:600;line-height:12px;white-space:nowrap;pointer-events:none}
 .now-label.start{translate:0 0}
 .now-label.end{translate:-100% 0}
 /* A chart's own title, over it; a second one is set off from the chart above. */
 .chart-title{margin:16px 0;font-size:var(--t-s);font-weight:600}
 .plot + .chart-title{padding-top:12px;border-top:1px solid var(--track)}
-.socline{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
-.socline :is(path,line,rect){fill:none;vector-effect:non-scaling-stroke}
-.socline rect.later{fill:var(--ink);opacity:.05}
-.socline .grid{stroke:var(--track)}
-.socline .axis{stroke:var(--ink-2);opacity:.4}
-.socline :is(.series,.past,.ahead){stroke:var(--c);stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}
-.socline :is(.past,.ahead){--c:var(--batt-mark,var(--batt))}
-.socline :is(.series.later,.ahead){stroke-dasharray:5 5}
-.socline .floor{stroke:var(--low-mark,var(--low));stroke-width:1.5;stroke-dasharray:4 4}
+.chargeLine{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.chargeLine :is(path,line,rect){fill:none;vector-effect:non-scaling-stroke}
+.chargeLine rect.later{fill:var(--ink);opacity:.05}
+.chargeLine .grid{stroke:var(--track)}
+.chargeLine .axis{stroke:var(--ink-2);opacity:.4}
+.chargeLine :is(.series,.past,.ahead){stroke:var(--c);stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}
+.chargeLine :is(.past,.ahead){--c:var(--battery-mark,var(--battery))}
+.chargeLine :is(.series.later,.ahead){stroke-dasharray:5 5}
+.chargeLine .floor{stroke:var(--low-mark,var(--low));stroke-width:1.5;stroke-dasharray:4 4}
 /* A chart's scale: each gridline's value over it, on the left; the floor named at its line. */
 .tick{position:absolute;left:0;margin-bottom:1px;font-size:var(--t-xs);line-height:1.2;color:var(--ink-2);pointer-events:none}
-.battday .floor-label{position:absolute;right:0;margin-bottom:2px;font-size:var(--t-xs);color:var(--low-mark,var(--low))}
+.hoursToday .floor-label{position:absolute;right:0;margin-bottom:2px;font-size:var(--t-xs);color:var(--low-mark,var(--low))}
 .hours24{position:absolute;inset:0;display:grid;grid-template-columns:repeat(var(--n,24),1fr);margin:0;padding:0;list-style:none}
 .hours24 li{position:relative;border-radius:4px}
 .hours24 i{display:none;position:absolute;left:calc(var(--x) * 100%);bottom:var(--v);width:11px;height:11px;margin:0 0 -5.5px -5.5px;border-radius:50%;background:var(--c);box-shadow:0 0 0 2px var(--paper)}
@@ -407,7 +407,7 @@ h1,h2,h3,p,ol{margin:0;padding:0}
    stand in for the picked hour's until the pointer leaves. */
 .hours24 li.hover{background:color-mix(in srgb,var(--ink) 10%,transparent)}
 .hours24 li.hover i{display:block}
-.battday:has(li.hover) .hours24 li[aria-current]:not(.hover) i{display:none}
+.hoursToday:has(li.hover) .hours24 li[aria-current]:not(.hover) i{display:none}
 /* Twelve months to pick from (see monthPicker): a bar each, its short name and year under it. On Month
    balance (.both) the bars grow up or down from the zero line, --zero up from the bottom. Every bar in full colour, so each reads against the
    card; the picked month in ink, its column outlined (a shade behind it would lower the bar's contrast). */
@@ -460,8 +460,8 @@ h1,h2,h3,p,ol{margin:0;padding:0}
    text, so neither figure is cut from its unit. */
 .month-total .est dd{font-size:var(--t-l);font-weight:400}
 :host([big]) .month-total dl > div{flex-basis:100%}
-.battday .ticks{position:relative;height:16px;margin-top:4px;font-size:var(--t-xs);color:var(--ink-2)}
-.battday .ticks span{position:absolute}
+.hoursToday .ticks{position:relative;height:16px;margin-top:4px;font-size:var(--t-xs);color:var(--ink-2)}
+.hoursToday .ticks span{position:absolute}
 /* Payback once paid: a check in the full ring. */
 .payback .ring-mid .done{width:55px;height:55px;color:var(--sun-mark,var(--sun))}
 /* Payback before it is paid: what came back in the middle, the cost in the gap and named under the ring. */
@@ -505,7 +505,7 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .bands li{display:flex;flex-direction:column;padding:6px 8px;border:1px solid var(--track);border-radius:8px;font-size:var(--t-s);color:var(--ink-2)}
 .bands .name{display:flex;justify-content:space-between;gap:6px;font-weight:500;color:var(--ink)}
 .bands .num{margin-top:auto;padding-top:2px;font-size:var(--t-m);font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums}
-.bands .band-pct{font-weight:400;color:var(--ink-2)}
+.bands .band-percent{font-weight:400;color:var(--ink-2)}
 .bands [aria-current]{border-color:var(--grid-mark,var(--grid));color:var(--ink)}
 
 /* Tab bar, with Home Assistant's own menu button beside it when the sidebar is hidden. It floats over the
@@ -568,29 +568,29 @@ dialog form > button{display:block;min-height:44px;margin:16px 0 0 auto;padding:
 .read figure .ring{margin-bottom:4px}
 .read ul{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:8px}
 .read li{display:flex;align-items:center;gap:12px;font-size:var(--t-m);line-height:1.3}
-.read li i{flex:none;width:24px;height:10px;margin:0 3px;border-radius:5px;background:var(--batt-mark,var(--batt))}
-.read li .gain{background:color-mix(in srgb,var(--batt-mark,var(--batt)) 50%,transparent)}
+.read li i{flex:none;width:24px;height:10px;margin:0 3px;border-radius:5px;background:var(--battery-mark,var(--battery))}
+.read li .gain{background:color-mix(in srgb,var(--battery-mark,var(--battery)) 50%,transparent)}
 .read li .use{background:color-mix(in srgb,var(--low-mark,var(--low)) 50%,transparent)}
 .read li .low{background:var(--low-mark,var(--low))}
-/* The other cards' marks, drawn small (see SW). */
-.read .sw{flex:none;width:30px;height:16px;overflow:visible;fill:var(--c);stroke:var(--c);stroke-width:2;stroke-linecap:round}
-.read .sw .faded{fill:color-mix(in srgb,var(--c) 30%,transparent);stroke-width:1.5}
-.read .sw .track{fill:var(--track);stroke:var(--track)}
-.read .sw .ink{fill:var(--ink)}
-.read .sw .hollow{fill:var(--paper)}
-.read .wx{flex:none;width:30px;height:28px}
-.read .sw-num{flex:none;width:30px;text-align:center;font-weight:600}
+/* The other cards' marks, drawn small (see SWATCH). */
+.read .swatch{flex:none;width:30px;height:16px;overflow:visible;fill:var(--c);stroke:var(--c);stroke-width:2;stroke-linecap:round}
+.read .swatch .faded{fill:color-mix(in srgb,var(--c) 30%,transparent);stroke-width:1.5}
+.read .swatch .track{fill:var(--track);stroke:var(--track)}
+.read .swatch .ink{fill:var(--ink)}
+.read .swatch .hollow{fill:var(--paper)}
+.read .weather-icon{flex:none;width:30px;height:28px}
+.read .swatch-num{flex:none;width:30px;text-align:center;font-weight:600}
 
 /* Short panels (small phones, or the app with its own bars): tighten so a page still fits. */
 @container (max-height:700px) and (max-width:1003px){
-  .battday .plot{height:96px}
-  .battday .plot.charge{height:60px}
+  .hoursToday .plot{height:96px}
+  .hoursToday .plot.charge{height:60px}
   .page{gap:10px;padding-top:max(16px,env(safe-area-inset-top));padding-bottom:calc(6px + var(--foot,0px))}
   .now h1{font-size:calc(26px / var(--zt))}
   .now .sub{margin-top:4px;font-size:var(--t-m)}
   .card{padding:12px 16px 14px}
   .card h2{margin-bottom:6px}
-  .batt-word{font-size:calc(21px / var(--zt))}
+  .battery-word{font-size:calc(21px / var(--zt))}
   :is(.advice,.wear){padding:10px 14px}
   :is(.advice,.wear) p{font-size:calc(16px / var(--zt))}
   .title{font-size:calc(28px / var(--zt))}

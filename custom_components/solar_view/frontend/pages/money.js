@@ -5,14 +5,14 @@
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
 /** @type {[typeof import("../lib/core.js"), typeof import("../lib/draw.js"), typeof import("../lib/money.js"), typeof import("../lib/data.js"),
  *   typeof import("../lib/forecast.js")]} */
-const [{ pct, say, cap, sumKnown, shiftMonth, yearKeys }, { ADVICE_ICON, HOUSE, PLUG, helpButton, markOf, ring, readout, dayLine, monthPicker, monthSteps, boldDate, monthName },
+const [{ percent, say, cap, sumKnown, shiftMonth, yearKeys }, { ADVICE_ICON, HOUSE, PLUG, helpButton, markOf, ring, readout, dayLine, monthPicker, monthSteps, boldDate, monthName },
   { moneyOf, ledgerOf, paybackOf, bandRuns }, { paybackPredicts }, { bandOf }] = await Promise.all([
   import(`../lib/core.js${v}`), import(`../lib/draw.js${v}`), import(`../lib/money.js${v}`), import(`../lib/data.js${v}`), import(`../lib/forecast.js${v}`)]);
 
 // Money to 10 cents: what is still to come is no finer than that.
-const cents = (f, n) => f.money(Math.round(n * 10) / 10);
+const cents = (format, n) => format.money(Math.round(n * 10) / 10);
 // The balance as a readout figure, in the low colour below 0.
-const netRow = (t, f, net) => [t.netBenefit, f.money(net), net < 0 ? "--low" : "--batt", net < 0];
+const netRow = (lines, format, net) => [lines.money.netBenefit, format.money(net), net < 0 ? "--low" : "--battery", net < 0];
 
 // A money statistic in some of these rows.
 const stat = (rows) => rows.some((x) => Number.isFinite(x?.costMoney) || Number.isFinite(x?.earnedMoney));
@@ -46,7 +46,7 @@ function moneyView({ data, now, clock, pick }, payback = paybackView(data, now, 
   // Finished months from the month rows (last month from its day rows, as `lastMonth`, until it has one), this one
   // from the day rows (as `month`).
   const byMonth = new Map([[lastKey, data.lastMonth], ...(data.months ?? []), [key, data.month]]);
-  const row = (mk) => { const x = byMonth.get(mk); return x && !x.none ? x : null; };
+  const row = (monthKey) => { const x = byMonth.get(monthKey); return x && !x.none ? x : null; };
   // A card of money shows only when something prices it: a price, the bills sensor's month money or a money statistic.
   // A day or month that bought or sent 0 kWh is a known 0 even then, which alone would draw a card of dashes.
   const anyPrice = p.buy != null || p.sell != null;
@@ -55,14 +55,14 @@ function moneyView({ data, now, clock, pick }, payback = paybackView(data, now, 
   // this month where its cost, savings and net should end (see moneyOf). Gone when no month has any money known.
   const at = yearKeys(key).includes(pick?.balanceMonth) ? pick.balanceMonth : key, x = row(at);
   const shown = priced(data, [...byMonth.values()])
-    && yearKeys(key).some((mk) => row(mk) && ["cost", "saved", "earned"].some((k) => got(k, row(mk), mk) !== null));
+    && yearKeys(key).some((monthKey) => row(monthKey) && ["cost", "saved", "earned"].some((k) => got(k, row(monthKey), monthKey) !== null));
   let month = null;
   if (shown) {
     const cost = x && got("cost", x, at), brought = x && back(x, at);
     const endCost = at !== key ? null : coming?.cost != null && cost !== null ? cost + coming.cost : null;
     const endBack = at !== key ? null : coming?.back != null && brought !== null ? brought + coming.back : null;
     month = { key, at, sends: data.sends, endNet: end.net,
-      months: Object.fromEntries(yearKeys(key).map((mk) => [mk, { net: row(mk) ? net(row(mk), mk) : null, noPrice: !!row(mk) && !anyPrice }])),
+      months: Object.fromEntries(yearKeys(key).map((monthKey) => [monthKey, { net: row(monthKey) ? net(row(monthKey), monthKey) : null, noPrice: !!row(monthKey) && !anyPrice }])),
       picked: x && { cost, saved: got("saved", x, at), earned: got("earned", x, at), brought, net: net(x, at), endCost, endBack } };
   }
   // This month day by day: what each day brought back from its day rows, priced as the months without the fixed
@@ -79,36 +79,36 @@ function moneyView({ data, now, clock, pick }, payback = paybackView(data, now, 
   const ghost = !!month && ((month.months[key].net !== null && end.net !== null) || (!!month.picked && (month.picked.endCost > 0 || month.picked.endBack > 0)));
   return { empty: !month && !payback && !recent && !prices, payback, sends: data.sends, recent, prices, month,
     help: {
-      payback: ["helpPaybackArc", "helpPaybackCost", ...(paybackPredicts(data) ? ["helpPaybackLeft"] : [])],
-      recent: ["helpRecentBar", ...(data.sends ? ["helpRecentSold"] : []), ...(coming?.days.length ? ["helpRecentAhead"] : []), "helpDayToday", "helpRecentPick"],
-      prices: ["helpPricesBuy", ...(runs ? ["helpPricesBands"] : []), ...(data.sends && sell != null ? ["helpPricesSell"] : []), "helpPricesRates"],
-      table: ["helpBalMonths", ...(ghost ? ["helpBalEnd"] : []), "helpBalSplit", "helpBalNet"],
+      payback: ["help.paybackArc", "help.paybackCost", ...(paybackPredicts(data) ? ["help.paybackLeft"] : [])],
+      recent: ["help.returnsBar", ...(data.sends ? ["help.returnsSold"] : []), ...(coming?.days.length ? ["help.returnsAhead"] : []), "help.dayToday", "help.returnsPick"],
+      prices: ["help.pricesBuy", ...(runs ? ["help.pricesBands"] : []), ...(data.sends && sell != null ? ["help.pricesSell"] : []), "help.pricesRates"],
+      table: ["help.balanceBars", ...(ghost ? ["help.balanceEnd"] : []), "help.balanceSplit", "help.balanceNet"],
     } };
 }
 
 // The page, "" when no card has anything (the page then goes).
-function moneyPage(v, t, f) {
+function moneyPage(v, lines, format) {
   if (v.empty) return "";
-  const sign = f.money(0).split(" ").pop();
+  const sign = format.money(0).split(" ").pop();
   return `
-    <h1 class="title">${t.tabMoney}</h1>
-    ${paybackHtml(v.payback, t, f, v.sends)}${v.recent ? recentCard(v.recent, sign, t, f) : ""}${v.prices ? pricesCard(v.prices, t, f) : ""}${v.month ? monthCard(v.month, sign, t, f) : ""}`;
+    <h1 class="title">${lines.tabs.money}</h1>
+    ${paybackHtml(v.payback, lines, format, v.sends)}${v.recent ? recentCard(v.recent, sign, lines, format) : ""}${v.prices ? pricesCard(v.prices, lines, format) : ""}${v.month ? monthCard(v.month, sign, lines, format) : ""}`;
 }
-// The page from c = { data, t, f, clock, pick, now } in one step, for the preview and tests.
-const moneyHtml = (c) => moneyPage(moneyView(c), c.t, c.f);
+// The page from c = { data, texts, format, clock, pick, now } in one step, for the preview and tests.
+const moneyHtml = (c) => moneyPage(moneyView(c), c.lines, c.format);
 
 // The prices now: buying from the grid, and selling to it while export is on, each with which way the energy goes.
-function pricesCard(v, t, f) {
+function pricesCard(v, lines, format) {
   const bandList = !v.bands ? "" : `<ul class="bands">${v.bands.map((b) => {
-    const when = !b.runs.length ? `<span>${t.notToday}</span>` : v.allDay ? `<span>${t.allDay}</span>` : b.runs.map((r) => `<span>${f.time(r.from)} - ${f.time(r.to)}</span>`).join("");
-    return `<li${b.band === v.bandNow ? ' aria-current="true"' : ""}><span class="name">${b.band.toUpperCase()}</span>${when}${b.share !== null ? `<span class="band-pct">${say(t.bandShare, { p: f.num(pct(b.share)) })}</span>` : ""}<span class="num">${f.money(b.price)}</span></li>`;
+    const when = !b.runs.length ? `<span>${lines.money.notToday}</span>` : v.allDay ? `<span>${lines.money.allDay}</span>` : b.runs.map((r) => `<span>${format.time(r.from)} - ${format.time(r.to)}</span>`).join("");
+    return `<li${b.band === v.bandNow ? ' aria-current="true"' : ""}><span class="name">${b.band.toUpperCase()}</span>${when}${b.share !== null ? `<span class="band-percent">${say(lines.money.bandShare, { percent: format.num(percent(b.share)) })}</span>` : ""}<span class="num">${format.money(b.price)}</span></li>`;
   }).join("")}</ul>`;
-  const nowTag = v.bands ? ` <span class="band-now">${say(t.bandNow, { b: v.bandNow.toUpperCase() })}</span>` : "";
-  const flow = (label, x, out, more = "") => `<div class="price${out ? " out" : ""}"><p class="rate"><span>${label}</span> <b>${f.money(x)}<small> /kWh</small></b></p>
-      <p class="route"><svg class="end" viewBox="-17 -17 34 34" role="img" aria-label="${t.home}">${HOUSE}</svg><span class="arrow" aria-hidden="true">${out ? '<i></i><svg viewBox="17 7 6 10"><path d="m18 8 4 4-4 4"/></svg>' : '<svg viewBox="1 7 6 10"><path d="M6 8 2 12l4 4"/></svg><i></i>'}</span><svg class="end" viewBox="0 0 24 24" role="img" aria-label="${t.grid}">${PLUG}</svg></p>${more}</div>`;
+  const nowTag = v.bands ? ` <span class="band-now">${say(lines.money.bandNow, { band: v.bandNow.toUpperCase() })}</span>` : "";
+  const flow = (label, x, out, more = "") => `<div class="price${out ? " out" : ""}"><p class="rate"><span>${label}</span> <b>${format.money(x)}<small> /kWh</small></b></p>
+      <p class="route"><svg class="end" viewBox="-17 -17 34 34" role="img" aria-label="${lines.shared.home}">${HOUSE}</svg><span class="arrow" aria-hidden="true">${out ? '<i></i><svg viewBox="17 7 6 10"><path d="m18 8 4 4-4 4"/></svg>' : '<svg viewBox="1 7 6 10"><path d="M6 8 2 12l4 4"/></svg><i></i>'}</span><svg class="end" viewBox="0 0 24 24" role="img" aria-label="${lines.shared.grid}">${PLUG}</svg></p>${more}</div>`;
   return `<section class="card prices">
-      <h2>${t.pricesTitle}</h2>${helpButton(t, "prices")}
-      ${v.buy === null ? "" : flow(t.buyGrid + nowTag, v.buy, false, bandList)}${v.selling ? flow(t.sellGrid, v.sell, true) : ""}
+      <h2>${lines.money.pricesTitle}</h2>${helpButton(lines, "prices")}
+      ${v.buy === null ? "" : flow(lines.money.buyGrid + nowTag, v.buy, false, bandList)}${v.selling ? flow(lines.money.sellGrid, v.sell, true) : ""}
     </section>`;
 }
 
@@ -117,40 +117,40 @@ function pricesCard(v, t, f) {
 // then saved, export and the net as figures (see readout; a net below 0 in the low colour). A figure nobody can
 // price, or unknown, is a dash, without a bar; a month with no numbers on record says so. For this month, where its
 // net, cost and savings should end, a faded bar behind each.
-function monthCard(v, sign, t, f) {
-  const { key, at, picked: x } = v, named = (k) => monthName(k, key, t, f);
+function monthCard(v, sign, lines, format) {
+  const { key, at, picked: x } = v, named = (k) => monthName(k, key, lines, format);
   const most = x && Math.max(x.cost ?? 0, x.brought ?? 0, x.endCost ?? 0, x.endBack ?? 0, 1e-9), w = (n) => ((n / most) * 100).toFixed(1);
   // ponytail: a figure below 0 (a negative tariff) has its number but no bar; draw it to the other side if that ever matters.
-  const side = (cls, label, n, color, ahead) => `<div class="side ${cls}"><span>${label}</span><span class="track">${ahead > 0 ? `<i class="ghost" style="--c:${markOf(color)};--w:${w(ahead)}%"></i>` : ""}${!(n > 0) ? "" : `<i style="--c:${markOf(color)};--w:${w(n)}%"></i>`}</span><b>${f.money(n)}</b></div>`;
+  const side = (className, label, n, color, ahead) => `<div class="side ${className}"><span>${label}</span><span class="track">${ahead > 0 ? `<i class="ghost" style="--c:${markOf(color)};--w:${w(ahead)}%"></i>` : ""}${!(n > 0) ? "" : `<i style="--c:${markOf(color)};--w:${w(n)}%"></i>`}</span><b>${format.money(n)}</b></div>`;
   return `<section class="card months" data-pick="balance">
-      <h2><span>${t.monthTitle}</span> <span class="num">${sign}</span></h2>${helpButton(t, "table")}
-      ${monthPicker(t, f, key, at, (k) => v.months[k].net, (k, n) => `${named(k)}: ${n === null ? (v.months[k].noPrice ? t.noPrice : t.noData) : say(t.hBalance, { v: f.money(n) })}`, "--batt", true, (k) => (k === key ? v.endNet : null))}
-      <div class="stepped">${monthSteps(t, key, at, (k) => cap(named(k)))}<h3 class="chart-title">${cap(named(at))}</h3></div>
-      ${x ? `<div class="split">${side("cost", t.gridCost, x.cost, "--grid", x.endCost)}${side("back", v.sends ? t.savedEarned : t.savedLabel, x.brought, "--sun", x.endBack)}</div>
+      <h2><span>${lines.money.monthBalance}</span> <span class="num">${sign}</span></h2>${helpButton(lines, "table")}
+      ${monthPicker(lines, format, key, at, (k) => v.months[k].net, (k, n) => `${named(k)}: ${n === null ? (v.months[k].noPrice ? lines.shared.noPrice : lines.shared.noData) : say(lines.money.hintBalance, { money: format.money(n) })}`, "--battery", true, (k) => (k === key ? v.endNet : null))}
+      <div class="stepped">${monthSteps(lines, key, at, (k) => cap(named(k)))}<h3 class="chart-title">${cap(named(at))}</h3></div>
+      ${x ? `<div class="split">${side("cost", lines.money.gridCost, x.cost, "--grid", x.endCost)}${side("back", v.sends ? lines.money.savedAndExport : lines.shared.savedLabel, x.brought, "--sun", x.endBack)}</div>
       ${readout("", [
-        [t.savedLabel, f.money(x.saved), "--sun"],
-        v.sends ? [t.exportLabel, f.money(x.earned), "--sent"] : null,
-        netRow(t, f, x.net),
+        [lines.shared.savedLabel, format.money(x.saved), "--sun"],
+        v.sends ? [lines.shared.exportLabel, format.money(x.earned), "--sent"] : null,
+        netRow(lines, format, x.net),
       ])}
-      ${at === key && v.endNet !== null ? `<p class="note">${say(t.balEnd, { v: cents(f, v.endNet) })}</p>` : ""}` : `<p class="note">${t.noData}</p>`}
+      ${at === key && v.endNet !== null ? `<p class="note">${say(lines.money.balanceEnd, { money: cents(format, v.endNet) })}</p>` : ""}` : `<p class="note">${lines.shared.noData}</p>`}
     </section>`;
 }
 
 // This month day by day (see dayLine): what each day brought back, and the picked day's savings, grid cost
 // and balance under the chart (the month's total is on Month balance). A cost nobody can price leaves the
 // balance unknown too. The days still to come (see moneyAhead) dashed on, each with its sentence, to 10 cents.
-function recentCard(v, sign, t, f) {
+function recentCard(v, sign, lines, format) {
   const ahead = v.coming.map((d) => {
-    const date = f.date(new Date(d.date)), plain = cap(say(t.hDayMoney, { d: date, v: cents(f, d.back), c: cents(f, d.cost) }));
-    return [d.back, plain, boldDate(plain, t.hDayMoney, date)];
+    const date = format.date(new Date(d.date)), plain = cap(say(lines.money.hintDayMoney, { date, saved: cents(format, d.back), gridCost: cents(format, d.cost) }));
+    return [d.back, plain, boldDate(plain, lines.money.hintDayMoney, date)];
   });
   const day = (x, n, lead) => {
-    if (n === null) return readout(lead, [[x.none ? t.noData : t.noPrice, "—"]]);
-    return readout(lead, [[t.returns, f.money(n), "--sun"], [t.gridCost, f.money(x.cost), "--grid"], netRow(t, f, x.cost == null ? null : n - x.cost)]);
+    if (n === null) return readout(lead, [[x.none ? lines.shared.noData : lines.shared.noPrice, "—"]]);
+    return readout(lead, [[lines.shared.savings, format.money(n), "--sun"], [lines.money.gridCost, format.money(x.cost), "--grid"], netRow(lines, format, x.cost == null ? null : n - x.cost)]);
   };
   return `<section class="card recent" data-pick="recent">
-      <h2><span>${t.recentTitle}</span> <span class="num">${sign}</span></h2>${helpButton(t, "recent")}
-      ${dayLine(t, f, v.key, v.days, (x) => x.back, (x, n) => `${f.date(new Date(x.date))}: ${n === null ? (x.none ? t.noData : t.noPrice) : f.money(n)}`, day, v.at, { ahead })}
+      <h2><span>${lines.money.returnsTitle}</span> <span class="num">${sign}</span></h2>${helpButton(lines, "recent")}
+      ${dayLine(lines, format, v.key, v.days, (x) => x.back, (x, n) => `${format.date(new Date(x.date))}: ${n === null ? (x.none ? lines.shared.noData : lines.shared.noPrice) : format.money(n)}`, day, v.at, { ahead })}
     </section>`;
 }
 
@@ -158,30 +158,30 @@ function recentCard(v, sign, t, f) {
 // gap, named under it, and how long is left. Once paid, a check in the full ring, the month it happened and what
 // came back since. "" without a cost.
 // `sends`: export is on, so the month line says saved and sold (the ledger counts both).
-function paybackHtml(v, t, f, sends) {
+function paybackHtml(v, lines, format, sends) {
   if (!v) return "";
   if (v.incomplete) return `<section class="card payback">
-      <h2>${t.paybackTitle}</h2>${helpButton(t, "payback")}
-      <p class="note">${t.paybackIncomplete}</p>
+      <h2>${lines.money.paybackTitle}</h2>${helpButton(lines, "payback")}
+      <p class="note">${lines.money.paybackIncomplete}</p>
     </section>`;
   const { got, paid, left } = v;
   // The range names the unit once, in the main figure: "About 7.5 years left (6.3 to 9.3)".
   const years = left && left[1] >= 24, round = (n) => (years ? Math.round(n / 1.2) / 10 : n);
-  const span = (n) => (years ? f.years(round(n)) : f.months(n)), bare = (n) => f.num(round(n));
-  const of = say(t.paybackOf, { a: f.moneyWhole(got), b: f.moneyWhole(v.cost) });
-  const head = !paid ? of : v.on ? say(t.paybackOn, { m: f.monthYear(v.on) }) : t.paidBack;
-  const when = paid ? say(t.paybackGain, { v: f.moneyWhole(got - v.cost) })
-    : left && say(t.paybackLeft, { d: span(left[1]) }) + (left[0] !== left[2] ? ` (${say(t.paybackRange, { a: bare(left[0]), b: bare(left[2]) })})` : "");
+  const span = (n) => (years ? format.years(round(n)) : format.months(n)), bare = (n) => format.num(round(n));
+  const of = say(lines.money.paybackOf, { returned: format.moneyWhole(got), cost: format.moneyWhole(v.cost) });
+  const head = !paid ? of : v.on ? say(lines.money.paidBackIn, { month: format.monthYear(v.on) }) : lines.money.paidBack;
+  const when = paid ? say(lines.money.gainedSince, { money: format.moneyWhole(got - v.cost) })
+    : left && say(lines.money.paybackLeft, { time: span(left[1]) }) + (left[0] !== left[2] ? ` (${say(lines.money.paybackRange, { from: bare(left[0]), to: bare(left[2]) })})` : "");
   return `<section class="card payback">
-      <h2>${t.paybackTitle}</h2>${helpButton(t, "payback")}
+      <h2>${lines.money.paybackTitle}</h2>${helpButton(lines, "payback")}
       <div class="ring-box">
-        ${ring(v.share, "--sun", paid ? head : of, paid ? "" : f.moneyWhole(v.cost))}
-        <div class="ring-mid" aria-hidden="true">${paid ? `<svg class="done" viewBox="0 0 24 24">${ADVICE_ICON.ok}</svg>` : `<span class="amount">${f.moneyWhole(got)}</span>`}</div>
+        ${ring(v.share, "--sun", paid ? head : of, paid ? "" : format.moneyWhole(v.cost))}
+        <div class="ring-mid" aria-hidden="true">${paid ? `<svg class="done" viewBox="0 0 24 24">${ADVICE_ICON.ok}</svg>` : `<span class="amount">${format.moneyWhole(got)}</span>`}</div>
       </div>
-      ${paid ? `<p>${head}</p>` : `<p class="ring-name">${t.plantCost}</p>`}${v.month === null ? "" : `<p class="money month">${say(sends ? t.paybackMonthSold : t.paybackMonth, { v: f.moneyWhole(v.month) })}</p>`}${when ? `<p class="money">${when}</p>` : ""}
+      ${paid ? `<p>${head}</p>` : `<p class="ring-name">${lines.money.plantCost}</p>`}${v.month === null ? "" : `<p class="money month">${say(sends ? lines.money.paybackMonthSold : lines.money.paybackMonth, { money: format.moneyWhole(v.month) })}</p>`}${when ? `<p class="money">${when}</p>` : ""}
     </section>`;
 }
 // The card from a ledger in one step (see paybackOf), for the preview and tests.
-const paybackCard = (all, pb, { t, f }, predicts, at) => paybackHtml(paybackOf(all, pb, predicts, at), t, f);
+const paybackCard = (all, paybackOptions, { lines, format }, predicts, at) => paybackHtml(paybackOf(all, paybackOptions, predicts, at), lines, format);
 
 export { paybackView, moneyView, moneyPage, moneyHtml, paybackCard };

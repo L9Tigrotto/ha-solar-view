@@ -3,7 +3,7 @@
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
 /** @type {typeof import("./core.js")} */
-const { clamp01, pct, say, cap, yearKeys, daysIn } = await import(`./core.js${v}`);
+const { clamp01, percent, say, cap, yearKeys, daysIn } = await import(`./core.js${v}`);
 
 // Icons drawn as lines: most are Lucide's (lucide.dev, ISC and MIT licences, at the end of solar-view.js) on its
 // 24 x 24 grid; the moon with its phase and craters, the battery with its level, the house and the "fine"
@@ -66,10 +66,10 @@ const big = (v) => `<span class="big">${v}<small>%</small></span>`;
 // reach 3:1 on the sky), else the plain one. "--sent" exists only as a mark: the grid colour, faded.
 const markOf = (color) => `var(${color}-mark,var(${color}))`;
 // A card's "?": opens its "How to read this" (see READ in shell.js).
-const helpButton = (t, card) => `<button type="button" class="help" data-card="${card}" aria-label="${t.helpTitle}" aria-haspopup="dialog"><svg viewBox="0 0 24 24" aria-hidden="true">${HELP_ICON}</svg></button>`;
+const helpButton = (lines, card) => `<button type="button" class="help" data-card="${card}" aria-label="${lines.help.title}" aria-haspopup="dialog"><svg viewBox="0 0 24 24" aria-hidden="true">${HELP_ICON}</svg></button>`;
 // The small drawings in the help dialogs, 30 x 16, in the colour --c, one per kind of mark; buy and sell
 // are the prices' arrows, Grid to Home (left) and Home to Grid (right).
-const SW = {
+const SWATCH = {
   solid: `<rect x="9" y="1" width="12" height="15" rx="2" stroke="none"/>`,
   ghost: `<rect x="9.75" y="1.75" width="10.5" height="13.5" rx="2" class="faded"/>`,
   usual: `<path d="M1 8H29" fill="none" stroke-dasharray="4 3"/>`,
@@ -83,9 +83,9 @@ const SW = {
   sell: `<path d="M3 8H27M21 2L27 8L21 14" fill="none"/>`,
   dotPick: `<circle cx="15" cy="5" r="4.5" stroke="none"/><rect x="6" y="12" width="18" height="4" rx="2" class="ink" stroke="none"/>`,
 };
-const sw = (shape, color) => `<svg class="sw" viewBox="0 0 30 16" style="--c:${markOf(color)}" aria-hidden="true">${SW[shape]}</svg>`;
+const swatch = (shape, color) => `<svg class="swatch" viewBox="0 0 30 16" style="--c:${markOf(color)}" aria-hidden="true">${SWATCH[shape]}</svg>`;
 // The weather icons of the coming days (see skyIcon), on one box.
-const wxIcon = (cover) => `<svg class="wx" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${cover === null ? "" : skyIcon(false, cover, null)[1]}</svg>`;
+const weatherIcon = (cover) => `<svg class="weather-icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${cover === null ? "" : skyIcon(false, cover, null)[1]}</svg>`;
 // A three-quarter ring, open at the bottom like a car gauge, from 0 at the lower left to 1 at the lower
 // right: ringAt is the point at u, ringArc the arc on to u1. ring() is solid to `frac` (a fraction of the
 // whole ring; NaN reads as an empty ring).
@@ -100,18 +100,18 @@ const TRACK = `M${ringAt(0, 80)} ${ringArc(0, 1, 80)}`;
 function ring(frac, color, label, size) {
   return `<svg class="ring" viewBox="0 0 200 176" style="--c:${markOf(color)}" ${hint(label)}>
     <path class="track" d="${TRACK}"/>
-    <path class="val" d="${TRACK}" pathLength="100" stroke-dasharray="${pct(clamp01(frac) || 0)} 100"/>
+    <path class="val" d="${TRACK}" pathLength="100" stroke-dasharray="${percent(clamp01(frac) || 0)} 100"/>
     ${ringSize(size)}
   </svg>`;
 }
-// The battery ring, in percent: solid to `soc` in `color`. With `soon` (the battery in an hour, or null)
-// a faded piece of the track between the two: past the solid end in --batt when rising; when falling
+// The battery ring, in percent: solid to `chargeLevel` in `color`. With `soon` (the battery in an hour, or null)
+// a faded piece of the track between the two: past the solid end in --battery when rising; when falling
 // the solid end draws back to `soon` and the piece up to now is --low. `size` (text, or "") sits in the gap between the ends.
 // Without `label` the ring is a picture only (the help sheet's examples).
-function battRing(soc, soon, color, label, size) {
-  const u = clamp01(soc / 100) || 0, s = soon === null ? u : clamp01(soon / 100);
+function batteryRing(chargeLevel, soon, color, label, size) {
+  const u = clamp01(chargeLevel / 100) || 0, s = soon === null ? u : clamp01(soon / 100);
   const arc = (a, b, r) => `M${ringAt(a, r)} ${ringArc(a, b, r)}`;
-  const c = `style="--c:${markOf(s > u ? "--batt" : "--low")}"`;
+  const c = `style="--c:${markOf(s > u ? "--battery" : "--low")}"`;
   return `<svg class="ring" viewBox="0 0 200 176" style="--c:${markOf(color)}" ${label ? hint(label) : 'aria-hidden="true"'}>
     <path class="track" d="${TRACK}"/>
     ${s === u ? "" : `<path class="soon" ${c} d="${arc(Math.min(u, s), Math.max(u, s), 80)}"/>`}
@@ -136,11 +136,11 @@ function splitRing(parts, label, size) {
   let at = 0;
   const marks = parts.map((p) => {
     const frac = p.frac > 0 ? MIN + (1 - shown * MIN) * p.frac : 0;
-    const a = at, b = (at += frac), mid = (a + b) / 2, [side, start, r] = SIDES[p.side];
+    const a = at, b = (at += frac), middle = (a + b) / 2, [side, start, r] = SIDES[p.side];
     if (!(frac > 0)) return "";
     const s = a > 1e-9 ? a + END + GAP / 2 : 0, e = b < 1 - 1e-9 ? b - END - GAP / 2 : 1, c = `style="--c:${markOf(p.color)}"`;
-    const [cx, cy] = ringAt(mid, 80).split(" ");
-    return `<path class="lead" d="M${start} L${ringAt(side, r)} ${ringArc(side, mid, r, mid < side)} L${ringAt(mid, 90)}"/>${e > s
+    const [cx, cy] = ringAt(middle, 80).split(" ");
+    return `<path class="lead" d="M${start} L${ringAt(side, r)} ${ringArc(side, middle, r, middle < side)} L${ringAt(middle, 90)}"/>${e > s
       ? `<path class="val" ${c} d="M${ringAt(s, 80)} ${ringArc(s, e, 80)}"/>` : `<circle class="val" ${c} cx="${cx}" cy="${cy}" r="8"/>`}`;
   }).join("");
   return `<svg class="ring" viewBox="0 0 200 176" ${hint(label)}><path class="track" d="${TRACK}"/>${marks}${ringSize(size)}</svg>`;
@@ -149,7 +149,7 @@ function splitRing(parts, label, size) {
 const STEPS = [0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000];
 const legendHtml = (list) => `<ul class="legend">${list.map((l) =>
   `<li><i style="--c:${markOf(l.color)}"></i><span>${l.label}</span></li>`).join("")}</ul>`;
-// A line chart's scale up to `top`, on a box 0 to 100 high stretched to its place (see .socline): its top
+// A line chart's scale up to `top`, on a box 0 to 100 high stretched to its place (see .chargeLine): its top
 // at a round step, the gridlines at each step, and their values beside them (`fmt`), in HTML so they keep
 // their size. Down to `bottom` below 0 when a value is (money: a day that cost more than it brought).
 function lineGrid(top, fmt, bottom = 0) {
@@ -173,11 +173,11 @@ function readout(caption, items) {
 // keys go, and is named by it (`named`). One with nowhere to go stays, greyed.
 const CHEVRON = { "-1": "m14.5 6-6 6 6 6", 1: "m9.5 6 6 6-6 6" };
 const stepButton = (by, kind, label, attrs) => `<button type="button" class="step ${by < 0 ? "step-prev" : "step-next"}" data-focus-key="step:${kind}:${by}" aria-label="${label}"${attrs}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${CHEVRON[by]}"/></svg></button>`;
-const steps = (t, kind, at, last) => [-1, 1].map((by) => stepButton(by, kind, t[`${by < 0 ? "prev" : "next"}${kind}`],
+const steps = (lines, kind, at, last) => [-1, 1].map((by) => stepButton(by, kind, lines.shared[`${by < 0 ? "prev" : "next"}${kind}`],
   ` data-step="${by}"${(by < 0 ? at <= 0 : at >= last) ? ' aria-disabled="true"' : ""}`)).join("");
-const monthSteps = (t, cur, at, named) => {
-  const keys = yearKeys(cur), i = keys.indexOf(at);
-  return [-1, 1].map((by) => { const k = keys[i + by]; return stepButton(by, "Month", k ? named(k) : t[`${by < 0 ? "prev" : "next"}Month`], k ? ` data-month="${k}"` : ' aria-disabled="true"'); }).join("");
+const monthSteps = (lines, currentMonth, at, named) => {
+  const keys = yearKeys(currentMonth), i = keys.indexOf(at);
+  return [-1, 1].map((by) => { const k = keys[i + by]; return stepButton(by, "Month", k ? named(k) : lines.shared[`${by < 0 ? "prev" : "next"}Month`], k ? ` data-month="${k}"` : ' aria-disabled="true"'); }).join("");
 };
 // A month's days (`key`, "2026-10") as a line, a dot a day over its date, every date to the month's end, the
 // last on record picked at first with its figures; for this month (`live`) that is today, a hollow dot.
@@ -189,34 +189,34 @@ const monthSteps = (t, cur, at, named) => {
 // `ahead` holds the days to come after the last one of `list` as [kWh, hint, sentence] (see monthAhead): a
 // dashed line on from the last day's dot, a faded dot each, picked like a day on record, with the sentence
 // in place of figures.
-function dayLine(t, f, key, list, v, name, line, at, { live = true, between = "", ahead = [] } = {}) {
+function dayLine(lines, format, key, list, v, name, line, at, { live = true, between = "", ahead = [] } = {}) {
   const last = list.length - 1, n = daysIn(key), end = last + ahead.length;
   // A pick kept from a longer month (the 31st, now the 1st of the next) falls back to the last day.
   if (!(at >= 0 && at <= end)) at = last;
   const vals = Array.from({ length: n }, (_, i) => (list[i] ? v(list[i]) : ahead[i - list.length]?.[0] ?? null));
-  const g = lineGrid(Math.max(...vals.map((x) => x ?? 0), 0.01), f.num, Math.min(...vals.map((x) => x ?? 0), 0)), h = (x) => ((x - g.min) / g.span) * 100;
+  const g = lineGrid(Math.max(...vals.map((x) => x ?? 0), 0.01), format.num, Math.min(...vals.map((x) => x ?? 0), 0)), h = (x) => ((x - g.min) / g.span) * 100;
   const pt = (x, i) => `${(((i + 0.5) / n) * 100).toFixed(2)} ${(100 - h(x)).toFixed(2)}`;
   const d = vals.map((x, i) => (x === null || i > last ? "" : `${i && vals[i - 1] !== null ? "L" : "M"}${pt(x, i)}`)).join("");
   const later = ahead.length ? vals.map((x, i) => (x === null || i < last || i > end ? "" : `${i > last && vals[i - 1] !== null ? "L" : "M"}${pt(x, i)}`)).join("") : "";
   const days = vals.map((x, i) => {
     const day = list[i], coming = ahead[i - list.length];
-    const cls = [i % 3 && "quiet", coming ? "ahead" : !day ? "future" : x === null ? "none" : live && i === last && "today"].filter(Boolean).join(" ");
-    return `<li ${day ? hint(name(day, x), "") : coming ? hint(coming[1], "") : ""} style="--c:${SUN_DOT}" data-i="${i}"${cls ? ` class="${cls}"` : ""}${i === at ? ' aria-current="true"' : ""}><span class="col">${x === null ? "" : `<i style="--v:${h(x).toFixed(1)}%"></i>`}</span><span class="date">${i + 1}</span></li>`;
+    const className = [i % 3 && "quiet", coming ? "ahead" : !day ? "future" : x === null ? "none" : live && i === last && "today"].filter(Boolean).join(" ");
+    return `<li ${day ? hint(name(day, x), "") : coming ? hint(coming[1], "") : ""} style="--c:${SUN_DOT}" data-i="${i}"${className ? ` class="${className}"` : ""}${i === at ? ' aria-current="true"' : ""}><span class="col">${x === null ? "" : `<i style="--v:${h(x).toFixed(1)}%"></i>`}</span><span class="date">${i + 1}</span></li>`;
   }).join("");
-  const lines = [...list.map((day, i) => line(day, v(day), `<b>${cap(live && i === last ? t.todaySoFar : say(t.weekOn, { d: f.date(new Date(day.date)) }))}</b>`)), ...ahead.map((a) => a[2])];
+  const pickedLines = [...list.map((day, i) => line(day, v(day), `<b>${cap(live && i === last ? lines.shared.todaySoFar : say(lines.shared.onDate, { date: format.date(new Date(day.date)) }))}</b>`)), ...ahead.map((a) => a[2])];
   return `<div class="dayline">
-        <div class="area"><svg class="socline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${g.lines}<line class="axis" x1="0" x2="100" y1="100" y2="100"/><path class="series" style="--c:${SUN_DOT}" d="${d}"/>${later ? `<path class="series later" style="--c:${SUN_DOT}" d="${later}"/>` : ""}</svg>${g.ticks}</div>
+        <div class="area"><svg class="chargeLine" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${g.lines}<line class="axis" x1="0" x2="100" y1="100" y2="100"/><path class="series" style="--c:${SUN_DOT}" d="${d}"/>${later ? `<path class="series later" style="--c:${SUN_DOT}" d="${later}"/>` : ""}</svg>${g.ticks}</div>
         <ol class="week" style="--n:${n}">${days}</ol>
       </div>${between}
-      <div class="stepped">${steps(t, "Day", at, end)}<div class="picked" aria-live="polite" aria-atomic="true">${lines.map((l, i) => `<div class="day" data-i="${i}"${i === at ? "" : " hidden"}>${l}</div>`).join("")}</div></div>`;
+      <div class="stepped">${steps(lines, "Day", at, end)}<div class="picked" aria-live="polite" aria-atomic="true">${pickedLines.map((l, i) => `<div class="day" data-i="${i}"${i === at ? "" : " hidden"}>${l}</div>`).join("")}</div></div>`;
 }
 // "Now" or "usual use" over a chart at x (0 to 100), kept inside the card near its ends.
 const nowLabel = (x, text) => `<span class="now-label${x < 8 ? " start" : x > 92 ? " end" : ""}" style="--x:${x}%">${text}</span>`;
-// A sentence with its date in bold. {d} is the first placeholder of `said` in every language, so it sits where
+// A sentence with its date in bold. {date} is the first placeholder of `said` in every language, so it sits where
 // the date starts in `plain` (said filled in), even when cap() raised the date's first letter.
-const boldDate = (plain, said, date) => { const i = said.indexOf("{d}"); return `${plain.slice(0, i)}<b>${plain.slice(i, i + date.length)}</b>${plain.slice(i + date.length)}`; };
+const boldDate = (plain, said, date) => { const i = said.indexOf("{date}"); return `${plain.slice(0, i)}<b>${plain.slice(i, i + date.length)}</b>${plain.slice(i + date.length)}`; };
 // A month's name: this month (`cur`) as "November 2026 so far".
-const monthName = (k, cur, t, f) => (k === cur ? say(t.monthSoFar, { m: f.monthYear(k) }) : f.monthYear(k));
+const monthName = (k, currentMonth, lines, format) => (k === currentMonth ? say(lines.shared.monthSoFar, { month: format.monthYear(k) }) : format.monthYear(k));
 // A month's total between its charts (see readout): `caption` over its figures.
 const monthTotal = (caption, items) => `<div class="month-total">${readout(caption, items)}</div>`;
 // Twelve months as buttons, oldest first (see yearKeys), each with a bar of `v(key)` (null: none on
@@ -226,16 +226,16 @@ const monthTotal = (caption, items) => `<div class="month-total">${readout(capti
 // year changes, and "so far" on this month; on a narrow card one letter and two digits ("O", "’25").
 // Hovering one shows its hint `name(key, v)`; a click picks it (see _wireWeek). `ghost(key)`, when not
 // null, is where a month should end: a faded bar behind its solid one, on the same scale.
-function monthPicker(t, f, cur, at, v, name, color, both = false, ghost = () => null) {
-  const keys = yearKeys(cur), vals = keys.map(v), ghosts = keys.map(ghost);
+function monthPicker(lines, format, currentMonth, at, v, name, color, both = false, ghost = () => null) {
+  const keys = yearKeys(currentMonth), vals = keys.map(v), ghosts = keys.map(ghost);
   const up = Math.max(0, ...vals.map((x) => x ?? 0), ...ghosts.map((x) => x ?? 0)), down = both ? Math.max(0, ...vals.map((x) => -(x ?? 0)), ...ghosts.map((x) => -(x ?? 0))) : 0;
   const top = Math.max(up + down, 1e-9), tall = (x) => ((Math.abs(x) / top) * 100).toFixed(1);
   return `<ol class="year${both ? " both" : ""}"${both ? ` style="--zero:${((down / top) * 100).toFixed(1)}%"` : ""}>${keys.map((k, i) => {
     const x = vals[i], c = markOf(x < 0 ? "--low" : color);
     return `<li><button type="button" data-month="${k}" aria-pressed="${k === at}" style="--c:${c}" ${hint(name(k, x), "")}><span class="bar">${x === null ? ""
-      : `${ghosts[i] === null ? "" : `<i class="ghost${ghosts[i] < 0 ? " neg" : ""}" style="--v:${tall(ghosts[i])}%"></i>`}<i${x < 0 ? ' class="neg"' : ""} style="--v:${tall(x)}%"></i>`}</span><span><span class="wide">${f.month(k)}</span><span class="narrow">${f.monthNarrow(k)}</span></span><small>${
-      k === cur ? t.soFar : i < 11 && keys[i + 1].slice(0, 4) !== k.slice(0, 4) ? `<span class="wide">${k.slice(0, 4)}</span><span class="narrow">’${k.slice(2, 4)}</span>` : ""}</small></button></li>`;
+      : `${ghosts[i] === null ? "" : `<i class="ghost${ghosts[i] < 0 ? " neg" : ""}" style="--v:${tall(ghosts[i])}%"></i>`}<i${x < 0 ? ' class="neg"' : ""} style="--v:${tall(x)}%"></i>`}</span><span><span class="wide">${format.month(k)}</span><span class="narrow">${format.monthNarrow(k)}</span></span><small>${
+      k === currentMonth ? lines.shared.soFar : i < 11 && keys[i + 1].slice(0, 4) !== k.slice(0, 4) ? `<span class="wide">${k.slice(0, 4)}</span><span class="narrow">’${k.slice(2, 4)}</span>` : ""}</small></button></li>`;
   }).join("")}</ol>`;
 }
 
-export { TRACK, nowLabel, boldDate, monthName, skyIcon, SUN_RAYS, HOUSE, PLUG, line, ADVICE_ICON, SUN_DOT, hint, big, markOf, helpButton, SW, sw, wxIcon, ring, battRing, ringSize, splitRing, legendHtml, lineGrid, readout, steps, monthSteps, dayLine, monthTotal, monthPicker };
+export { TRACK, nowLabel, boldDate, monthName, skyIcon, SUN_RAYS, HOUSE, PLUG, line, ADVICE_ICON, SUN_DOT, hint, big, markOf, helpButton, SWATCH, swatch, weatherIcon, ring, batteryRing, ringSize, splitRing, legendHtml, lineGrid, readout, steps, monthSteps, dayLine, monthTotal, monthPicker };

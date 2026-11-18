@@ -29,13 +29,17 @@ const version = new URL(import.meta.url).search;
 // profile. Absent (Automatic) the page follows the viewer's language there. Each language by its own name.
 const LANGUAGE_KEY = "solar-view-language";
 const LANGUAGES = { en: "English", it: "Italiano", es: "Español", fr: "Français", de: "Deutsch", pt: "Português", nl: "Nederlands", pl: "Polski" };
+// The texts of a language are sections of lines (lines.now.advice.go[3]). A language's own file takes over
+// English's section by section, line by line; a pool of lines (an array) is replaced whole.
+const mergeLines = (base, own) => Object.fromEntries(Object.entries({ ...base, ...own }).map(([key, value]) => [key,
+  value && typeof value === "object" && !Array.isArray(value) ? mergeLines(base?.[key], own?.[key]) : own?.[key] ?? base?.[key]]));
 const STRINGS = {}; // the languages loaded so far
 const failedLanguages = new Set(); // these stay English for this visit
 const textsOf = (code) => import(`./strings/${code}.js${version}`).then((m) => m.STRINGS[code]);
 const english = textsOf("en");
 const loads = {};
 const loadLanguage = (code) => loads[code] ??= Promise.all([english, code === "en" ? {} : textsOf(code)]).then(
-  ([en, own]) => { STRINGS[code] = { ...en, ...own }; },
+  ([en, own]) => { STRINGS[code] = mergeLines(en, own); },
   (e) => { failedLanguages.add(code); console.warn("solar-view: the texts for", code, "did not load", e); });
 // The first language is guessed, so its file comes with the others: this device's choice in the gear, else
 // the page's language, which Home Assistant sets to the viewer's. A wrong guess costs one file; _render
@@ -49,7 +53,7 @@ guess = supported(guess) ?? supported(document.documentElement.lang || navigator
  *   typeof import("./lib/stats.js"), typeof import("./lib/data.js"), typeof import("./lib/draw.js"), typeof import("./lib/money.js"),
  *   typeof import("./pages/now.js"), typeof import("./pages/energy.js"), typeof import("./pages/money.js"),
  *   typeof import("./lib/shell.js")]} */
-const [, , { CSS }, { findForecast }, { MINUTE, FIVE_MIN, DAY, clockOf, quarterPast, stateNum, say, cap, esc, warnOnce }, { formats, hourCycle },
+const [, , { CSS }, { findForecast }, { MINUTE, FIVE_MIN, DAY, clockOf, quarterPast, stateNum, say, cap, esc, warnOnce, lineAt }, { formats, hourCycle },
   { readConfig, requiredIds, optionalIds, setupCheck }, { skyAt }, { withOwnAdvice }, { totals, fetchStats },
   { LAST_KEY, predict, readData, slim, remembered, placeholder, staleSince },
   { line, SUN_RAYS }, , { nowView, nowPage, writeNow, learnLines, whenSeen }, { energyView, energyPage }, { paybackView, moneyView, moneyPage },
@@ -76,26 +80,26 @@ const icon = (body) => `<svg viewBox="0 0 24 24" aria-hidden="true">${line(body)
 // card's "?" by its card, a month by its key, a flow node by its key, a day or hour by its card, chart row
 // and place, any other hint target by its card and place among that card's hint targets.
 const cardKey = (card) => (card.dataset.pick ? `pick:${card.dataset.pick}` : `class:${card.getAttribute("class")}`);
-function focusKey(page, el) {
-  if (el.matches(".help[data-card]")) return { kind: "help", card: el.dataset.card };
-  if (el.dataset.focusKey) return { kind: "key", key: el.dataset.focusKey }; // before the month: a month step has both
-  if (el.dataset.month) return { kind: "month", month: el.dataset.month };
-  const card = el.closest(".card"), scope = card || page, scopeKey = card ? cardKey(card) : null;
-  if (el.dataset.i !== undefined) {
-    const row = el.parentElement, sel = row.matches(".hours24") ? ".hours24" : ".week";
-    return { kind: "item", scope: scopeKey, row: sel, rowIndex: [...scope.querySelectorAll(sel)].indexOf(row), index: el.dataset.i };
+function focusKey(page, element) {
+  if (element.matches(".help[data-card]")) return { kind: "help", card: element.dataset.card };
+  if (element.dataset.focusKey) return { kind: "key", key: element.dataset.focusKey }; // before the month: a month step has both
+  if (element.dataset.month) return { kind: "month", month: element.dataset.month };
+  const card = element.closest(".card"), scope = card || page, scopeKey = card ? cardKey(card) : null;
+  if (element.dataset.i !== undefined) {
+    const row = element.parentElement, selector = row.matches(".hours24") ? ".hours24" : ".week";
+    return { kind: "item", scope: scopeKey, row: selector, rowIndex: [...scope.querySelectorAll(selector)].indexOf(row), index: element.dataset.i };
   }
-  const index = [...scope.querySelectorAll("[data-hint]")].indexOf(el);
+  const index = [...scope.querySelectorAll("[data-hint]")].indexOf(element);
   return index < 0 ? null : { kind: "hint", scope: scopeKey, index };
 }
 function focusTarget(page, key) {
-  const find = (sel, ok) => [...page.querySelectorAll(sel)].find(ok);
-  if (key.kind === "help") return find(".help[data-card]", (el) => el.dataset.card === key.card);
-  if (key.kind === "month") return find("[data-month]", (el) => el.dataset.month === key.month);
-  if (key.kind === "key") return find("[data-focus-key]", (el) => el.dataset.focusKey === key.key);
+  const find = (selector, ok) => [...page.querySelectorAll(selector)].find(ok);
+  if (key.kind === "help") return find(".help[data-card]", (element) => element.dataset.card === key.card);
+  if (key.kind === "month") return find("[data-month]", (element) => element.dataset.month === key.month);
+  if (key.kind === "key") return find("[data-focus-key]", (element) => element.dataset.focusKey === key.key);
   const scope = key.scope ? find(".card", (card) => cardKey(card) === key.scope) : page;
   if (!scope) return null;
-  if (key.kind === "item") return [...(scope.querySelectorAll(key.row)[key.rowIndex]?.children || [])].find((el) => el.dataset.i === key.index);
+  if (key.kind === "item") return [...(scope.querySelectorAll(key.row)[key.rowIndex]?.children || [])].find((element) => element.dataset.i === key.index);
   return scope.querySelectorAll("[data-hint]")[key.index] || null;
 }
 let zoom; // textScale's answer, measured once per load: it forces a layout of the whole document
@@ -107,9 +111,9 @@ let zoom; // textScale's answer, measured once per load: it forces a layout of t
 function pageKeys(data, { base, now, clock, sky }) {
   const money = JSON.stringify([data.sends, data.payback, data.lat, data.price, data.priceNow, data.billFixed?.now, data.sensorMonths]);
   return {
-    now: `${base}|${JSON.stringify([data.now, data.sun, data.weather, data.moon, data.batt, data.wear, sky.day, staleSince(data, now)])}`,
+    now: `${base}|${JSON.stringify([data.now, data.sun, data.weather, data.moon, data.battery, data.wear, sky.day, staleSince(data, now)])}`,
     // Today by hour moves its now line every 5 minutes.
-    energy: `${base}|${Math.floor(now / FIVE_MIN)}|${JSON.stringify([data.now.soc, data.batt, data.sends])}`,
+    energy: `${base}|${Math.floor(now / FIVE_MIN)}|${JSON.stringify([data.now.chargeLevel, data.battery, data.sends])}`,
     // The band now changes by the hour.
     money: `${base}|${clock(now).hour}|${money}`,
     payback: `${base}|${money}`,
@@ -130,14 +134,14 @@ class SolarView extends HTMLElement {
     this._skel = new Set(); // the pages showing the skeleton
     this._help = {};      // each card's help lines, from the views (see _applyHelp)
     this._visible = null; // the pages in view (see _wireTabs); null until the pager says, and then all count
-    this._statsV = 0;     // bumped with each new _stats, so a key needs not hold them
-    this._lookV = 0;      // bumped with each new _looked
-    this._tVersion = 0;   // bumped with each new _t
+    this._statsVersion = 0;     // bumped with each new _stats, so a key needs not hold them
+    this._lookVersion = 0;      // bumped with each new _looked
+    this._linesVersion = 0;   // bumped with each new _lines
     this._dirty = false;  // a render skipped while the tab is hidden or the panel off the page (see _asleep)
     this._force = null;   // the page a month was picked on, written in that render whatever the pager says (see _redraw)
     this._late = false;   // the render that writes the pages out of view left behind by the one before (see _render)
     this._lateTask = null; // its timer
-    this._src = undefined;   // { ids, cfg }: which entities to read and the settings (readConfig), once the Energy settings answered
+    this._source = undefined;   // { ids, options }: which entities to read and the settings (readConfig), once the Energy settings answered
     this._stats = undefined; // totals from the statistics (totals)
     this._next = 0;          // when to load both again
     this._looked = {};       // the forecast and what follows from it (see predict in data.js)
@@ -153,8 +157,8 @@ class SolarView extends HTMLElement {
     this._holdUntil = undefined; // a first visit waits until then for the Energy settings before drawing (see _render)
     this._held = undefined;      // the timer that draws then
     // What _render keeps between calls: the texts and formats with what they were made for, the sky's key, payback.
-    this._lang = this._tConfig = this._cfg = this._t = undefined;
-    this._fKey = this._f = this._clock = undefined;
+    this._lang = this._linesConfig = this._options = this._lines = undefined;
+    this._formatKey = this._format = this._clock = undefined;
     this._skyKey = this._paybackKey = this._payback = undefined;
     // What Home Assistant set (see the setters), and each card's pick (see _wireWeek).
     this._hass = this._panel = this._narrow = undefined;
@@ -242,38 +246,38 @@ class SolarView extends HTMLElement {
     // Escape hides the hint and keeps it hidden until the viewer leaves that target. A redraw replaces
     // the element, so the target is known by its focus key (see focusKey), not by the element alone.
     let dismissed = null, dismissedKey = null;
-    const keyOf = (el) => {
-      const page = el.closest(".page"), key = page && focusKey(page, el);
-      return key ? `${page.id}:${JSON.stringify(key)}` : el;
+    const keyOf = (element) => {
+      const page = element.closest(".page"), key = page && focusKey(page, element);
+      return key ? `${page.id}:${JSON.stringify(key)}` : element;
     };
     const reset = () => { dismissed = dismissedKey = null; };
     const hide = () => tip.classList.remove("on");
     const show = (e) => {
-      const el = e.target.closest?.("[data-hint]");
+      const element = e.target.closest?.("[data-hint]");
       // The skeleton holds placeholder numbers: never put them in a hint.
-      if (!el || this._pager.classList.contains("skel")) { hide(); return; }
-      if (dismissed && keyOf(el) === dismissedKey) { dismissed = el; hide(); return; }
+      if (!element || this._pager.classList.contains("skel")) { hide(); return; }
+      if (dismissed && keyOf(element) === dismissedKey) { dismissed = element; hide(); return; }
       reset();
-      this._hintFor = el; // see _render
+      this._hintFor = element; // see _render
       // What the mark is, small, over its value, split at the sentence's first colon ("12:00 PM: about
       // 3 kW" splits after "PM"); a dot in the mark's colour when it has one (--c).
-      const [, title, body] = el.dataset.hint.match(/^(?:(.+?)\s?:\s)?(.+)$/s);
+      const [, title, body] = element.dataset.hint.match(/^(?:(.+?)\s?:\s)?(.+)$/s);
       const line = (tag, text) => Object.assign(document.createElement(tag), { textContent: text });
       tip.replaceChildren(...(title ? [line("small", title)] : []), line("b", cap(body)));
-      const dot = el.style.getPropertyValue("--c");
+      const dot = element.style.getPropertyValue("--c");
       tip.classList.toggle("dot", !!dot);
       tip.style.setProperty("--dot", dot);
       // Rects come zoomed (see textScale), the hint is placed in the panel's own pixels. currentCSSZoom by name:
       // TypeScript 5.6's DOM types lack it.
       const z = this["currentCSSZoom"] || 1, unzoom = (b) => ({ left: b.left / z, top: b.top / z, bottom: b.bottom / z, width: b.width / z, height: b.height / z });
-      const box = unzoom(this.getBoundingClientRect()), r = unzoom(el.getBoundingClientRect()), mid = r.left - box.left + r.width / 2;
-      const left = Math.max(8, Math.min(box.width - tip.offsetWidth - 8, mid - tip.offsetWidth / 2));
+      const box = unzoom(this.getBoundingClientRect()), r = unzoom(element.getBoundingClientRect()), middle = r.left - box.left + r.width / 2;
+      const left = Math.max(8, Math.min(box.width - tip.offsetWidth - 8, middle - tip.offsetWidth / 2));
       // Above the mark, else below it; where neither has room, on the roomier side, kept inside the panel.
       const above = r.top - box.top - tip.offsetHeight - 10, below = r.bottom - box.top + 10;
       const up = above >= 8 || (below + tip.offsetHeight > box.height - 8 && r.top - box.top > box.bottom - r.bottom);
       tip.classList.toggle("below", !up);
       // The pointer stays on the mark, inside the rounded corners.
-      tip.style.setProperty("--x", `${Math.round(Math.max(16, Math.min(tip.offsetWidth - 16, mid - left)))}px`);
+      tip.style.setProperty("--x", `${Math.round(Math.max(16, Math.min(tip.offsetWidth - 16, middle - left)))}px`);
       tip.style.transform = `translate(${Math.round(left)}px,${Math.round(up ? Math.max(8, above) : Math.min(below, box.height - tip.offsetHeight - 8))}px)`;
       tip.classList.add("on");
     };
@@ -282,8 +286,8 @@ class SolarView extends HTMLElement {
     root.addEventListener("focusin", show);
     // Moving between the parts of one target (a ring's arcs) is not leaving it.
     const leave = (e) => {
-      const el = e.target.closest?.("[data-hint]");
-      if (el && el.isConnected && el === dismissed && !el.contains(e.relatedTarget)) reset();
+      const element = e.target.closest?.("[data-hint]");
+      if (element && element.isConnected && element === dismissed && !element.contains(e.relatedTarget)) reset();
     };
     // Escape is taken only when it hides a hint; otherwise it goes on to close a dialog as usual.
     root.addEventListener("keydown", (e) => {
@@ -360,31 +364,31 @@ class SolarView extends HTMLElement {
   // The gear dialog's setup check, for admins only: each feature on or off and what it needs, from the data
   // drawn last (see setupCheck).
   _fillCheck(d) {
-    const box = /** @type {HTMLElement} */ (d.querySelector(".check")), t = this._t, f = this._f, data = this._data;
-    box.hidden = !this._hass?.user?.is_admin || !data || !this._src;
+    const box = /** @type {HTMLElement} */ (d.querySelector(".check")), lines = this._lines, format = this._format, data = this._data;
+    box.hidden = !this._hass?.user?.is_admin || !data || !this._source;
     if (box.hidden) return;
-    const on = (r, off) => (r.on ? t.chkOn : off);
+    const on = (r, off) => (r.on ? lines.gear.checkOk : off);
     const said = {
-      level: (r) => [t.chkLevel, r.asked === null ? say(t.chkAuto, { a: r.used }) : r.asked === r.used ? r.used : say(t.chkStepped, { a: r.used, b: r.asked })],
-      battery: (r) => [t.chkBattery, r.on ? f.kwh(r.kwh) : t.chkBatteryOff],
-      money: (r) => [t.tabMoney, on(r, t.chkMoneyOff)],
-      payback: (r) => [t.paybackTitle, on(r, t.chkPaybackOff)],
-      bands: (r) => [t.chkBands, on(r, t.chkBandsOff)],
-      machine: (r) => [cap(t[r.type]), r.sensor ? say(t.chkMachineSensor, { s: esc(r.sensor) })
-        : r.kwh && r.hours ? say(t.chkMachineTyped, { k: f.num(r.kwh), h: f.num(r.hours) }) : t.chkMachineOff],
-      forecast: (r) => [t.chkForecast, on(r, t.chkForecastOff)],
-      misread: (r) => [t.chkMisread, r.names.map(esc).join(", ")],
+      level: (r) => [lines.gear.checkLevel, r.asked === null ? say(lines.gear.checkAutomatic, { level: r.used }) : r.asked === r.used ? r.used : say(lines.gear.checkSteppedDown, { used: r.used, asked: r.asked })],
+      battery: (r) => [lines.gear.checkBatterySize, r.on ? format.kwh(r.kwh) : lines.gear.checkBatterySizeOff],
+      money: (r) => [lines.tabs.money, on(r, lines.gear.checkMoneyOff)],
+      payback: (r) => [lines.money.paybackTitle, on(r, lines.gear.checkPaybackOff)],
+      bands: (r) => [lines.gear.checkBands, on(r, lines.gear.checkBandsOff)],
+      machine: (r) => [cap(lines.shared[r.type]), r.sensor ? say(lines.gear.checkMachineLearned, { sensor: esc(r.sensor) })
+        : r.kwh && r.hours ? say(lines.gear.checkMachineAssumed, { energy: format.num(r.kwh), hours: format.num(r.hours) }) : lines.gear.checkMachineOff],
+      forecast: (r) => [lines.gear.checkForecast, on(r, lines.gear.checkForecastOff)],
+      misread: (r) => [lines.gear.checkUnusedOptions, r.names.map(esc).join(", ")],
     };
-    const { cfg, ids, misread } = this._src;
-    box.querySelector("dl").innerHTML = setupCheck(cfg, { mode: data.mode, sensor: !!this._looked.facts, battery: !!data.batt, money: !this._views.money?.empty, forecast: ids.hasForecast, outlook: !!data.outlook, misread })
-      .map((r) => said[r.key](r)).map(([dt, dd]) => `<div><dt>${dt}</dt><dd>${dd}</dd></div>`).join("");
+    const { options, ids: entityIds, misread } = this._source;
+    box.querySelector("dl").innerHTML = setupCheck(options, { mode: data.mode, sensor: !!this._looked.facts, battery: !!data.battery, money: !this._views.money?.empty, forecast: entityIds.hasForecast, outlook: !!data.outlook, misread })
+      .map((r) => said[r.key](r)).map(([term, definition]) => `<div><dt>${term}</dt><dd>${definition}</dd></div>`).join("");
   }
 
   // A dialog's markup (see shell.js) added to the panel.
   _addDialog(html) {
-    const tpl = document.createElement("template");
-    tpl.innerHTML = html;
-    const d = /** @type {HTMLDialogElement} */ (tpl.content.firstElementChild);
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    const d = /** @type {HTMLDialogElement} */ (template.content.firstElementChild);
     this.shadowRoot.append(d);
     return d;
   }
@@ -438,17 +442,17 @@ class SolarView extends HTMLElement {
   // in this language (plain text where options are, see languagePicker in shell.js), picked again so the closed
   // select's copy of it (selectedcontent) shows the new name.
   _dialogTexts() {
-    const t = this._t;
-    if (t) this.shadowRoot.querySelectorAll("dialog [data-t]").forEach((/** @type {HTMLElement} */ el) => { el.textContent = t[el.dataset.t]; });
+    const lines = this._lines;
+    if (lines) this.shadowRoot.querySelectorAll("dialog [data-t]").forEach((/** @type {HTMLElement} */ element) => { element.textContent = lineAt(lines, element.dataset.t); });
     const pick = /** @type {HTMLSelectElement} */ (this._dialog?.querySelector('select[name="language"]'));
     if (!pick) return;
     const auto = pick.querySelector('option[value=""]');
-    if (t) (auto.querySelector("span") ?? auto).textContent = t.languageAuto;
+    if (lines) (auto.querySelector("span") ?? auto).textContent = lines.shared.languageAuto;
     pick.selectedIndex = -1;
     pick.value = this._language;
   }
 
-  // A day or an hour picked: highlighted, its figures under the chart (see dayLine and battDayCard). Changed
+  // A day or an hour picked: highlighted, its figures under the chart (see dayLine and hoursTodayCard). Changed
   // in place, and kept for the redraws. A day is picked by a tap, focus (the arrow keys move it) or a drag.
   // An hour only by a click, Enter or Space, or a finger's drag: hovering or focusing it shows it on both
   // charts with its hint (.hover), and a mouse moved with a button held changes nothing.
@@ -458,7 +462,7 @@ class SolarView extends HTMLElement {
     const pick = (e) => {
       const bar = e.target.closest?.(ROW);
       if (!bar || bar.classList.contains("future")) return;
-      // Each card keeps its own pick (by its data-pick: daily, recent, battday) across redraws.
+      // Each card keeps its own pick (by its data-pick: daily, recent, hoursToday) across redraws.
       const card = bar.closest(".card");
       (this._pick ??= {})[card.dataset.pick] = +bar.dataset.i;
       card.querySelectorAll(ROW).forEach((li) => (li.dataset.i === bar.dataset.i ? li.setAttribute("aria-current", "true") : li.removeAttribute("aria-current")));
@@ -570,10 +574,10 @@ class SolarView extends HTMLElement {
   // The forecast and what follows from it, with the level it is worked out at: when the statistics load and
   // when the sensor writes, not on every redraw (see predict).
   _lookAhead() {
-    const hass = this._hass, { ids, cfg } = this._src, sensor = findForecast(hass);
+    const hass = this._hass, { ids: entityIds, options } = this._source, sensor = findForecast(hass);
     this._seen = sensor?.state;
-    this._lookV++;
-    this._looked = predict(hass, ids, cfg, this._stats, sensor, Date.now(), clockOf(hass.config?.time_zone));
+    this._lookVersion++;
+    this._looked = predict(hass, entityIds, options, this._stats, sensor, Date.now(), clockOf(hass.config?.time_zone));
   }
   // For the preview and tests, and anyone reading the element in the console.
   get _ahead() { return this._looked.ahead ?? null; }
@@ -590,24 +594,24 @@ class SolarView extends HTMLElement {
       let setup = this._setup && now < this._setup.until ? this._setup : null;
       if (!setup) {
         // "No prefs": the Energy page was never set up. The owner's config may still name entities.
-        const [prefs, info] = await Promise.all([hass.callWS({ type: "energy/get_prefs" }).catch((e) => { if (e?.code === "not_found") return null; throw e; }),
+        const [energyPreferences, info] = await Promise.all([hass.callWS({ type: "energy/get_prefs" }).catch((e) => { if (e?.code === "not_found") return null; throw e; }),
           hass.callWS({ type: "energy/info" }).catch(() => ({}))]);
         // Not set up: asked again on the next load, so the page follows the owner setting it up.
-        setup = { prefs, info, until: prefs ? quarterPast(now) : 0 };
+        setup = { prefs: energyPreferences, info, until: energyPreferences ? quarterPast(now) : 0 };
       }
-      const src = readConfig(setup.prefs, this._panel?.config, setup.info?.cost_sensors), { ids, cfg } = src;
+      const source = readConfig(setup.prefs, this._panel?.config, setup.info?.cost_sensors), { ids: entityIds, options } = source;
       // The skeleton takes its shape from the settings while the statistics load (see placeholder).
-      if (!this._src && run === this._run) { this._src = src; this._render(); }
-      const { rows, kept } = await fetchStats(hass, ids, cfg, this._kept ?? {}, now, clock);
+      if (!this._source && run === this._run) { this._source = source; this._render(); }
+      const { rows, kept } = await fetchStats(hass, entityIds, options, this._kept ?? {}, now, clock);
       // `hass` and `panel` can each start a load: only the newest may answer, or entities read without
       // the config could land last.
       if (run !== this._run) return;
       this._setup = setup;
-      this._src = src;
+      this._source = source;
       this._kept = kept;
       // geo: the usual day's seasons (see usualDay).
-      this._stats = totals(ids, cfg, rows, clock, now, [hass.config?.latitude, hass.config?.longitude]);
-      this._statsV++;
+      this._stats = totals(entityIds, options, rows, clock, now, [hass.config?.latitude, hass.config?.longitude]);
+      this._statsVersion++;
       this._lookAhead();
       // Just after midnight "today" must start from zero.
       this._next = Math.min(this._next, now + this._stats.msToMidnight + MIDNIGHT_SLACK_MS);
@@ -621,18 +625,18 @@ class SolarView extends HTMLElement {
 
   // The texts, and the labels outside the pages, only again when the language or the config changes:
   // this runs on every state change in the house.
-  _texts(lang) {
-    if (this._lang === lang && this._tConfig === this._panel?.config) return;
+  _updateLines(lang) {
+    if (this._lang === lang && this._linesConfig === this._panel?.config) return;
     this._lang = lang;
-    this._tConfig = this._panel?.config;
-    this._cfg = readConfig(null, this._panel?.config).cfg; // what the page needs before the Energy settings answer
-    this._t = withOwnAdvice(STRINGS[lang], this._cfg, lang);
-    this._tVersion++;
+    this._linesConfig = this._panel?.config;
+    this._options = readConfig(null, this._panel?.config).options; // what the page needs before the Energy settings answer
+    this._lines = withOwnAdvice(STRINGS[lang], this._options, lang);
+    this._linesVersion++;
     learnLines(STRINGS[lang]);
-    const t = this._t;
-    this._pager.setAttribute("aria-label", t.pages);
-    [t.tabNow, t.tabEnergy, t.tabMoney].forEach((label, i) => { this._tabs[i].lastChild.textContent = label; });
-    this._gear.setAttribute("aria-label", t.gearLabel);
+    const lines = this._lines;
+    this._pager.setAttribute("aria-label", lines.tabs.label);
+    [lines.tabs.now, lines.tabs.energy, lines.tabs.money].forEach((label, i) => { this._tabs[i].lastChild.textContent = label; });
+    this._gear.setAttribute("aria-label", lines.gear.gearLabel);
     this._dialogTexts();
   }
 
@@ -649,8 +653,8 @@ class SolarView extends HTMLElement {
     // Even the same value restyles the whole panel, and this runs on every state change in the house.
     if (this.getAttribute("lang") !== locale) this.setAttribute("lang", locale);
     const dark = !!hass.themes?.darkMode;
-    this._texts(lang);
-    const t = this._t;
+    this._updateLines(lang);
+    const lines = this._lines;
     const $ = (id) => this.shadowRoot.getElementById(id);
     this.toggleAttribute("dark", dark);
     this._markOut();
@@ -661,14 +665,14 @@ class SolarView extends HTMLElement {
     // of a required kind exists but has no value: Now says so instead of drawing zeros (they would read as
     // "battery empty"), Energy and Money still draw from the statistics. An optional sensor never
     // blanks the page (see requiredIds).
-    const src = this._src, ids = src?.ids, kinds = ids ? requiredIds(ids) : [];
+    const source = this._source, entityIds = source?.ids, kinds = entityIds ? requiredIds(entityIds) : [];
     const missing = kinds.flat().filter((id) => !hass.states[id]);
     const started = !hass.config || hass.config.state === "RUNNING";
-    const setup = !!ids && (!ids.solarW.length || (missing.length > 0 && started));
+    const setup = !!entityIds && (!entityIds.solarW.length || (missing.length > 0 && started));
     const silent = kinds.some((kind) => kind.every((id) => stateNum(hass, id) === null));
-    if (ids && started) for (const id of optionalIds(ids)) if (!hass.states[id]) warnOnce(`${id} does not exist, so house use is worked out from the flows`);
+    if (entityIds && started) for (const id of optionalIds(entityIds)) if (!hass.states[id]) warnOnce(`${id} does not exist, so house use is worked out from the flows`);
     // While Home Assistant starts, sensors without a value are still loading, not offline.
-    const loading = !setup && (!src || !this._stats || missing.length > 0 || (silent && !started));
+    const loading = !setup && (!source || !this._stats || missing.length > 0 || (silent && !started));
     const offline = !loading && !setup && silent;
     // The setup message gets one plain page instead of the dashboard's rows and columns (see .pager.message).
     this._pager.classList.toggle("message", setup);
@@ -683,7 +687,7 @@ class SolarView extends HTMLElement {
       $(p).inert = loading;
       if (loading) $(p).setAttribute("aria-hidden", "true"); else $(p).removeAttribute("aria-hidden");
     });
-    if (setup) { this._message(t, ids, missing); return; }
+    if (setup) { this._message(lines, entityIds, missing); return; }
 
     // Loading draws the real markup from placeholder numbers and .skel greys it out, so the
     // skeleton has exactly the size of what replaces it.
@@ -691,25 +695,25 @@ class SolarView extends HTMLElement {
     // which pages there are, and a skeleton without one would jump when it comes.
     // The copy kept last time is read once a visit, not on every update while loading.
     if (this._last === undefined) this._last = remembered();
-    if (loading && !src && !this._last && Date.now() < (this._holdUntil ??= Date.now() + 1000)) {
+    if (loading && !source && !this._last && Date.now() < (this._holdUntil ??= Date.now() + 1000)) {
       this._held ??= setTimeout(() => this._render(), 1000);
       return;
     }
     // One read of the clock per render, handed to everything drawn.
     const now = Date.now(), clock = clockOf(hass.config?.time_zone);
-    const data = loading ? placeholder(hass, ids, src?.cfg, this._last, now) : readData(hass, ids, src.cfg, this._stats, this._looked, now);
+    const data = loading ? placeholder(hass, entityIds, source?.options, this._last, now) : readData(hass, entityIds, source.options, this._stats, this._looked, now);
     const day = this.testDay ?? Date.parse(clock(now).key) / DAY; // testDay: preview harness only (?day=)
-    const cycle = hourCycle(this._cfg.timeFormat, hass.locale);
-    const tz = hass.config?.time_zone, currency = hass.config?.currency || "EUR", fKey = [locale, currency, cycle, tz].join("|");
-    if (this._fKey !== fKey) {
-      this._fKey = fKey;
-      this._f = formats(locale, currency, cycle, tz);
+    const cycle = hourCycle(this._options.timeFormat, hass.locale);
+    const timeZone = hass.config?.time_zone, currency = hass.config?.currency || "EUR", fKey = [locale, currency, cycle, timeZone].join("|");
+    if (this._formatKey !== fKey) {
+      this._formatKey = fKey;
+      this._format = formats(locale, currency, cycle, timeZone);
       this._clock = clock;
     }
-    const f = this._f;
+    const format = this._format;
     this._drawn = ""; // no message on screen
     // Offline said once to a screen reader, when it starts; gone with it.
-    const status = offline ? `${t.offlineTitle}. ${t.offline}` : "";
+    const status = offline ? `${lines.now.offlineTitle}. ${lines.now.offline}` : "";
     if (this._status.textContent !== status) this._status.textContent = status;
     if (loading) this.removeAttribute("ready");
     else {
@@ -731,20 +735,20 @@ class SolarView extends HTMLElement {
 
     // The statistics and the forecast by their versions (bumped in _load and _lookAhead); while loading, the
     // skeleton's numbers whole.
-    const base = [loading, offline, fKey, this._tVersion, day, loading ? JSON.stringify(data) : `${this._statsV}|${this._lookV}`].join("|");
+    const base = [loading, offline, fKey, this._linesVersion, day, loading ? JSON.stringify(data) : `${this._statsVersion}|${this._lookVersion}`].join("|");
     const keys = pageKeys(data, { base, now, clock, sky });
-    const c = { data, t, f, sky, loading, day, now, clock: this._clock, pick: this._pick };
+    const c = { data, lines, format, sky, loading, day, now, clock: this._clock, pick: this._pick };
     this._write(keys, c, offline);
   }
 
   // The setup message alone on Now, instead of the pages (see _render): Energy and Money go.
-  _message(t, ids, missing) {
+  _message(lines, entityIds, missing) {
     const hass = this._hass, $ = (id) => this.shadowRoot.getElementById(id);
     // Naming the missing sensors helps the owner; to anyone else they mean nothing.
-    const message = `${icon(SETUP_ICON)}<h2>${t.setupTitle}</h2><p>${ids.solarW.length ? t.setupGone : t.setup}</p>
-        <p class="lead">${t.setupLead}</p><ol class="path">${t.setupPath.split(" › ").map((s) => `<li>${s}</li>`).join("")}</ol><p>${t.setupEnd}</p>${
-        !ids.solarW.length && hass.user?.is_admin ? `<p>${t.setupOld} <code>sensors: solar_power</code></p>` : ""}${
-        missing.length && hass.user?.is_admin ? `<h3>${t.missing}</h3><ul class="ids">${missing.map((id) => `<li>${esc(id)}</li>`).join("")}</ul>` : ""}`;
+    const message = `${icon(SETUP_ICON)}<h2>${lines.setup.setupTitle}</h2><p>${entityIds.solarW.length ? lines.setup.setupSensorsGone : lines.setup.setupMissing}</p>
+        <p class="lead">${lines.setup.setupLead}</p><ol class="path">${lines.setup.setupPath.split(" › ").map((s) => `<li>${s}</li>`).join("")}</ol><p>${lines.setup.setupEnd}</p>${
+        !entityIds.solarW.length && hass.user?.is_admin ? `<p>${lines.setup.setupOldVersion} <code>sensors: solar_power</code></p>` : ""}${
+        missing.length && hass.user?.is_admin ? `<h3>${lines.setup.sensorsMissing}</h3><ul class="ids">${missing.map((id) => `<li>${esc(id)}</li>`).join("")}</ul>` : ""}`;
     if (this._drawn === message) return;
     this._drawn = message;
     this.removeAttribute("ready");
@@ -758,7 +762,7 @@ class SolarView extends HTMLElement {
       $(p).hidden = this._tabs[i].hidden = p !== "now";
     });
     // Said once to a screen reader (the readings just went), and focus that was on them goes to the message.
-    this._status.textContent = `${t.setupTitle}. ${ids.solarW.length ? t.setupGone : t.setup}`;
+    this._status.textContent = `${lines.setup.setupTitle}. ${entityIds.solarW.length ? lines.setup.setupSensorsGone : lines.setup.setupMissing}`;
     const head = $("now").querySelector("h2");
     head.tabIndex = -1;
     if (lost) head.focus({ preventScroll: true });
@@ -793,7 +797,7 @@ class SolarView extends HTMLElement {
 
   // The views of the pages whose keys moved, and the HTML of the ones to write (see _render).
   _write(keys, c, offline) {
-    const { data, t, f, loading, now } = c, $ = (id) => this.shadowRoot.getElementById(id);
+    const { data, lines, format, loading, now } = c, $ = (id) => this.shadowRoot.getElementById(id);
     // A view is made when its page's key moves; the HTML only for a page in view, or one holding the focus. One
     // out of view that shows something older than this data could (never drawn, empty, or the skeleton) is
     // written in a task of its own just after (see _late), so the page in view shows first; the others when
@@ -817,9 +821,9 @@ class SolarView extends HTMLElement {
       for (const p of write) {
         const v = this._views[p];
         // Offline, Now holds the message alone, with when the inverter was last heard.
-        html[p] = p === "now" ? (offline ? [`<section class="card empty" data-card="offline">${icon(OFFLINE_ICON)}<h2>${t.offlineTitle}</h2><p>${t.offline}</p>${
-          data.seen === null ? "" : `<p>${say(t.lastUpdate, { t: whenSeen(data.seen, f, this._clock, now) })}</p>`}</section>`] : nowPage(v, t, f, this._clock, now, loading))
-          : p === "energy" ? energyPage(v, t, f, this._clock) : moneyPage(v, t, f);
+        html[p] = p === "now" ? (offline ? [`<section class="card empty" data-card="offline">${icon(OFFLINE_ICON)}<h2>${lines.now.offlineTitle}</h2><p>${lines.now.offline}</p>${
+          data.seen === null ? "" : `<p>${say(lines.now.lastUpdate, { time: whenSeen(data.seen, format, this._clock, now) })}</p>`}</section>`] : nowPage(v, lines, format, this._clock, now, loading))
+          : p === "energy" ? energyPage(v, lines, format, this._clock) : moneyPage(v, lines, format);
       }
     } catch (e) {
       // Never a blank page: what is drawn stays. While loading the likely cause is a remembered
@@ -846,7 +850,7 @@ class SolarView extends HTMLElement {
       // Each "?" named with its card's title, so a list of buttons tells them apart.
       $(p).querySelectorAll(".card > h2 + .help").forEach((b) => {
         const h = b.previousElementSibling;
-        b.setAttribute("aria-label", `${t.helpTitle}: ${(h.querySelector("span") ?? h).textContent}`);
+        b.setAttribute("aria-label", `${lines.help.title}: ${(h.querySelector("span") ?? h).textContent}`);
       });
     });
     // A hint goes with its mark, and says its mark's new sentence when that changed.
@@ -881,9 +885,9 @@ class SolarView extends HTMLElement {
   // no export price, no weather): a line about a mark nobody can find only puzzles. Each view lists the help
   // lines its cards draw (`help`); a line is hidden when one of its texts is a help line its card does not draw.
   _applyHelp() {
-    this.shadowRoot.querySelectorAll("dialog.read :is(li,.pair)").forEach((/** @type {HTMLElement} */ el) => {
-      const drawn = this._help[el.closest("dialog").dataset.card];
-      el.hidden = !!drawn && [...el.querySelectorAll("[data-t]")].some((/** @type {HTMLElement} */ x) => x.dataset.t.startsWith("help") && !drawn.includes(x.dataset.t));
+    this.shadowRoot.querySelectorAll("dialog.read :is(li,.pair)").forEach((/** @type {HTMLElement} */ element) => {
+      const drawn = this._help[element.closest("dialog").dataset.card];
+      element.hidden = !!drawn && [...element.querySelectorAll("[data-t]")].some((/** @type {HTMLElement} */ x) => x.dataset.t.startsWith("help.") && !drawn.includes(x.dataset.t));
     });
   }
 }

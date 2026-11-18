@@ -103,14 +103,14 @@ T = 1794826800.0  # 2026-11-16 11:00 UTC
 
 
 def test_hour_rows_clamps_and_converts():
-    ids = {"bought": ["sensor.g"], "sent": [], "solar": [], "batt_out": [], "batt_in": [], "load": ["sensor.l"]}
+    ids = {"bought": ["sensor.g"], "sent": [], "solar": [], "battery_out": [], "battery_in": [], "load": ["sensor.l"]}
     got = bills.hour_rows({"sensor.g": [row(T, -5)], "sensor.l": [row(T, 2)]}, ids)
     assert got == [(datetime(2026, 11, 16, 11, tzinfo=UTC), 0, 2)]
 
 
 def test_hour_rows_balance_and_load():
     ids = {"bought": ["sensor.g"], "sent": ["sensor.s"], "solar": ["sensor.p1", "sensor.p2"],
-           "batt_out": ["sensor.bo"], "batt_in": ["sensor.bi"], "load": []}
+           "battery_out": ["sensor.bo"], "battery_in": ["sensor.bi"], "load": []}
     stats = {"sensor.g": [row(T, 1), row(T + 3600, 0.5)], "sensor.s": [row(T, 0.5), row(T + 3600, 9)],
              "sensor.p1": [row(T, 2), row(T + 3600, 1)], "sensor.p2": [row(T, 1)],
              "sensor.bo": [row(T, 0.5), row(T + 3600, 0)], "sensor.bi": [row(T, 1), row(T + 3600, 0)]}
@@ -124,7 +124,7 @@ def test_hour_rows_balance_and_load():
     ids["load"] = ["sensor.l"]
     assert bills.hour_rows({**stats, "sensor.l": [row(T, 4)]}, ids)[0] == (datetime(2026, 11, 16, 11, tzinfo=UTC), 1, 4)
     # no battery or solar ids: they count as nothing
-    ids = {"bought": ["sensor.g"], "sent": [], "solar": [], "batt_out": [], "batt_in": [], "load": []}
+    ids = {"bought": ["sensor.g"], "sent": [], "solar": [], "battery_out": [], "battery_in": [], "load": []}
     assert bills.hour_rows({"sensor.g": [row(T, 1)]}, ids) == [(datetime(2026, 11, 16, 11, tzinfo=UTC), 1, 1)]
     # the grid meter missing an hour: bought and house unknown
     ids["solar"] = ["sensor.p1"]
@@ -143,7 +143,7 @@ PREFS = {"energy_sources": [
 def test_energy_ids_from_prefs_and_overrides():
     assert bills.energy_ids(PREFS, None) == {
         "bought": ["sensor.in1", "sensor.in2"], "sent": ["sensor.out"], "solar": ["sensor.sun"],
-        "batt_out": ["sensor.bout"], "batt_in": ["sensor.bin"], "load": []}
+        "battery_out": ["sensor.bout"], "battery_in": ["sensor.bin"], "load": []}
     got = bills.energy_ids(PREFS, {"sensors": {"load_energy": "sensor.l"}})
     assert got["load"] == ["sensor.l"] and got["bought"] == ["sensor.in1", "sensor.in2"]
     # newer grid: one import and export pair
@@ -153,12 +153,12 @@ def test_energy_ids_from_prefs_and_overrides():
     cfg = {"entities": {"solar_energy": "sensor.a", "battery_in_energy": "sensor.x"},
            "sensors": {"solar_energy": ["sensor.b", "sensor.c"], "battery_out_energy": []}}
     got = bills.energy_ids(PREFS, cfg)
-    assert got["solar"] == ["sensor.b", "sensor.c"] and got["batt_in"] == ["sensor.x"] and got["batt_out"] == []
+    assert got["solar"] == ["sensor.b", "sensor.c"] and got["battery_in"] == ["sensor.x"] and got["battery_out"] == []
 
 
 def test_energy_ids_grouped_entities():
     got = bills.energy_ids({}, {"plant": {"entities": {"grid_in_energy": "sensor.g"}}})
-    assert got == {"bought": ["sensor.g"], "sent": [], "solar": [], "batt_out": [], "batt_in": [], "load": []}
+    assert got == {"bought": ["sensor.g"], "sent": [], "solar": [], "battery_out": [], "battery_in": [], "load": []}
 
 
 # ---- months_attr ----

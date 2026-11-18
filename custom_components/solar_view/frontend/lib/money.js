@@ -22,10 +22,10 @@ function moneySoFar(todayHours, buyAt, sellAt, standbyKwhPerHour, now) {
   const add = (sum, kwh, rate) => sumKnown([sum, pricedEnergy(kwh, rate)]);
   for (const [key, h] of Object.entries(todayHours)) {
     const t = +key, buy = buyAt(t), standby = (standbyKwhPerHour * (Math.min(now, t + HOUR) - t)) / HOUR;
-    const { loadKwh: use, gridImportKwh: imp, gridExportKwh: exp } = h;
-    saved = add(saved, Number.isFinite(use) && Number.isFinite(imp) ? Math.max(0, use - standby - imp) : null, buy);
-    cost = add(cost, imp, buy);
-    earned = add(earned, exp, sellAt(t));
+    const { loadKwh: use, gridImportKwh: importKwh, gridExportKwh: exportKwh } = h;
+    saved = add(saved, Number.isFinite(use) && Number.isFinite(importKwh) ? Math.max(0, use - standby - importKwh) : null, buy);
+    cost = add(cost, importKwh, buy);
+    earned = add(earned, exportKwh, sellAt(t));
   }
   return { saved, cost, earned };
 }
@@ -52,15 +52,15 @@ function moneyOf(data, key) {
     earned: (x) => (!data.sends ? 0 : num(x.earnedMoney) ?? pricedEnergy(x.gridExportKwh, p.sell)),
     saved: (x) => { const self = selfKwh(x); return self !== null && num(x.costMoney) !== null && x.gridImportKwh > 0 ? self * x.costMoney / x.gridImportKwh : pricedEnergy(self, p.buy); },
   };
-  const fx = data.billFixed ?? {}, fxKeys = Object.keys(fx.months ?? {}).sort();
-  const fixedAt = (mk) => fx.months?.[mk] ?? fx.months?.[fxKeys.filter((k) => k < mk).at(-1) ?? fxKeys[0]] ?? (fx.now === undefined ? 0 : fx.now);
-  const got = (k, x, mk) => {
-    const v = months?.[mk]?.money?.[k], r = Number.isFinite(v) ? v : onRecord[k](x);
-    const own = months?.[mk]?.fixed, fixed = Number.isFinite(own) ? own : fixedAt(mk);
+  const fixedFees = data.billFixed ?? {}, fxKeys = Object.keys(fixedFees.months ?? {}).sort();
+  const fixedAt = (monthKey) => fixedFees.months?.[monthKey] ?? fixedFees.months?.[fxKeys.filter((k) => k < monthKey).at(-1) ?? fxKeys[0]] ?? (fixedFees.now === undefined ? 0 : fixedFees.now);
+  const got = (k, x, monthKey) => {
+    const v = months?.[monthKey]?.money?.[k], r = Number.isFinite(v) ? v : onRecord[k](x);
+    const own = months?.[monthKey]?.fixed, fixed = Number.isFinite(own) ? own : fixedAt(monthKey);
     return r === null ? null : k !== "cost" ? r : fixed === null ? null : r + fixed;
   };
-  const back = (x, mk) => sumKnown([got("saved", x, mk), got("earned", x, mk)]);
-  const net = (x, mk) => { const c = got("cost", x, mk), b = back(x, mk); return c === null || b === null ? null : b - c; };
+  const back = (x, monthKey) => sumKnown([got("saved", x, monthKey), got("earned", x, monthKey)]);
+  const net = (x, monthKey) => { const c = got("cost", x, monthKey), b = back(x, monthKey); return c === null || b === null ? null : b - c; };
   const coming = moneyAhead(data), m = data.month, soFarNet = m && !m.none ? net(m, key) : null;
   const end = { net: coming?.rest != null && soFarNet !== null ? soFarNet + coming.rest : null };
   return { onRecord, fixedAt, got, back, net, end, coming };
@@ -72,12 +72,12 @@ function moneyOf(data, key) {
 // month rows lag). Each with its kWh and money for seasonGuess.
 function ledgerOf(data, key, { back, got }) {
   const ledger = [], have = new Map(data.months ?? []), lastKey = shiftMonth(key, -1);
-  for (let mk = [...have.keys(), key].sort()[0]; mk <= key; mk = shiftMonth(mk, 1)) {
-    const x = mk === key ? data.month : have.get(mk) ?? (mk === lastKey ? data.lastMonth : null);
-    ledger.push({ key: mk, back: x ? back(x, mk) : null, ...(x && {
+  for (let monthKey = [...have.keys(), key].sort()[0]; monthKey <= key; monthKey = shiftMonth(monthKey, 1)) {
+    const x = monthKey === key ? data.month : have.get(monthKey) ?? (monthKey === lastKey ? data.lastMonth : null);
+    ledger.push({ key: monthKey, back: x ? back(x, monthKey) : null, ...(x && {
       sun: x.solarKwh, load: x.loadKwh, out: x.gridExportKwh,
       self: selfKwh(x),
-      saved: got("saved", x, mk), earned: got("earned", x, mk) }) });
+      saved: got("saved", x, monthKey), earned: got("earned", x, monthKey) }) });
   }
   return ledger;
 }
@@ -88,21 +88,21 @@ function ledgerOf(data, key, { back, got }) {
 // brought back so far (`month`, null before the install month). Once paid, the month it happened (`on`,
 // null when it had before Home Assistant recorded). { incomplete: true } while a month since then is unknown; null
 // without a cost.
-function paybackOf(all, pb, predicts, at = {}) {
-  if (!pb) return null;
+function paybackOf(all, paybackOptions, predicts, at = {}) {
+  if (!paybackOptions) return null;
   // The install date's month as written ("2026-11-01"), never moved by a time zone.
-  const since = typeof pb.since === "string" ? pb.since : "";
+  const since = typeof paybackOptions.since === "string" ? paybackOptions.since : "";
   const from = since.slice(0, 7), done = all.filter((x) => x.key >= from);
   if (done.some((x) => x.back === null)) return { incomplete: true };
-  const got = pb.before + done.reduce((s, x) => s + x.back, 0), paid = got >= pb.cost;
+  const got = paybackOptions.before + done.reduce((s, x) => s + x.back, 0), paid = got >= paybackOptions.cost;
   // Finished months only: this month so far would pull the guess down. Its rest still comes back first. So would
   // an install month that started after its 1st (the house's whole month against part of the sun), while there
   // are other months to go by.
   const past = done.slice(0, -1), part = since.slice(8, 10) > "01" && past.length > 1 && past[0].key === from;
-  const left = paid || !predicts ? null : paybackLeft(pb.cost - got, part ? past.slice(1) : past, done.at(-1)?.key, done.at(-1)?.back, at);
+  const left = paid || !predicts ? null : paybackLeft(paybackOptions.cost - got, part ? past.slice(1) : past, done.at(-1)?.key, done.at(-1)?.back, at);
   let on = null;
-  for (let s = pb.before, i = 0; paid && s < pb.cost && i < done.length; i++) if ((s += done[i].back) >= pb.cost) on = done[i].key;
-  return { incomplete: false, got, cost: pb.cost, share: clamp01(got / pb.cost), paid, on, left, month: done.at(-1)?.back ?? null };
+  for (let s = paybackOptions.before, i = 0; paid && s < paybackOptions.cost && i < done.length; i++) if ((s += done[i].back) >= paybackOptions.cost) on = done[i].key;
+  return { incomplete: false, got, cost: paybackOptions.cost, share: clamp01(got / paybackOptions.cost), paid, on, left, month: done.at(-1)?.back ?? null };
 }
 
 // Today's hours of each band, as runs of whole hours in Home Assistant's time zone (a day the clocks change has
@@ -144,15 +144,15 @@ function moneyAhead(data) {
 // year is on record. null with nothing on record.
 // soFar: what month `lastKey` (under way) brought so far; its rest, what such a month brings less that,
 // comes back first (at least 1 month is said all the same).
-function paybackLeft(owed, past, lastKey, soFar = null, /** @type {{ lat?: number, sell?: number }} */ { lat, sell = 0 } = {}) {
+function paybackLeft(owed, past, lastKey, soFar = null, /** @type {{ lat?: number, sell?: number }} */ { lat: latitude, sell = 0 } = {}) {
   const by = Object.fromEntries(past.map((x) => [x.key.slice(5), x.back])); // oldest first: the latest wins
-  const avg = past.length ? past.reduce((s, x) => s + x.back, 0) / past.length : 0;
-  if (!(avg > 0) || !lastKey) return null;
-  const guess = seasonGuess(past, lat, sell);
-  const month = (mk) => by[mk.slice(5)] ?? (guess ? guess(mk) : avg);
+  const average = past.length ? past.reduce((s, x) => s + x.back, 0) / past.length : 0;
+  if (!(average > 0) || !lastKey) return null;
+  const guess = seasonGuess(past, latitude, sell);
+  const month = (monthKey) => by[monthKey.slice(5)] ?? (guess ? guess(monthKey) : average);
   const walk = (k) => {
-    let rest = owed - (Number.isFinite(soFar) ? Math.max(0, k * month(lastKey) - soFar) : 0), n = 0, mk = lastKey;
-    while (rest > 0 && n < PAYBACK_MAX_MONTHS) { mk = shiftMonth(mk, 1); n++; rest -= k * month(mk); }
+    let rest = owed - (Number.isFinite(soFar) ? Math.max(0, k * month(lastKey) - soFar) : 0), n = 0, monthKey = lastKey;
+    while (rest > 0 && n < PAYBACK_MAX_MONTHS) { monthKey = shiftMonth(monthKey, 1); n++; rest -= k * month(monthKey); }
     return Math.max(1, n);
   };
   const spread = past.length >= 12 ? 0 : PAYBACK_SPREAD;
@@ -172,11 +172,11 @@ function paybackLeft(owed, past, lastKey, soFar = null, /** @type {{ lat?: numbe
 // ponytail: use saturates at all of it, which takes a battery; without one the guess is high in summer. A second
 // fitted ceiling once that shows. A summer-only record cannot see winter heating: the guess then runs about 15%
 // long until winter is on record. An odd month (a holiday) bends the use line: about 30% off with 3 months.
-function seasonGuess(all, lat, sell) {
+function seasonGuess(all, latitude, sell) {
   const past = all.filter((x) => [x.sun, x.load, x.self, x.saved, x.earned].every(Number.isFinite) && x.sun >= 0 && x.load > 0);
-  if (!Number.isFinite(lat) || !past.length) return null;
-  const sum = (list, g) => list.reduce((s, x) => s + g(x), 0), n = past.length, sky = (k) => monthSun(k, lat) / daysIn(k);
-  const scale = sum(past, (x) => x.sun) / sum(past, (x) => monthSun(x.key, lat));
+  if (!Number.isFinite(latitude) || !past.length) return null;
+  const sum = (list, g) => list.reduce((s, x) => s + g(x), 0), n = past.length, sky = (k) => monthSun(k, latitude) / daysIn(k);
+  const scale = sum(past, (x) => x.sun) / sum(past, (x) => monthSun(x.key, latitude));
   const xs = past.map((x) => sky(x.key)), ys = past.map((x) => x.load / daysIn(x.key));
   const mx = xs.reduce((s, v) => s + v, 0) / n, my = ys.reduce((s, v) => s + v, 0) / n, vx = xs.reduce((s, v) => s + (v - mx) ** 2, 0);
   const slope = n >= 3 && vx > 0 ? xs.reduce((s, v, i) => s + (v - mx) * (ys[i] - my), 0) / vx : 0, floor = Math.min(...ys) / 2;
@@ -187,7 +187,7 @@ function seasonGuess(all, lat, sell) {
   const seen = new Map();
   return (key) => {
     if (seen.has(key.slice(5))) return seen.get(key.slice(5));
-    const sun = scale * monthSun(key, lat), use = Math.max(floor, my + slope * (sky(key) - mx)) * daysIn(key);
+    const sun = scale * monthSun(key, latitude), use = Math.max(floor, my + slope * (sky(key) - mx)) * daysIn(key);
     const covered = use * (1 - Math.exp((-b * sun) / use)), v = perSelf * covered + perOut * Math.max(0, sun - covered);
     seen.set(key.slice(5), v);
     return v;

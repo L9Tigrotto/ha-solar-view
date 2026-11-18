@@ -16,7 +16,7 @@ from homeassistant.helpers.selector import (
     TextSelector,
 )
 
-from .const import CONF_EXPORT_LIMIT, CONF_MODEL, CONF_PUN, CONF_SOC, DOMAIN
+from .const import CONF_EXPORT_LIMIT, CONF_MODEL, CONF_PUN, CONF_CHARGE_SENSOR, DOMAIN
 from .forecast import AIFS, weather_url
 
 
@@ -27,7 +27,7 @@ def _schema(d: dict[str, Any], options: bool) -> vol.Schema:
     fields: dict[Any, Any] = {
         vol.Required(CONF_LATITUDE, default=d.get(CONF_LATITUDE)): coord(-90, 90),
         vol.Required(CONF_LONGITUDE, default=d.get(CONF_LONGITUDE)): coord(-180, 180),
-        vol.Optional(CONF_SOC, description={"suggested_value": d.get(CONF_SOC)}):
+        vol.Optional(CONF_CHARGE_SENSOR, description={"suggested_value": d.get(CONF_CHARGE_SENSOR)}):
             EntitySelector(EntitySelectorConfig(domain="sensor")),
         vol.Optional(CONF_EXPORT_LIMIT, description={"suggested_value": d.get(CONF_EXPORT_LIMIT)}):
             NumberSelector(NumberSelectorConfig(min=0, max=1000, step=0.01, unit_of_measurement="kW",

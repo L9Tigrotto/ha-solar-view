@@ -54,8 +54,8 @@ year = sorted(d for d in hours if d.startswith("2017"))
 assert len(year) == 365, len(year)
 from_2016 = [d for d in year if d in copies]
 assert all("2016" + d[4:] in hours and "2016" + d[4:] not in copies for d in from_2016)
-days, soc = {}, BATT_KWH / 2
-slots = {"sun": [], "use": [], "soc": []}
+days, chargeLevel = {}, BATT_KWH / 2
+slots = {"sun": [], "use": [], "chargeLevel": []}
 for day in year:
     h_list = hours["2016" + day[4:] if day in copies else day]
     # 24 slots: 25 hours fold their last two into one, 23 hours repeat the charge in a slot with no energy.
@@ -64,19 +64,19 @@ for day in year:
         use = max(0.0, sun + grid_in - grid_out)
         spare = sun - use
         if spare > 0:
-            put = min(spare, BATT_MAX_KW, (BATT_KWH - soc) / EFF)
-            soc += put * EFF
+            put = min(spare, BATT_MAX_KW, (BATT_KWH - chargeLevel) / EFF)
+            chargeLevel += put * EFF
             out, put_in, b_in, b_out = 0.0, put, 0.0, spare - put
         else:
-            give = min(-spare, BATT_MAX_KW, (soc - BATT_KWH * FLOOR) * EFF)
-            soc -= give / EFF
+            give = min(-spare, BATT_MAX_KW, (chargeLevel - BATT_KWH * FLOOR) * EFF)
+            chargeLevel -= give / EFF
             out, put_in, b_in, b_out = give, 0.0, -spare - give, 0.0
         d = days.setdefault(day, [0.0] * 7)
         for i, v in enumerate((sun, grid_in, grid_out, out, put_in, b_in, b_out)):
             d[i] += v
-        slots["sun"].append(round(sun, 3)); slots["use"].append(round(use, 3)); slots["soc"].append(round(soc / BATT_KWH * 100, 1))
+        slots["sun"].append(round(sun, 3)); slots["use"].append(round(use, 3)); slots["chargeLevel"].append(round(chargeLevel / BATT_KWH * 100, 1))
     for _ in range(24 - len(folded)):
-        slots["sun"].append(0.0); slots["use"].append(slots["use"][-1]); slots["soc"].append(slots["soc"][-1])
+        slots["sun"].append(0.0); slots["use"].append(slots["use"][-1]); slots["chargeLevel"].append(slots["chargeLevel"][-1])
 
 keys = sorted(days)
 json.dump({"source": "Open Power System Data, Household Data 2020-04-15, DE_KN_residential4, 2017, copied days from 2016 (CC BY 4.0)",

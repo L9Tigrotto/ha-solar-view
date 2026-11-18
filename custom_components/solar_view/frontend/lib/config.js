@@ -9,7 +9,7 @@ const { num, warnOnce } = await import(`./core.js${v}`);
 const misread = new Set();
 const warn = (text) => { misread.add(text.slice(0, text.indexOf(":"))); warnOnce(text); };
 
-const BATTERY_FLOOR_SOC = 20; // percent where the inverter stops discharging, unless config says battery_floor
+const BATTERY_FLOOR_PERCENT = 20; // percent where the inverter stops discharging, unless config says battery_floor
 const USUAL_DAYS = 14;    // the usual day (Energy's dashed lines) averages each hour over these many days, unless config says usual_days
 const USUAL_MIN = 3;      // until every hour of the day has this many days behind it there is no usual day (no dashed lines, no forecast built here)
 // usual_days at most: each day is 24 hour rows per energy sensor asked once a day, and past two months the
@@ -23,9 +23,9 @@ const BATTERY_MARGIN = 10;  // a suggested start keeps the battery this many poi
 // power when importing.
 const ENTITIES = {
   solar_power: ["solarW", "solar", "stat_rate"],
-  battery_power: ["battW", "battery", "stat_rate"],
+  battery_power: ["batteryW", "battery", "stat_rate"],
   grid_power: ["gridW", "grid", "stat_rate"],
-  battery_soc: ["soc", "battery", "stat_soc"],
+  battery_soc: ["chargeLevel", "battery", "stat_soc"],
   solar_energy: ["solarKwh", "solar", "stat_energy_from"],
   battery_out_energy: ["batteryKwh", "battery", "stat_energy_from"],
   battery_in_energy: ["chargeKwh", "battery", "stat_energy_to"],
@@ -36,7 +36,7 @@ const ENTITIES = {
   load_power: ["loadW"],
   load_energy: ["loadKwh"],
   // The battery's state of health in %, where the inverter or BMS reports it (see wearOf).
-  battery_health: ["healthPct"],
+  battery_health: ["healthPercent"],
   // Money, in the currency: what the grid cost and paid, as Home Assistant counts it for the Energy page
   // (its own cost sensors when the Energy settings name none, see readConfig).
   grid_cost: ["costMoney", "grid", "stat_cost"],
@@ -53,8 +53,8 @@ const quietHours = (v) => {
 // exist (2026-02-30 is not read as 2 March).
 function calendarDate(value) {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const ms = Date.parse(value);
-  return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === value ? value : null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value ? value : null;
 }
 // The machines the page can say when to start, each named by its type's word in the language.
 const MACHINE_TYPES = ["washer", "dryer", "dishwasher"];
@@ -69,8 +69,6 @@ const TARIFF_TYPES = ["single", "two", "three"];
 // How far the page predicts (the table in docs/how-it-works.md); no level is auto. What each level uses,
 // and the step down when its data is missing: modeOf in data.js.
 const LEVELS = ["none", "usual_days", "weather", "usual_days_weather"];
-// Old names: usual (before the levels), learned_weather (dropped 2026-11-16, it stepped down to usual_days_weather).
-const LEVEL_ALIASES = { usual: "usual_days_weather", learned_weather: "usual_days_weather" };
 const isMap = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 // The config as flat keys. A key given twice says so once: a group's wins over the top level, and the
 // later group of CONFIG_GROUPS over an earlier one. `sensors` (a group) and `entities` (flat) merge name by
@@ -131,13 +129,13 @@ function date(v, key) {
 // energy/get_prefs (null: not set up, or not asked yet); `costs` (energy/info's cost_sensors) names the cost
 // sensor Home Assistant made for each grid statistic with a price, where the settings name no cost statistic.
 //   ids: the entity ids to read, as lists (several solar arrays or batteries are summed), from the Energy
-//     settings unless the config names them; socWeight; the Energy settings' prices.
-//   cfg: the owner's settings, each with its default when absent or bad.
-function readConfig(prefs, config, costs = {}) {
+//     settings unless the config names them; chargeWeight; the Energy settings' prices.
+//   options: the owner's settings, each with its default when absent or bad.
+function readConfig(energyPreferences, config, costs = {}) {
   misread.clear();
   if (config != null && !isMap(config)) warn(`config: ${shown(config)} is not a map of options, so none is used`);
   const c = configOf(config);
-  const energySources = prefs?.energy_sources ?? [];
+  const energySources = energyPreferences?.energy_sources ?? [];
   // Older Home Assistant keeps a grid as lists of flows, newer as one import and export pair.
   // An old export flow names its price like an import one, so it is renamed here.
   const flat = energySources.flatMap((s) => [s, ...["flow_from", "flow_to", "power"].flatMap((k) => (s[k] || []).map((x) => (k === "flow_to"
@@ -146,24 +144,24 @@ function readConfig(prefs, config, costs = {}) {
     .map((s) => ({ ...s, stat_cost: s.stat_cost ?? costs?.[s.stat_energy_from], stat_compensation: s.stat_compensation ?? costs?.[s.stat_energy_to] }));
   if (c.entities != null && !isMap(c.entities)) warn(`sensors: ${shown(c.entities)} is not a map of names to entity ids, so the Energy settings are used`);
   const own = isMap(c.entities) ? c.entities : {};
-  const ids = {};
+  const entityIds = {};
   for (const name of Object.keys(own)) if (!(name in ENTITIES)) warn(`sensors.${name}: no such name (see Names under sensors in docs/setup.md), so it is ignored`);
   for (const [name, [key, type, field]] of Object.entries(ENTITIES)) {
     // One id or a list; [] switches the part off.
     const given = own[name] == null ? null : [].concat(own[name]), kept = given?.filter((id) => typeof id === "string" && id);
     if (given && kept.length < given.length) warn(`sensors.${name}: ${shown(own[name])} holds something that is not an entity id, left out`);
-    ids[key] = kept ?? flat.filter((s) => s.type === type && s[field]).map((s) => s[field]);
+    entityIds[key] = kept ?? flat.filter((s) => s.type === type && s[field]).map((s) => s[field]);
   }
   const batteries = energySources.filter((s) => s.type === "battery");
   const sized = batteries.length > 0 && batteries.every((b) => b.capacity > 0);
   // State of charge of several batteries: weighted by size when every size is known.
-  ids.socWeight = Object.fromEntries(batteries.map((b) => [b.stat_soc, sized ? b.capacity : 1]));
+  entityIds.chargeWeight = Object.fromEntries(batteries.map((b) => [b.stat_soc, sized ? b.capacity : 1]));
   // The Energy settings' prices: a number, or the id of an entity holding one, so Home Assistant keeps
   // their history in the cost statistics.
   const price = (entityKey, numberKey) => flat.map((s) => s[entityKey] ?? s[numberKey]).find((x) => x != null) ?? null;
-  ids.price = { buy: price("entity_energy_price", "number_energy_price"), sell: price("entity_energy_price_export", "number_energy_price_export") };
+  entityIds.price = { buy: price("entity_energy_price", "number_energy_price"), sell: price("entity_energy_price_export", "number_energy_price_export") };
   // A Solar Forecast in the Energy settings (for the setup check).
-  ids.hasForecast = energySources.some((s) => s.type === "solar" && s.config_entry_solar_forecast?.length > 0);
+  entityIds.hasForecast = energySources.some((s) => s.type === "solar" && s.config_entry_solar_forecast?.length > 0);
 
   // The machines the page says when to start, by type (the language's word names each), in the order
   // written: typed figures, and a sensor whose runs replace them (see machineOf). None: a washer of 1 kWh
@@ -179,15 +177,15 @@ function readConfig(prefs, config, costs = {}) {
   });
   // The contract's bands and their prices: each a number or an entity, else learned from `sensor`.
   let tariff = null;
-  const tf = c.tariff;
-  if (tf != null && !isMap(tf)) warn(`tariff: ${shown(tf)} is not a map (type, prices, sensor), so there are no bands`);
-  else if (tf != null && !TARIFF_TYPES.includes(tf.type)) warn(`tariff.type: ${shown(tf.type)} is not one of ${TARIFF_TYPES.join(", ")}, so there are no bands`);
-  else if (tf != null) {
-    for (const k of Object.keys(tf)) if (!["type", "prices", "sensor"].includes(k)) warn(`tariff.${k}: no such option, so it is ignored`);
-    for (const b of Object.keys(isMap(tf.prices) ? tf.prices : {})) if (!["f1", "f2", "f3", "f23"].includes(b)) warn(`tariff.prices.${b}: no such band (f1, f2, f3, f23), so it is ignored`);
-    if (tf.prices != null && !isMap(tf.prices)) warn(`tariff.prices: ${shown(tf.prices)} is not a map of bands (f1, f2, f3, f23) to prices`);
-    const prices = Object.entries(isMap(tf.prices) ? tf.prices : {}).map(([b, p]) => [b, numberOrId(p, `tariff.prices.${b}`)]).filter(([, p]) => p != null);
-    tariff = { type: tf.type, sensor: entity(tf.sensor, "tariff.sensor"), prices: Object.fromEntries(prices) };
+  const tariffOptions = c.tariff;
+  if (tariffOptions != null && !isMap(tariffOptions)) warn(`tariff: ${shown(tariffOptions)} is not a map (type, prices, sensor), so there are no bands`);
+  else if (tariffOptions != null && !TARIFF_TYPES.includes(tariffOptions.type)) warn(`tariff.type: ${shown(tariffOptions.type)} is not one of ${TARIFF_TYPES.join(", ")}, so there are no bands`);
+  else if (tariffOptions != null) {
+    for (const k of Object.keys(tariffOptions)) if (!["type", "prices", "sensor"].includes(k)) warn(`tariff.${k}: no such option, so it is ignored`);
+    for (const b of Object.keys(isMap(tariffOptions.prices) ? tariffOptions.prices : {})) if (!["f1", "f2", "f3", "f23"].includes(b)) warn(`tariff.prices.${b}: no such band (f1, f2, f3, f23), so it is ignored`);
+    if (tariffOptions.prices != null && !isMap(tariffOptions.prices)) warn(`tariff.prices: ${shown(tariffOptions.prices)} is not a map of bands (f1, f2, f3, f23) to prices`);
+    const prices = Object.entries(isMap(tariffOptions.prices) ? tariffOptions.prices : {}).map(([b, p]) => [b, numberOrId(p, `tariff.prices.${b}`)]).filter(([, p]) => p != null);
+    tariff = { type: tariffOptions.type, sensor: entity(tariffOptions.sensor, "tariff.sensor"), prices: Object.fromEntries(prices) };
   }
   const quiet = quietHours(c.quiet_hours);
   if (c.quiet_hours != null && !quiet) warn(`quiet_hours: ${shown(c.quiet_hours)} is not hours such as "0-7" or "23:30-6:30", so "${QUIET_HOURS}" is used`);
@@ -198,18 +196,17 @@ function readConfig(prefs, config, costs = {}) {
   // Payback: what the system cost (0 or none: no payback card), the day it started (none: the first month
   // on record), and what it saved before Home Assistant recorded.
   const cost = figure(c.system_cost, "system_cost", 0, Infinity), installed = date(c.install_date, "install_date");
-  const level = c.level == null ? null : LEVELS.includes(c.level) ? c.level : LEVEL_ALIASES[c.level] ?? null;
-  if (c.level === "learned_weather") warnOnce("level learned_weather: dropped, so usual_days_weather is used");
+  const level = c.level == null ? null : LEVELS.includes(c.level) ? c.level : null;
   if (c.level != null && !level) warn(`level: ${shown(c.level)} is not one of ${LEVELS.join(", ")}, so the level is automatic`);
   // The clock: 12 or 24 hours for every viewer, or "system" or "language" as in the profile (see hourCycle).
   const timeFormat = c.time_format == null ? null : ["12", "24", "system", "language"].find((f) => f === String(c.time_format)) ?? null;
   if (c.time_format != null && !timeFormat) warn(`time_format: ${shown(c.time_format)} is not 12, 24, system or language, so each viewer's profile decides`);
   if (c.advice != null && !isMap(c.advice)) warn(`advice: ${shown(c.advice)} is not a map of languages to pools of lines, so it is not used`);
   if (c.advice_replace != null && typeof c.advice_replace !== "boolean") warn(`advice_replace: ${shown(c.advice_replace)} is not true or false, so false is used`);
-  const cfg = {
-    batt: {
+  const options = {
+    battery: {
       kwh: figure(c.battery_kwh, "battery_kwh", 0.1, Infinity) ?? (sized ? batteries.reduce((sum, b) => sum + b.capacity, 0) : null),
-      floor: figure(c.battery_floor, "battery_floor", 0, 100, BATTERY_FLOOR_SOC), // %
+      floor: figure(c.battery_floor, "battery_floor", 0, 100, BATTERY_FLOOR_PERCENT), // %
       maxChargeKw: figure(c.battery_max_charge_kw, "battery_max_charge_kw", 0, Infinity), // null: no limit
       maxDischargeKw: figure(c.battery_max_discharge_kw, "battery_max_discharge_kw", 0, Infinity), // null: no limit
       // For the wear warning: the day this battery went in (a replaced one has its own).
@@ -223,7 +220,7 @@ function readConfig(prefs, config, costs = {}) {
     machines,
     quiet: quiet ?? quietHours(QUIET_HOURS),
     gridMaxKw: figure(c.grid_max_kw, "grid_max_kw", 0, Infinity),
-    marginPct: figure(c.battery_margin, "battery_margin", 0, 100, BATTERY_MARGIN), // %
+    marginPercent: figure(c.battery_margin, "battery_margin", 0, 100, BATTERY_MARGIN), // %
     tariff,
     usualDays,
     payback: cost > 0 ? { cost, since: installed, before: figure(c.saved_before, "saved_before", 0, Infinity, 0) } : null,
@@ -235,14 +232,14 @@ function readConfig(prefs, config, costs = {}) {
     adviceReplace: c.advice_replace === true,
     timeFormat,
   };
-  return { ids, cfg, misread: [...misread] };
+  return { ids: entityIds, options, misread: [...misread] };
 }
-/** @typedef {ReturnType<typeof readConfig>["cfg"]} Config the owner's settings, each with its default */
+/** @typedef {ReturnType<typeof readConfig>["options"]} Config the owner's settings, each with its default */
 // The live sensors the Now page cannot do without, one list per kind (solar, battery and grid power, charge).
 // A kind is silent only when all of its sensors are: a second inverter asleep at night is not.
-const requiredIds = (ids) => [ids.solarW, ids.battW, ids.gridW, ids.soc].filter((kind) => kind.length);
+const requiredIds = (entityIds) => [entityIds.solarW, entityIds.batteryW, entityIds.gridW, entityIds.chargeLevel].filter((kind) => kind.length);
 // Read while they have a value, else left out: the load sensor (house use is then the balance).
-const optionalIds = (ids) => ids.loadW;
+const optionalIds = (entityIds) => entityIds.loadW;
 
 // The setup check in the gear dialog, for admins: each feature on or off, as plain data the dialog puts in
 // words. `mode` is the level in use after any step down (see modeOf), `sensor` whether the forecast sensor is
@@ -251,15 +248,15 @@ const optionalIds = (ids) => ids.loadW;
 // whether the page looks ahead (without, no machine line can show), `misread` the options a warning named.
 // The forecast row only where a level would use it and no fresh forecast sensor stands in for it. A machine
 // without a sensor runs on its typed figures, or the assumed washer's.
-const setupCheck = (cfg, { mode, sensor, battery, money, forecast, outlook, misread = [] }) => [
-  { key: "level", asked: cfg.level, used: mode.level },
-  ...([null, "usual_days_weather"].includes(cfg.level) && !sensor ? [{ key: "forecast", on: forecast }] : []),
-  ...(battery ? [{ key: "battery", on: cfg.batt.kwh > 0, kwh: cfg.batt.kwh }] : []),
+const setupCheck = (options, { mode, sensor, battery, money, forecast, outlook, misread = [] }) => [
+  { key: "level", asked: options.level, used: mode.level },
+  ...([null, "usual_days_weather"].includes(options.level) && !sensor ? [{ key: "forecast", on: forecast }] : []),
+  ...(battery ? [{ key: "battery", on: options.battery.kwh > 0, kwh: options.battery.kwh }] : []),
   { key: "money", on: money },
-  { key: "payback", on: !!cfg.payback },
-  { key: "bands", on: !!cfg.tariff },
-  ...(outlook ? cfg.machines.map((m) => ({ key: "machine", type: m.type, sensor: m.sensor, kwh: m.kwh, hours: m.hours })) : []),
+  { key: "payback", on: !!options.payback },
+  { key: "bands", on: !!options.tariff },
+  ...(outlook ? options.machines.map((m) => ({ key: "machine", type: m.type, sensor: m.sensor, kwh: m.kwh, hours: m.hours })) : []),
   ...(misread.length ? [{ key: "misread", names: misread }] : []),
 ];
 
-export { BATTERY_FLOOR_SOC, USUAL_MIN, readConfig, requiredIds, optionalIds, setupCheck, quietHours, calendarDate, configOf }; // the last three: for the tests
+export { BATTERY_FLOOR_PERCENT, USUAL_MIN, readConfig, requiredIds, optionalIds, setupCheck, quietHours, calendarDate, configOf }; // the last three: for the tests
