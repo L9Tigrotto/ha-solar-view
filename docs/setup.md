@@ -23,6 +23,8 @@ Developed and tested on Home Assistant 2026.9. Power sensors in the Energy setti
 
 **Updating:** new versions show up in Settings, Updates. Install the update and restart Home Assistant. On a phone, if the old page stays, close the app fully and open it again.
 
+**Coming from the old Dashboard install?** Earlier versions were a HACS Dashboard with a `panel_custom` block in `configuration.yaml`. Remove that block, remove **Solar View** from HACS, then add the repository again as an **Integration** (steps above). The last Dashboard version stays available as the tag `dashboard-final`.
+
 ## Install by hand
 
 1. Copy the `custom_components/solar_view` folder of this repository into `config/custom_components/`.
