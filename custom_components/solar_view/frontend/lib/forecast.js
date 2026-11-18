@@ -183,12 +183,28 @@ const findOurs = (hass, key, fallback) => {
 export const findForecast = (hass) => findOurs(hass, "forecast", "sensor.solar_view_forecast");
 export const findBills = (hass) => findOurs(hass, "bills", "sensor.solar_view_bills");
 
-// ---- Time bands (Italy, ARERA) ----
-// F1 Monday to Friday 8 to 19; F2 Monday to Friday 7 to 8 and 19 to 23, Saturday 7 to 23; F3 the rest,
-// and all of Sundays and national holidays. A two band contract prices F1 and F23 (F2 and F3 together),
-// a single band one the whole day as F1.
+// ---- Time bands ----
+// A schedule is { bands: [{ name, hours, days }], dates (an array: a tariff may be copied through JSON), italy }, the tariff's bands in order. The hour starting at
+// `hour` belongs to the first band that covers its half past minute (so "00:30-07:30" holds hours 0 to 6, and whole
+// hour ranges mean what they say); `hours` are [from, to) in minutes (a range may pass midnight, null: any time),
+// `days` the weekdays 0 (Sunday) to 6 (null: any). A day that is a holiday counts as a Sunday: one of `dates`
+// ("MM-DD" every year, or "YYYY-MM-DD"), or with `italy` a national holiday or Easter Monday. null: no band covers it.
+const WORK = [1, 2, 3, 4, 5];
 const HOLIDAYS = ["01-01", "01-06", "04-25", "05-01", "06-02", "08-15", "11-01", "12-08", "12-25", "12-26"];
-const BANDS = { single: ["f1"], two: ["f1", "f23"], three: ["f1", "f2", "f3"] };
+// Italy, ARERA: F1 Monday to Friday 8 to 19; F2 Monday to Friday 7 to 8 and 19 to 23, Saturday 7 to 23; F3 the rest,
+// and all of Sundays and national holidays. A two band contract prices F1 and F23 (F2 and F3 together), a single
+// band one the whole day as F1. These are the tariff types "three", "two" and "single".
+const F1 = { name: "f1", days: WORK, hours: [[480, 1140]] };
+const PRESETS = {
+  single: { bands: [{ name: "f1" }], dates: [], italy: true },
+  two: { bands: [F1, { name: "f23" }], dates: [], italy: true },
+  three: { bands: [F1, { name: "f2", days: WORK, hours: [[420, 1380]] }, { name: "f2", days: [6], hours: [[420, 1380]] }, { name: "f3" }], dates: [], italy: true },
+};
+const scheduleOf = (type) => (typeof type === "string" ? PRESETS[type] : type);
+// A band's names in order, each once: ["f1", "f2", "f3"] for type "three".
+export const bandIds = (type) => [...new Set(scheduleOf(type)?.bands.map((b) => b.name))];
+// How a band is shown: Italy's ids as F1, F2, F3, a band the owner named as typed.
+export const bandName = (type, id) => (typeof type === "string" ? id.toUpperCase() : id);
 // Easter Monday of year y as "MM-DD" (the Gregorian computus).
 function easterMonday(y) {
   const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
@@ -196,23 +212,26 @@ function easterMonday(y) {
   const l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451), n = h + l - 7 * m + 114;
   return new Date(Date.UTC(y, Math.floor(n / 31) - 1, (n % 31) + 2)).toISOString().slice(5, 10);
 }
-// The band of the hour starting at `hour` on day `key` ("2026-11-04"), for a contract of `type`.
+// The band of the hour starting at `hour` on day `key` ("2026-11-04"), for a tariff `type` (see schedules above); undefined
+// when the type is unknown or no band covers the hour.
 export function bandOf(key, hour, type) {
-  if (type === "single") return "f1";
-  const weekday = new Date(`${key}T12:00:00Z`).getUTCDay(), monthDay = key.slice(5);
-  const band = weekday === 0 || HOLIDAYS.includes(monthDay) || monthDay === easterMonday(+key.slice(0, 4)) || hour < 7 || hour >= 23 ? "f3"
-    : weekday === 6 || hour < 8 || hour >= 19 ? "f2" : "f1";
-  return type === "two" && band !== "f1" ? "f23" : band;
+  const s = scheduleOf(type);
+  if (!s) return undefined;
+  const monthDay = key.slice(5);
+  const holiday = s.dates.includes(key) || s.dates.includes(monthDay) || (s.italy && (HOLIDAYS.includes(monthDay) || monthDay === easterMonday(+key.slice(0, 4))));
+  const day = holiday ? 0 : new Date(`${key}T12:00:00Z`).getUTCDay(), minute = hour * 60 + 30;
+  return s.bands.find((b) => (!b.days || b.days.includes(day))
+    && (!b.hours || b.hours.some(([from, to]) => (from < to ? minute >= from && minute < to : minute >= from || minute < to))))?.name;
 }
 // Each band's price: the one given (a number), else the mean of the price sensor's rows ({ start, mean })
 // in that band's hours. null when a band the contract has gets neither, or the type is unknown.
 export function bandPrices(type, given, rows, clock) {
-  if (!BANDS[type]) return null;
+  if (!scheduleOf(type)) return null;
   const seen = {};
   for (const r of rows ?? []) if (Number.isFinite(r.mean)) { const c = clock(r.start); (seen[bandOf(c.key, c.hour, type)] ??= []).push(r.mean); }
   const out = {};
-  for (const b of BANDS[type]) {
-    const own = b === "f23" ? given?.f23 ?? given?.f2 : given?.[b];
+  for (const b of bandIds(type)) {
+    const own = b === "f23" && typeof type === "string" ? given?.f23 ?? given?.f2 : given?.[b];
     out[b] = Number.isFinite(own) ? own : seen[b] ? seen[b].reduce((s, v) => s + v, 0) / seen[b].length : null;
     if (out[b] == null) return null;
   }
@@ -382,8 +401,8 @@ function advise(rows, bad, now, n, battery, settings, firstShare, clock) {
     // The meter: only for now, the forecast knows hour means, not peaks.
     const room = marginBattery.kwh > 0 && n.chargeLevel > marginBattery.floor ? marginBattery.maxDischargeKw ?? Infinity : 0;
     const draw = ((n.loadW ?? 0) - (n.solarW ?? 0)) / 1000 + m.peakKw - room;
-    if (pick === first && gridMaxKw != null && draw > gridMaxKw + TIE) { out.push({ type: m.type, kind: "wait", t: now, why: null, band: null, kw: (n.loadW ?? 0) / 1000 }); continue; }
-    out.push({ type: m.type, kind: pick === first ? "now" : "at", t: pick.t, why, band: why === "cheaper" ? band.band : null, kw: null });
+    if (pick === first && gridMaxKw != null && draw > gridMaxKw + TIE) { out.push({ type: m.type, kind: "wait", t: now, why: null, band: null, bandName: null, kw: (n.loadW ?? 0) / 1000 }); continue; }
+    out.push({ type: m.type, kind: pick === first ? "now" : "at", t: pick.t, why, band: why === "cheaper" ? band.band : null, bandName: why === "cheaper" ? band.name ?? band.band.toUpperCase() : null, kw: null });
     rows = pick.loaded; bad = withLoad(bad, now, pick.t, m.kwh, m.hours, firstShare);
   }
   return out.length ? out : null;
@@ -397,7 +416,7 @@ function advise(rows, bad, now, n, battery, settings, firstShare, clock) {
 // it: every figure would be a guess.
 /** @typedef {{ saved: number | null, cost: number | null, earned: number | null }} Money */
 /** What follows from the forecast (see lookAhead); chargeAhead's [t, %] rows as its comment below says.
- * @typedef {{ lastsUntil: number | null, best: { type: string, kind: string, t: number, why: string, band: string | null,
+ * @typedef {{ lastsUntil: number | null, best: { type: string, kind: string, t: number, why: string, band: string | null, bandName: string | null,
  *   kw: number | null }[] | null, chargeInHour: number[] | null, fills: boolean, chargeAhead: number[][] | null,
  *   hoursAhead: { t: number, sun: number, battery: number, grid: number, use: number }[] | null, restToday: Money | null,
  *   daysMoney: ({ key: string } & Money)[] | null }} Outlook */

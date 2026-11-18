@@ -48,7 +48,7 @@ The page hides what it cannot fill. Nothing shows as a zero that is really "unkn
 | Energy: Power origin, Today by hour, Production | The energy sensors | Energy settings |
 | Money page | A price on the grid connection, or the band prices of `tariff`, or `system_cost` alone | Energy settings, `tariff`, `system_cost` |
 | Money: Payback | What the system cost. Hidden while no price is set, like the other Money cards. | `system_cost` |
-| Money: price bands | Your contract's time bands (Italy) | `tariff` |
+| Money: price bands | Your contract's time bands | `tariff` |
 
 As an admin, open the gear at the top right. Its **Setup check** lists the main parts, on or off, and what to set for the ones that are off: the prediction level asked for and in use, the solar forecast (where the level would use it), the battery size, Money, Payback, the price bands, and each machine the washer line plans (while the page looks ahead). A last row, "Options not used" (Opzioni non usate), names the options the page ignored or could not read.
 
@@ -161,7 +161,7 @@ prices:
 | Option | Meaning | Default |
 |---|---|---|
 | `bill_fixed` | The fixed part of the electricity bill a month, in your currency: the id of a sensor, or a plain number. Added to every month's grid cost on Money. | `0` |
-| `tariff` | The contract's time bands: `type` and the band prices from `prices`, `sensor` or both. See [Time bands](#time-bands). | No bands |
+| `tariff` | The contract's time bands: Italy's with `type` and the band prices from `prices`, `sensor` or both; or `bands` of your own for any country. See [Time bands](#time-bands). | No bands |
 
 ### Sensors
 
@@ -240,7 +240,7 @@ The integration downloads each month's hourly PUN from GME once (this month's on
 
 ### Time bands
 
-Italian contracts price electricity by the time bands that ARERA sets for every supplier:
+Italian contracts price electricity by the time bands that ARERA sets for every supplier (for another country, see [Bands of your own](#bands-of-your-own-any-country)):
 
 - F1: Monday to Friday, 8 to 19.
 - F2: Monday to Friday, 7 to 8 and 19 to 23; Saturday, 7 to 23.
@@ -261,6 +261,38 @@ tariff:
 Each band takes its price from `prices`, else from `sensor` (the mean of that band's hours over the last 28 days; the sensor needs `state_class: measurement`). Every band of the type needs a price one way or the other. If one has none, the page uses no bands and says so in the browser console.
 
 With bands, the washer line can pick cheaper hours, and the Electricity prices card shows the band now with a box per band. The money figures still use the Energy settings' price.
+
+#### Bands of your own (any country)
+
+Outside Italy, give `bands` instead of `type`. Each band has a `name` (shown as typed), a `price` (a number or the id of an entity) and when it applies:
+
+```yaml
+tariff:                    # UK Economy 7: cheap night 00:30 to 07:30
+  holidays: ["12-25", "2026-12-28"]   # optional, see below
+  sensor: sensor.price     # optional: learns a price for a band that has none
+  bands:
+    - name: Night
+      price: 0.15
+      hours: "00:30-07:30"
+    - name: Day
+      price: 0.30
+```
+
+| Band option | Meaning |
+|---|---|
+| `name` | Required. Shown on the card and in the advice ("Cheaper hours (Night)"). Use it once for each price; the same name on two entries is one band, with the price on either. |
+| `price` | A number or an entity id. Missing: learned from `sensor`, else no bands. |
+| `hours` | One range or a list: `"23:00-7:00"`, `["7-8", "19-23"]`. Minutes allowed, a range may pass midnight. Missing: any time. |
+| `days` | One or a list of `mon` ... `sun`, `weekdays`, `weekends`. Missing: any day. |
+
+Rules:
+
+- **The first band in the list that fits an hour wins.** Put the specific bands first and the catch-all (no `hours`, no `days`) last. Overlaps are therefore allowed.
+- **Every hour of every weekday must be covered**, or the page warns once in the browser console ("tariff.bands: no band covers ...") and uses no bands. A last band without `hours` and `days` covers the rest.
+- **The page works by whole hours.** An hour belongs to the band that covers its half past minute, so `00:30-07:30` holds the hours from 00:00 to 07:00, and `"23:00-7:00"` the hours from 23:00 to 06:00.
+- **Holidays count as Sundays.** `holidays` is a list of dates, `MM-DD` for every year or `YYYY-MM-DD` for one day, and may include `italy` (Italy's national holidays and Easter Monday). No other country's calendar is built in.
+
+With bands of your own, `sensor.solar_view_bills` (the Italian bill and PUN prices, by F1, F2, F3) is not used for the bands: the prices come from `price` or `sensor`.
 
 ## Names under sensors
 

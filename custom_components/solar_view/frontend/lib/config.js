@@ -4,6 +4,8 @@
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale core.js
 /** @type {typeof import("./core.js")} */
 const { num, warnOnce } = await import(`./core.js${v}`);
+/** @type {typeof import("./forecast.js")} */
+const { bandOf } = await import(`./forecast.js${v}`);
 // The options a warning said were ignored or misread since readConfig began, by the name it starts with: the setup
 // check lists them, as the phone app cannot show the console.
 const misread = new Set();
@@ -66,6 +68,7 @@ const KEYS = ["battery_kwh", "battery_floor", "battery_max_charge_kw", "battery_
   "export_max_kw", "standby_w", "grid_max_kw", "system_cost", "install_date", "saved_before", "level", "usual_days", "quiet_hours",
   ...MACHINE_TYPES, "bill_fixed", "tariff", "advice", "advice_replace", "entities"];
 const TARIFF_TYPES = ["single", "two", "three"];
+const DAY_NAMES = { sun: [0], mon: [1], tue: [2], wed: [3], thu: [4], fri: [5], sat: [6], weekdays: [1, 2, 3, 4, 5], weekends: [0, 6] };
 // How far the page predicts (the table in docs/how-it-works.md); no level is auto. What each level uses,
 // and the step down when its data is missing: modeOf in data.js.
 const LEVELS = ["none", "usual_days", "weather", "usual_days_weather"];
@@ -125,6 +128,41 @@ function date(v, key) {
   return d;
 }
 
+// A tariff with bands of its own: { type: schedule (see forecast.js), sensor, prices: { name: price } }, null (warned)
+// when it is not whole: a band without a name, a name twice, a time or day that is not one, or an hour of the week
+// no band covers.
+function ownTariff(t) {
+  const bad = (text) => { warn(`tariff.bands: ${text}, so there are no bands`); return null; };
+  for (const k of Object.keys(t)) if (!["bands", "holidays", "sensor"].includes(k)) warn(`tariff.${k}: no such option with bands, so it is ignored`);
+  if (!Array.isArray(t.bands) || !t.bands.length) return bad(`${shown(t.bands)} is not a list of bands`);
+  const dates = [];
+  let italy = false;
+  for (const d of t.holidays == null ? [] : [].concat(t.holidays)) {
+    if (d === "italy") italy = true;
+    else if (calendarDate(d) || calendarDate(`2024-${d}`)) dates.push(d);
+    else warn(`tariff.holidays: ${shown(d)} is not "italy", a day written YYYY-MM-DD or a date written MM-DD, so it is ignored`);
+  }
+  const bands = [], prices = {};
+  for (const [i, b] of t.bands.entries()) {
+    const at = `tariff.bands[${i}]`;
+    if (!isMap(b) || typeof b.name !== "string" || !b.name.trim()) return bad(`${at} needs a name`);
+    for (const k of Object.keys(b)) if (!["name", "price", "hours", "days"].includes(k)) warn(`${at}.${k}: no such option, so it is ignored`);
+    const name = b.name.trim(), hours = b.hours == null ? null : [].concat(b.hours).map((h) => quietHours(h));
+    if (hours?.some((h) => !h || h[0] === h[1])) return bad(`${at}.hours ${shown(b.hours)} is not hours such as "23:00-7:00" or "0:30-7:30"`);
+    const days = b.days == null ? null : [].concat(b.days).flatMap((d) => DAY_NAMES[String(d).toLowerCase()] ?? [-1]);
+    if (days?.includes(-1)) return bad(`${at}.days ${shown(b.days)} holds a day that is not mon to sun, weekdays or weekends`);
+    if (name in prices && b.price != null) return bad(`${shown(name)} is a band twice with a price each`);
+    bands.push({ name, hours: hours && hours.map(([from, to]) => [Math.round(from * 60), Math.round(to * 60)]), days: days && [...new Set(days)] });
+    const price = numberOrId(b.price, `${at}.price`);
+    if (price != null) prices[name] = price;
+  }
+  const schedule = { bands, dates, italy };
+  // Every hour of a week, with no holiday in it (a holiday is a Sunday, so it is covered too).
+  for (const day of ["2026-11-01", "2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06", "2026-11-07"])
+    for (let h = 0; h < 24; h++) if (bandOf(day, h, { bands, dates: [], italy: false }) === undefined) return bad(`no band covers ${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][new Date(day).getUTCDay()]} ${String(h).padStart(2, "0")}:00`);
+  return { type: schedule, sensor: entity(t.sensor, "tariff.sensor"), prices };
+}
+
 // The panel's config, read and checked in one place: nothing else reads it. `prefs` is the answer of
 // energy/get_prefs (null: not set up, or not asked yet); `costs` (energy/info's cost_sensors) names the cost
 // sensor Home Assistant made for each grid statistic with a price, where the settings name no cost statistic.
@@ -177,11 +215,13 @@ function readConfig(energyPreferences, config, costs = {}) {
     return [{ type, kwh: figure(a.kwh, `${type}.kwh`, 0, Infinity) || usual(1), hours: figure(a.hours, `${type}.hours`, 0, 24) || usual(2),
       peakKw: figure(a.peak_kw, `${type}.peak_kw`, 0, Infinity), sensor }];
   });
-  // The contract's bands and their prices: each a number or an entity, else learned from `sensor`.
+  // The contract's bands and their prices: each a number or an entity, else learned from `sensor`. Either `type`
+  // (Italy's bands, see forecast.js) or `bands` of the owner's own, each with its name, price and when it applies.
   let tariff = null;
   const tariffOptions = c.tariff;
-  if (tariffOptions != null && !isMap(tariffOptions)) warn(`tariff: ${shown(tariffOptions)} is not a map (type, prices, sensor), so there are no bands`);
-  else if (tariffOptions != null && !TARIFF_TYPES.includes(tariffOptions.type)) warn(`tariff.type: ${shown(tariffOptions.type)} is not one of ${TARIFF_TYPES.join(", ")}, so there are no bands`);
+  if (tariffOptions != null && !isMap(tariffOptions)) warn(`tariff: ${shown(tariffOptions)} is not a map (type or bands, prices, sensor), so there are no bands`);
+  else if (tariffOptions?.bands != null) tariff = ownTariff(tariffOptions);
+  else if (tariffOptions != null && !TARIFF_TYPES.includes(tariffOptions.type)) warn(`tariff.type: ${shown(tariffOptions.type)} is not one of ${TARIFF_TYPES.join(", ")} (or give bands), so there are no bands`);
   else if (tariffOptions != null) {
     for (const k of Object.keys(tariffOptions)) if (!["type", "prices", "sensor"].includes(k)) warn(`tariff.${k}: no such option, so it is ignored`);
     for (const b of Object.keys(isMap(tariffOptions.prices) ? tariffOptions.prices : {})) if (!["f1", "f2", "f3", "f23"].includes(b)) warn(`tariff.prices.${b}: no such band (f1, f2, f3, f23), so it is ignored`);

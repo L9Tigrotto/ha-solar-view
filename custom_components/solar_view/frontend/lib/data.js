@@ -9,7 +9,7 @@ const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ ne
  *   typeof import("./money.js")]} */
 const [{ HOUR, FULL_CHARGE, roundTo, clockOf, dayHours, hourStart, inHour, shiftKey, noonOf, monthDayKeys, stateNum, numberOrEntity, priceOf, warnOnce },
   { SKY_LOW_DEG, weatherOf, cloudNow, raining, snowing, dawnOf, greyOf, coverOf, moonPhase }, { wearOf }, { BATTERY_FLOOR_PERCENT },
-  { sensorOf, forecastOf, lookAhead, bandOf, bandPrices, findBills }, { ENERGY }, { moneySoFar }] = await Promise.all([
+  { sensorOf, forecastOf, lookAhead, bandOf, bandName, bandPrices, findBills }, { ENERGY }, { moneySoFar }] = await Promise.all([
   import(`./core.js${v}`), import(`./sky.js${v}`), import(`./advice.js${v}`), import(`./config.js${v}`), import(`./forecast.js${v}`), import(`./stats.js${v}`), import(`./money.js${v}`)]);
 
 const SUN = "sun.sun";
@@ -81,7 +81,9 @@ const BILLED = { "f1": "single", "f1,f23": "two", "f1,f2,f3": "three" };
 // ponytail: from the hour rows, so the hour under way is not in the share yet; add todayHours if that ever matters.
 function bandsOf(hass, entityIds, options, stats, now, clock) {
   const tariffOptions = options.tariff, month = clock(now).key.slice(0, 7);
-  const billed = findBills(hass)?.attributes?.months?.[month]?.prices, names = billed && Object.keys(billed).sort().join();
+  // A tariff with bands of its own is not Italy's: the bills sensor's prices are by Italian band, so they do not apply.
+  const own = typeof tariffOptions?.type === "object";
+  const billed = own ? undefined : findBills(hass)?.attributes?.months?.[month]?.prices, names = billed && Object.keys(billed).sort().join();
   let type = billed && Object.values(billed).every(Number.isFinite) ? BILLED[names] : undefined;
   let prices = type ? Object.fromEntries(names.split(",").map((b) => [b, billed[b]])) : null;
   if (!type) {
@@ -89,7 +91,7 @@ function bandsOf(hass, entityIds, options, stats, now, clock) {
     type = tariffOptions.type;
     prices = bandPrices(type, Object.fromEntries(Object.entries(tariffOptions.prices).map(([k, p]) => [k, numberOrEntity(p, hass, priceOf)])),
       tariffOptions.sensor ? [...(stats.priceRows ?? []).map((r) => ({ ...r, mean: priceOf(hass, tariffOptions.sensor, r.mean) })), { start: now, mean: priceOf(hass, tariffOptions.sensor) }] : [], clock);
-    if (!prices) { warnOnce("tariff needs a type (single, two, three) and a price for each of its bands, from prices or sensor"); return null; }
+    if (!prices) { warnOnce("tariff needs a price for each of its bands, from prices (price on each band) or sensor"); return null; }
   }
   const used = {};
   for (const id of entityIds.gridImportKwh) for (const r of stats.gridMonth?.[id] ?? []) {
@@ -130,7 +132,7 @@ function predict(hass, entityIds, options, stats, sensor, now, clock) {
     // ghosts, money, best time, lasts until). So does a day whose statistics are incomplete: an unknown figure must
     // not count as 0 in what follows from them.
     const known = ENERGY.every((part) => Number.isFinite(stats.today[part]));
-    const bands = out.bands, bandAt = bands && ((t) => { const c = clock(t), band = bandOf(c.key, c.hour, bands.type); return { band, buy: bands.prices[band] }; });
+    const bands = out.bands, bandAt = bands && ((t) => { const c = clock(t), band = bandOf(c.key, c.hour, bands.type); return { band, name: bandName(bands.type, band), buy: bands.prices[band] }; });
     const settings = { exportMaxKw: options.exportMaxKw, standbyKwhPerHour: standby, machines: (stats.machines ?? []).filter(Boolean),
       quiet: options.quiet, gridMaxKw: options.gridMaxKw, marginPercent: options.marginPercent, bandAt };
     const outlook = ahead?.left.use && known ? lookAhead(ahead, now, clock, n, battery, settings, soFar) : null;

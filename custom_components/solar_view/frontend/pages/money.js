@@ -5,8 +5,8 @@
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
 /** @type {[typeof import("../lib/core.js"), typeof import("../lib/draw.js"), typeof import("../lib/money.js"), typeof import("../lib/data.js"),
  *   typeof import("../lib/forecast.js")]} */
-const [{ percent, say, cap, sumKnown, shiftMonth, yearKeys }, { ADVICE_ICON, HOUSE, PLUG, helpButton, markOf, ring, readout, dayLine, monthPicker, monthSteps, boldDate, monthName },
-  { moneyOf, ledgerOf, paybackOf, bandRuns }, { paybackPredicts }, { bandOf }] = await Promise.all([
+const [{ percent, say, cap, esc, sumKnown, shiftMonth, yearKeys }, { ADVICE_ICON, HOUSE, PLUG, helpButton, markOf, ring, readout, dayLine, monthPicker, monthSteps, boldDate, monthName },
+  { moneyOf, ledgerOf, paybackOf, bandRuns }, { paybackPredicts }, { bandOf, bandName }] = await Promise.all([
   import(`../lib/core.js${v}`), import(`../lib/draw.js${v}`), import(`../lib/money.js${v}`), import(`../lib/data.js${v}`), import(`../lib/forecast.js${v}`)]);
 
 // Money to 10 cents: what is still to come is no finer than that.
@@ -41,7 +41,7 @@ function moneyView({ data, now, clock, pick }, payback = paybackView(data, now, 
   // With two or three bands, one box each under buying: its name, its runs of hours today, the share of this month's
   // grid energy bought in it and its price; the band now outlined.
   const runs = bd && bd.type !== "single" ? bandRuns(now, clock, bd.type) : null;
-  const prices = buy === null && !selling ? null : { buy, sell, selling, bandNow: runs ? bandNow : null, allDay: runs?.length === 1,
+  const prices = buy === null && !selling ? null : { buy, sell, selling, type: bd?.type, bandNow: runs ? bandNow : null, allDay: runs?.length === 1,
     bands: runs && Object.entries(bd.prices).map(([band, price]) => ({ band, price, runs: runs.filter((r) => r.band === band), share: bd.share ? bd.share[band] : null })) };
   // Finished months from the month rows (last month from its day rows, as `lastMonth`, until it has one), this one
   // from the day rows (as `month`).
@@ -101,9 +101,9 @@ const moneyHtml = (c) => moneyPage(moneyView(c), c.lines, c.format);
 function pricesCard(v, lines, format) {
   const bandList = !v.bands ? "" : `<ul class="bands">${v.bands.map((b) => {
     const when = !b.runs.length ? `<span>${lines.money.notToday}</span>` : v.allDay ? `<span>${lines.money.allDay}</span>` : b.runs.map((r) => `<span>${format.time(r.from)} - ${format.time(r.to)}</span>`).join("");
-    return `<li${b.band === v.bandNow ? ' aria-current="true"' : ""}><span class="name">${b.band.toUpperCase()}</span>${when}${b.share !== null ? `<span class="band-percent">${say(lines.money.bandShare, { percent: format.num(percent(b.share)) })}</span>` : ""}<span class="num">${format.money(b.price)}</span></li>`;
+    return `<li${b.band === v.bandNow ? ' aria-current="true"' : ""}><span class="name">${esc(bandName(v.type, b.band))}</span>${when}${b.share !== null ? `<span class="band-percent">${say(lines.money.bandShare, { percent: format.num(percent(b.share)) })}</span>` : ""}<span class="num">${format.money(b.price)}</span></li>`;
   }).join("")}</ul>`;
-  const nowTag = v.bands ? ` <span class="band-now">${say(lines.money.bandNow, { band: v.bandNow.toUpperCase() })}</span>` : "";
+  const nowTag = v.bands ? ` <span class="band-now">${say(lines.money.bandNow, { band: esc(bandName(v.type, v.bandNow)) })}</span>` : "";
   const flow = (label, x, out, more = "") => `<div class="price${out ? " out" : ""}"><p class="rate"><span>${label}</span> <b>${format.money(x)}<small> /kWh</small></b></p>
       <p class="route"><svg class="end" viewBox="-17 -17 34 34" role="img" aria-label="${lines.shared.home}">${HOUSE}</svg><span class="arrow" aria-hidden="true">${out ? '<i></i><svg viewBox="17 7 6 10"><path d="m18 8 4 4-4 4"/></svg>' : '<svg viewBox="1 7 6 10"><path d="M6 8 2 12l4 4"/></svg><i></i>'}</span><svg class="end" viewBox="0 0 24 24" role="img" aria-label="${lines.shared.grid}">${PLUG}</svg></p>${more}</div>`;
   return `<section class="card prices">

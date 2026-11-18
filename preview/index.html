@@ -758,6 +758,13 @@ const TEXTS = Object.fromEntries(await Promise.all(Object.keys(LANGUAGES).map(as
       && shares.every(Number.isFinite) && Math.abs(shares.reduce((a, v) => a + v, 0) - 100) <= 2))
       && shown(p, "help.pricesBands") === !!n, `prices, tariff ${type}: boxes, band now or help line wrong`, boxes.map((li) => li.textContent), buy);
   }
+  // Check: a tariff with bands of its own draws a box per band under the owner's names (escaped), the one now outlined.
+  {
+    const p = await draw(fakeHass(SCENARIOS.sunny), en, { tariff: { bands: [{ name: "Night <b>", price: 0.15, hours: "0:30-7:30" }, { name: "Day", price: 0.3 }] } });
+    const boxes = [...p.shadowRoot.querySelectorAll("#money .bands li")], names = boxes.map((li) => li.querySelector(".name")?.textContent);
+    console.assert(boxes.length === 2 && names.join() === "Night <b>,Day" && !p.shadowRoot.querySelector("#money .bands b") && boxes.filter((li) => li.hasAttribute("aria-current")).length === 1,
+      "prices, own bands: boxes, names or band now wrong", names);
+  }
   console.assert(!$(flat, "#money .bands") && !shown(flat, "help.pricesBands"), "prices without a tariff: band boxes drawn");
   const itPanel = await draw(fakeHass(SCENARIOS.sunny), { language: "it", locale: { language: "it" } }, { plant: { system_cost: 9000 } });
   const pages = ["now", "energy", "money"].map((id) => itPanel.shadowRoot.getElementById(id));

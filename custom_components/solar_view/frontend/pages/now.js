@@ -266,7 +266,7 @@ const bestLine = (best, lines, format, clock, now) => best.map((b) => {
   const what = b.kind === "wait" ? say(lines.now.startWait, { machine: name, power: `${format.num(Math.round(b.kw * 10) / 10)} kW` })
     : b.kind === "now" ? say(lines.now.startNow, { machine: name })
       : say(clock(b.t).key === clock(now).key ? lines.now.startAt : lines.now.startTomorrow, { machine: name, time: format.time(new Date(b.t)) });
-  const why = b.why && say(lines.now[`why${cap(b.why)}`], { band: b.band?.toUpperCase() });
+  const why = b.why && say(lines.now[`why${cap(b.why)}`], { band: esc(b.band ?? "") });
   const icon = b.kind === "wait" ? ADVICE_ICON.wait : APPLIANCE[b.type === "dishwasher" ? "dishes" : b.type] ?? ADVICE_ICON.go;
   return `<div class="best" data-kind="${b.kind}"><span class="tile" aria-hidden="true"><svg viewBox="0 0 24 24">${icon}</svg></span><p><span>${what}</span>${why ? `<small>${why}</small>` : ""}</p></div>`;
 }).join("");
