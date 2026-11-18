@@ -94,7 +94,7 @@ It needs a level with house use and a battery of known size. Without them, the c
 
 ## The washer line
 
-The washer line says when to start each machine under `machines` (a washer of 1 kWh over 2 hours when none is set). It sits at the bottom of the battery card. Without a battery charge reading, it has a card of its own on Now. The reason shows under it.
+The washer line says when to start each machine under `machines`: only the ones you list. With none listed, there is no washer line. It sits at the bottom of the battery card. Without a battery charge reading, it has a card of its own on Now. The reason shows under it.
 
 - **Starts** are now and every whole hour of today and tomorrow. Each is weighed until sunrise the day after tomorrow. That night is tomorrow's night again, so a start late tomorrow pays for a night it leaves short. The battery is kept `battery_margin` points above `battery_floor`, so a forecast a little off still leaves it above the floor.
 - **The earliest free start wins.** A free start takes nothing more from the grid in all that time. The sun covers it, the battery covers it until the sun is back, or the sun refills what it takes. Charge it leaves missing at that last sunrise counts as export given up, not as grid. Today's starts use the likely run. Tomorrow's, further off, must be free on the low run too.

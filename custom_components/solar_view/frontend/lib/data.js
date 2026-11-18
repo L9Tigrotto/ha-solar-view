@@ -199,6 +199,7 @@ function live(hass, entityIds, options, facts, now) {
     wear: battery ? wearOf(options.battery, Math.min(...entityIds.healthPercent.map((id) => stateNum(hass, id) ?? Infinity)), now) : null,
     sends: options.exportMaxKw !== 0, // export is on: what is sent, the sell price and what it earned show
     payback: options.payback,
+    listedMachines: options.machines.map((m) => m.type), // the machines under `machines`: only their built-in advice lines show
     lat: hass.config?.latitude ?? null, // payback's seasons
     price: pricesOf(hass, entityIds),
     // The fresh sensor's prices this hour: the prices card's sell price, and its buy price without bands.

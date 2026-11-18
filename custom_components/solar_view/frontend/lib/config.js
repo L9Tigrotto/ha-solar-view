@@ -164,16 +164,18 @@ function readConfig(energyPreferences, config, costs = {}) {
   entityIds.hasForecast = energySources.some((s) => s.type === "solar" && s.config_entry_solar_forecast?.length > 0);
 
   // The machines the page says when to start, by type (the language's word names each), in the order
-  // written: typed figures, and a sensor whose runs replace them (see machineOf). None: a washer of 1 kWh
-  // over 2 hours. A bare type is that run too; `false` leaves the machine out.
-  const machines = (MACHINE_TYPES.some((k) => k in c) ? Object.keys(c).filter((k) => MACHINE_TYPES.includes(k)) : ["washer"]).flatMap((type) => {
-    const a = c[type] ?? { kwh: 1, hours: 2 };
+  // written: typed figures, and a sensor whose runs replace them (see machineOf). None typed: no machines, so no
+  // machine line. Without a sensor, kwh and hours not typed are a run of 1 kWh over 2 hours (the Options dialog's
+  // empty fields too); with one, they stay unknown until its runs are learned. `false` leaves the machine out.
+  const machines = Object.keys(c).filter((k) => MACHINE_TYPES.includes(k)).flatMap((type) => {
+    const a = c[type] ?? {};
     if (a === false) return [];
     if (!isMap(a)) { warn(`${type}: ${shown(a)} is not a map (kwh, hours, peak_kw, sensor), so it is left out`); return []; }
     for (const k of Object.keys(a)) if (!["kwh", "hours", "peak_kw", "sensor"].includes(k)) warn(`${type}.${k}: no such option, so it is ignored`);
     // 0 kWh or 0 hours is no run: as if not typed.
-    return [{ type, kwh: figure(a.kwh, `${type}.kwh`, 0, Infinity) || null, hours: figure(a.hours, `${type}.hours`, 0, 24) || null,
-      peakKw: figure(a.peak_kw, `${type}.peak_kw`, 0, Infinity), sensor: entity(a.sensor, `${type}.sensor`) }];
+    const sensor = entity(a.sensor, `${type}.sensor`), usual = (v) => (sensor ? null : v);
+    return [{ type, kwh: figure(a.kwh, `${type}.kwh`, 0, Infinity) || usual(1), hours: figure(a.hours, `${type}.hours`, 0, 24) || usual(2),
+      peakKw: figure(a.peak_kw, `${type}.peak_kw`, 0, Infinity), sensor }];
   });
   // The contract's bands and their prices: each a number or an entity, else learned from `sensor`.
   let tariff = null;

@@ -166,7 +166,7 @@ machines:
 |---|---|---|
 | `battery_margin` | Percent kept above `battery_floor` when a start is called free. | `10` |
 | `quiet_hours` | Hours in which no start is suggested, as `"0-7"` or `"23:30-6:30"`. Only the start counts: a machine may run on into them. A 23:00 start in band F3 is often the cheapest. Use `"22-7"` if nobody wants late starts. | `"0-7"` |
-| `washer`, `dryer`, `dishwasher` | The machines you can start at any time, planned in the order written. Each takes `kwh` (energy of a run), `hours` (length of a run), `peak_kw` (highest draw) and `sensor` (its energy sensor). With a sensor, the page learns the runs once 3 are on record. The type alone, with nothing under it, is a run of 1 kWh over 2 hours. `false` leaves it out. | A washer of 1 kWh over 2 hours, peak 2 kW |
+| `washer`, `dryer`, `dishwasher` | The machines you can start at any time, planned in the order written. Each takes `kwh` (energy of a run), `hours` (length of a run), `peak_kw` (highest draw) and `sensor` (its energy sensor). With a sensor, the page learns the runs once 3 are on record. Without a sensor, a `kwh` or `hours` left out is 1 kWh or 2 hours, so the type alone is a run of 1 kWh over 2 hours. `false` leaves it out. | None: no machine, so no washer line |
 
 Machines you do not move in time, such as an oven, need no entry. Their use is already in the house's.
 
@@ -338,6 +338,8 @@ advice:
 | `fills` | By day: the battery fills later today, and 1 kWh or more of sun is left over. |
 
 `soon`, `later` and `wait` need a solar forecast. `short`, `okLasts` and `fills` need a level with house use. While the washer line shows, it alone says when to run something: the card then shows no `go`, `soon`, `later` or `wait` line, and none of the built-in `low` and `empty` lines that speak of big loads.
+
+Built-in lines that name the washer, the dryer or the dishwasher show only when that machine is listed under `machines`. Lines about the oven, the iron, the vacuum cleaner or a phone are not tied to a listed machine, and show always. If that leaves a `wait` or `later` pool empty, the card shows an `ok` line.
 
 With `advice_replace: true`, a pool that has lines of yours shows only those. Keep a line short enough for two rows on a phone.
 

@@ -6,7 +6,7 @@ const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ ne
 /** @type {[typeof import("../lib/core.js"), typeof import("../lib/draw.js"), typeof import("../lib/advice.js"), typeof import("../lib/sky.js"),
  *   typeof import("../lib/data.js"), typeof import("../lib/forecast.js")]} */
 const [{ HALF_HOUR, HOUR, noonOf, hourStart, clamp01, say, cap, esc }, { skyIcon, HOUSE, PLUG, line, ADVICE_ICON, SUN_DOT, hint, big, helpButton, weatherIcon, batteryRing, nowLabel },
-  { advice, outlookAdvice, advicePool, loadLines, outlookLastsH, batteryWord, isLow, gridCharging, sources, MIN_FLOW_W, EXPORT_W, IMPORT_W },
+  { advice, outlookAdvice, advicePool, loadLines, machineLines, outlookLastsH, batteryWord, isLow, gridCharging, sources, MIN_FLOW_W, EXPORT_W, IMPORT_W },
   { SKY_NIGHT_DEG, SKY_DAY_DEG, RAIN_DAY_MM, coverOf }, { fromSensor, weatherOnly, staleSince }, { SOLAR_SPREAD }] = await Promise.all([
   import(`../lib/core.js${v}`), import(`../lib/draw.js${v}`), import(`../lib/advice.js${v}`), import(`../lib/sky.js${v}`), import(`../lib/data.js${v}`), import(`../lib/forecast.js${v}`)]);
 
@@ -84,12 +84,13 @@ const APPLIANCE = {
   plug: line(`<path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6l-2.3 2.3a2.4 2.4 0 0 0 0 3.4zM2 22l3-3m2.5-5.5L10 11m.5 5.5L13 14m5-11l-4 4h6l-4 4"/>`),
 };
 const GO_ORDER = ["washer", "oven", "dishes", "iron", "vacuum", "phone", "dryer", "plug", "washer", "oven", "dishes", "iron", "vacuum", "phone", "dryer", "washer"];
-const GO_ICON = new Map(), LOAD_TEXT = new Set();
+const GO_ICON = new Map(), LOAD_TEXT = new Set(), MACHINE_OF = new Map(); // MACHINE_OF: a built-in line to the machine it names (see machineLines)
 // From the built-in strings of every language seen so far, called when one is first on screen: the now.advice.go lines,
 // each with its appliance's icon (see APPLIANCE), and the lines left out beside the washer line (see loadLines).
 const learnLines = (strings) => {
   strings.now.advice.go.forEach((l, i) => GO_ICON.set(l, APPLIANCE[GO_ORDER[i]]));
   loadLines(strings).forEach((l) => LOAD_TEXT.add(l));
+  machineLines(strings).forEach(([line, machine]) => MACHINE_OF.set(line, machine));
 };
 
 // What the Now page shows: { head, flow, wear, advice, battery, machines, learn, coming, help }, the words picked by their
@@ -136,7 +137,7 @@ function nowView({ data, sky, day, now, clock }) {
     head: { names, sub, stale: staleSince(data, now) },
     flow: { n, charging, discharging, today: data.today, night, glow: sky.day, battery: !!battery, batteryColor, cover: data.weather.cover, moon: data.moon },
     wear: data.wear,
-    advice: { kind, word, sunCharging, daytime, rests, day, washer: !!o?.best },
+    advice: { kind, word, sunCharging, daytime, rests, day, washer: !!o?.best, listed: data.listedMachines ?? [] },
     battery: n.chargeLevel === null ? null : { chargeLevel: n.chargeLevel, soon, color: batteryColor, word, kwh: battery?.kwh ?? null,
       state: charging ? (sunCharging ? "charging" : "chargingGrid") : lastsH === Infinity ? "lastsUntilSun" : lastsH ? "lastsUntil" : discharging ? "discharging" : "resting",
       until, best: o?.best ?? [] },
@@ -167,7 +168,12 @@ function nowPage(v, lines, format, clock, now, loading) {
     grid: n.gridExportW > EXPORT_W ? say(lines.now.hintGridOut, { watts: Math.round(n.gridExportW), energy: format.kwh(today.gridExportKwh) })
       : say(n.gridImportW > MIN_FLOW_W ? lines.now.hintGridIn : lines.now.hintGridIdle, { watts: Math.round(n.gridImportW), energy: format.kwh(today.gridImportKwh) }),
   };
-  const a = v.advice, adviceLines = advicePool(lines, a.kind, a.word, a.sunCharging, a.daytime, a.washer ? LOAD_TEXT : null);
+  const a = v.advice, skip = a.washer ? LOAD_TEXT : null;
+  // A built-in line that names a machine shows only when that machine is listed (see machineLines). A pool left
+  // empty by it (wait, later) has nothing to say: the advice is "ok", with its icon.
+  const listed = (kind) => advicePool(lines, kind, a.word, a.sunCharging, a.daytime, skip).filter((l) => !MACHINE_OF.has(l) || a.listed.includes(MACHINE_OF.get(l)));
+  let kind = a.kind, adviceLines = listed(kind);
+  if (!adviceLines.length) adviceLines = listed(kind = "ok");
   // One line per calendar day, so it stays put between redraws and changes tomorrow.
   const adviceText = adviceLines[a.day % adviceLines.length];
   // One string per card, each keyed by data-card, for writeNow.
@@ -178,8 +184,8 @@ function nowPage(v, lines, format, clock, now, loading) {
       <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true">${ADVICE_ICON.low}</svg></span>
       <p><span>${esc(say(lines.now["wear" + cap(v.wear.kind)], v.wear))}</span></p>
     </section>`,
-    `<section class="card advice${a.rests ? " rest" : ""}" data-card="advice" data-kind="${a.kind}" aria-label="${lines.now.advice.title}">
-      <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true">${(a.kind === "go" && GO_ICON.get(adviceText)) || (a.rests ? ADVICE_ICON.ok : ADVICE_ICON[a.kind])}</svg></span>
+    `<section class="card advice${a.rests ? " rest" : ""}" data-card="advice" data-kind="${kind}" aria-label="${lines.now.advice.title}">
+      <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true">${(kind === "go" && GO_ICON.get(adviceText)) || (a.rests ? ADVICE_ICON.ok : ADVICE_ICON[kind])}</svg></span>
       <p><span>${esc(adviceText)}</span></p>
     </section>`,
     v.battery && batteryCard(v.battery, lines, format, clock, now),

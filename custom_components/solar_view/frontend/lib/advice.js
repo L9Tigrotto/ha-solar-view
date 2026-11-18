@@ -91,6 +91,14 @@ const LOAD_LINES = { low: [0, 1, 6], empty: [8] };
 // Their texts in one language's built-in strings: matched by text, so the owner's own lines stay.
 const loadLines = (strings) => new Set(Object.entries(LOAD_LINES).flatMap(([k, index]) => index.map((i) => strings.now.advice[k][i])));
 
+// The built-in lines that name a machine you can list under `machines`, by pool and index (the same sentence at the
+// same index in every language): [text, machine] pairs. Such a line shows only when its machine is listed. The oven,
+// iron, vacuum, phone and plug lines are not machines you list, so they stay.
+const MACHINE_LINES = { go: { 0: "washer", 2: "dishwasher", 6: "dryer", 8: "washer", 10: "dishwasher", 14: "dryer", 15: "washer" },
+  later: { 0: "dishwasher" }, wait: { 0: "washer", 1: "washer", 2: "washer", 3: "washer", 4: "washer" } };
+const machineLines = (strings) => Object.entries(MACHINE_LINES).flatMap(([pool, byIndex]) =>
+  Object.entries(byIndex).map(([index, machine]) => [strings.now.advice[pool][index], machine]));
+
 // The strings of one language with the owner's own advice lines merged in. They come from the
 // panel's `config:` in configuration.yaml (see the example in docs/setup.md), so nobody edits this file:
 //   advice: { it: { ok: ["..."], go: ["..."] }, en: { ... } }   added to the built-in lines
@@ -138,4 +146,4 @@ function sources(n) {
   return (big.length ? big : all.slice(0, 1)).map((s) => s[0]);
 }
 
-export { advice, outlookAdvice, wearOf, advicePool, loadLines, withOwnAdvice, outlookLastsH, batteryWord, isLow, gridCharging, sources, MIN_FLOW_W, EXPORT_W, IMPORT_W };
+export { advice, outlookAdvice, wearOf, advicePool, loadLines, machineLines, withOwnAdvice, outlookLastsH, batteryWord, isLow, gridCharging, sources, MIN_FLOW_W, EXPORT_W, IMPORT_W };

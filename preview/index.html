@@ -640,6 +640,9 @@ const draw = async (hass, more = {}, config) => {
   await tick();
   return p;
 };
+// A built-in advice line that names a machine shows only when that machine is listed: the checks that count lines
+// or expect a forecast line list the washer, or every machine.
+const WASHER = { washer: null }, ALL_MACHINES = { washer: null, dishwasher: null, dryer: null };
 const $ = (p, sel) => p.shadowRoot.querySelector(sel);
 // A throwaway panel put on the page across a wait (focus and showModal need it there): out of sight
 // and out of the layout, or it and its dialog flash over the real panel.
@@ -678,7 +681,7 @@ if (q.get("shot") === "1") document.getElementById("dev-open").hidden = true;
 // and the owner's own lines for that language are there. Then every language is loaded, for the checks below.
 {
   const late = Object.keys(LANGUAGES).find((l) => !STRINGS[l]);
-  const p = await draw(fakeHass(SCENARIOS.nobattery), { ...en, props: { testDay: 1 } }, { advice: { [late]: { go: ["Own line"] } } });
+  const p = await draw(fakeHass(SCENARIOS.nobattery), { ...en, props: { testDay: 1 } }, { ...ALL_MACHINES, advice: { [late]: { go: ["Own line"] } } });
   attach(p);
   let saved = null;
   try { saved = localStorage.getItem("solar-view-language"); } catch (e) { /* no storage */ }
@@ -725,9 +728,9 @@ const TEXTS = Object.fromEntries(await Promise.all(Object.keys(LANGUAGES).map(as
   console.assert(flat._source.options.battery.floor === 30 && grouped._source.options.battery.floor === 30 && same(grouped._source.ids.loadKwh, ["sensor.x"]), "config: groups not read as the flat keys", grouped._source.options.battery, grouped._source.ids.loadKwh);
   const none = await draw(fakeHass(SCENARIOS.stale), en, { predictions: { level: "none" } }); // stale has hour rows: a usual day
   const usual = await draw(fakeHass(SCENARIOS.sunny), en, { predictions: { level: "usual_days_weather" } });
-  // Machines by type, in the order written; a bare type is a run of 1 kWh over 2 hours; none at all is the washer.
+  // Machines by type, in the order written; a bare type is a run of 1 kWh over 2 hours; none at all is no machine.
   const mach = await draw(fakeHass(SCENARIOS.sunny), en, { machines: { quiet_hours: "1-6", dryer: { kwh: 2.5, hours: 2 }, dishwasher: null, oven: { kwh: 2 } } });
-  console.assert(same(mach._source.options.machines.map((m) => [m.type, m.kwh]), [["dryer", 2.5], ["dishwasher", 1]]) && mach._source.options.quiet[0] === 1 && same(flat._source.options.machines.map((m) => m.type), ["washer"]),
+  console.assert(same(mach._source.options.machines.map((m) => [m.type, m.kwh]), [["dryer", 2.5], ["dishwasher", 1]]) && mach._source.options.quiet[0] === 1 && flat._source.options.machines.length === 0,
     "config: machines not read by type", mach._source.options.machines, mach._source.options.quiet);
   console.assert(none._ahead === null && none._outlook === null && !$(none, ".best") && none._stats.usual === null && !$(none, ".today .usual") && usual._ahead?.from !== "sensor", "config: level none or usual not kept", none._ahead?.from, !!none._stats.usual, usual._ahead?.from);
   // Check: the help lines follow the level: month end and days to come only where Production draws them, the
@@ -767,7 +770,7 @@ const TEXTS = Object.fromEntries(await Promise.all(Object.keys(LANGUAGES).map(as
 // page when stale; the hours ahead unless the battery size is unknown; nothing in the first days,
 // where there is no usual day to build a forecast from.
 for (const [k, s] of Object.entries(SCENARIOS)) {
-  const p = await draw(fakeHass(s), {}, configOf(s));
+  const p = await draw(fakeHass(s), {}, { ...WASHER, ...configOf(s) });
   if (!s || s.offline) { console.assert($(p, ".empty"), `${k} must show a message, not zeros`); continue; }
   const kind = $(p, ".advice").dataset.kind;
   // By day "ok" turns "fills" while the battery still fills later today (see outlookAdvice), and how much
@@ -780,7 +783,7 @@ for (const [k, s] of Object.entries(SCENARIOS)) {
   console.assert(kind === expect, `advice for ${k}: got ${kind}, expected ${expect}`);
   // Level none: no advice from the solar forecast either ("wait", "soon" and "later" fall back).
   if (["wait", "soon", "later"].includes(s.expect)) {
-    const none = $(await draw(fakeHass(s), {}, { ...configOf(s), predictions: { level: "none" } }), ".advice").dataset.kind, plain = { wait: "ok", soon: "go", later: "ok" }[s.expect];
+    const none = $(await draw(fakeHass(s), {}, { ...WASHER, ...configOf(s), predictions: { level: "none" } }), ".advice").dataset.kind, plain = { wait: "ok", soon: "go", later: "ok" }[s.expect];
     console.assert(none === plain, `advice for ${k} with level none: got ${none}, expected ${plain}`);
   }
   const range = (r) => Array.isArray(r) && r.length === 3 && r.every(Number.isFinite) && r[0] <= r[1] && r[1] <= r[2];
@@ -1274,11 +1277,14 @@ for (const text of Object.values(TEXTS).flatMap((t) => flatLines(t).map(([, v]) 
   const days = [0, -1].map((i) => clock(localMidnight(i) + 12 * H).key);
   const sunny = (t) => days.includes(clock(t).key) && clock(t).hour >= 10 && clock(t).hour <= 15;
 
-  let p = await draw(fakeHass(own(SCENARIOS.sunny)), en);
+  // No machine in the config: no machine line, even where the page looks ahead.
+  const bare = await draw(fakeHass(own(SCENARIOS.sunny)), en);
+  console.assert(bare._outlook && !bare._outlook.best && !has(bare, "#now .best"), "today sunny: a machine line with no machine in the config", bare._outlook?.best);
+  let p = await draw(fakeHass(own(SCENARIOS.sunny)), en, { washer: null });
   const best = p._outlook?.best;
   // Money starts with the month: no ring of today's money or share.
   console.assert(!has(p, ".savings") && !has(p, "#money .share"), "money: a today card still drawn");
-  // The default washer: one line on the battery card, a start today or tomorrow on a whole hour outside the quiet hours.
+  // A bare washer: one line on the battery card, a start today or tomorrow on a whole hour outside the quiet hours.
   const fair = (b) => ["now", "wait"].includes(b.kind) || (b.kind === "at" && days.includes(clock(b.t).key) && b.t % H === 0 && clock(b.t).hour >= 7);
   console.assert(best?.length === 1 && fair(best[0]) && p.shadowRoot.querySelectorAll("#now section.battery .best").length === 1 && $(p, ".best").textContent.includes(t.shared.washer) && !has(p, "#energy .best"),
     "today sunny: not one washer line on the battery card, today or tomorrow outside the quiet hours", best);
@@ -1975,7 +1981,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   const m = await draw(fakeHass(SCENARIOS.midday), { ...en, user: { is_admin: true } }), md = m._gearDialog();
   m._fillCheck(md);
   console.assert(!rowsOf(md).includes("The washer") && rowsOf(md).includes(STRINGS.en.gear.checkForecast), "setup check: no outlook, yet a washer row, or no forecast row", rowsOf(md));
-  const p = await draw(fakeHass({ ...own(SCENARIOS.sunny), ahead: "sunny" }), { ...en, user: { is_admin: true } }, { level: "usual_days_weather" });
+  const p = await draw(fakeHass({ ...own(SCENARIOS.sunny), ahead: "sunny" }), { ...en, user: { is_admin: true } }, { level: "usual_days_weather", washer: null });
   const d = p._gearDialog();
   p._fillCheck(d);
   const rows = rowsOf(d), said = d.querySelector(".check").textContent;
@@ -2120,7 +2126,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
 // Check: the owner's own advice lines (panel config) are added, can replace, and cannot inject markup.
 {
   const it = { language: "it", locale: { language: "it" } };
-  const adviceOf = async (config, day) => $(await draw(fakeHass(SCENARIOS.nobattery), { ...it, props: { testDay: day } }, config), ".advice p");
+  const adviceOf = async (config, day) => $(await draw(fakeHass(SCENARIOS.nobattery), { ...it, props: { testDay: day } }, { ...ALL_MACHINES, ...config }), ".advice p");
   const n = STRINGS.it.now.advice.go.length;
   console.assert((await adviceOf({ advice: { it: { go: ["Riga mia"] } } }, n)).textContent === "Riga mia", "own advice: not added after the built-in lines");
   console.assert((await adviceOf({ advice: { it: { go: ["Riga mia"] } } }, 0)).textContent === STRINGS.it.now.advice.go[0], "own advice: built-in lines lost");
@@ -2128,8 +2134,12 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
   const hostile = await adviceOf({ advice: { it: { go: ["<b>x</b>"] } }, advice_replace: true }, 0);
   console.assert(hostile.textContent === "<b>x</b>" && !hostile.querySelector("b"), "own advice: markup not escaped");
   console.assert((await adviceOf({ advice: { it: { nope: ["x"], go: [] } } }, 0)).textContent === STRINGS.it.now.advice.go[0], "own advice: bad config changed something");
+  // A line naming a machine shows only when that machine is listed: day 0 is a washer line, so without one the pool
+  // starts at the oven; day 2 (dishes) needs the dishwasher.
+  const go = STRINGS.it.now.advice.go, gated = async (config, day) => $(await draw(fakeHass(SCENARIOS.nobattery), { ...it, props: { testDay: day } }, config), ".advice p").textContent;
+  console.assert((await gated({}, 0)) === go[1] && (await gated({ dishwasher: null }, 1)) === go[2] && (await gated({ dishwasher: null }, 0)) === go[1], "advice machines: lines of an unlisted machine shown");
   // Each go line shows its appliance (line 1: the oven, a cake); an own line keeps the plain go icon.
-  const iconOf = async (day, config) => $(await draw(fakeHass(SCENARIOS.nobattery), { ...it, props: { testDay: day } }, config), ".advice svg").innerHTML;
+  const iconOf = async (day, config) => $(await draw(fakeHass(SCENARIOS.nobattery), { ...it, props: { testDay: day } }, { ...ALL_MACHINES, ...config }), ".advice svg").innerHTML;
   const cake = "M20 21v-8", washer = await iconOf(0);
   console.assert((await iconOf(1)).includes(cake) && !washer.includes(cake), "advice icons: the oven line without its own icon");
   console.assert((await iconOf(1, { advice: { it: { go: ["Mia"] } }, advice_replace: true })) === washer, "advice icons: an own line took a built-in icon");
@@ -2824,7 +2834,8 @@ if (q.has("sweep")) {
   for (const [fc, extra] of Object.entries(FORECASTS)) {
     if (extra.at !== undefined) { const when = new Date(Date.now()).setHours(extra.at, 0, 0, 0); Date.now = () => when; }
     const scenario = (v) => ({ today: [7.8, 6.1, 0.2, 0], ...extra, v });
-    const p = await draw(fakeHass(scenario([0, 0, 300, 50, 40, false])), { ...en, props: { testDay: 0 } });
+    // A washer listed: its advice lines (wait) and its best time show only for a listed machine.
+    const p = await draw(fakeHass(scenario([0, 0, 300, 50, 40, false])), { ...en, props: { testDay: 0 } }, WASHER);
     for (const solar of VALUES.solar) for (const battery of VALUES.battery) for (const grid of VALUES.grid) for (const chargeLevel of VALUES.chargeLevel) for (const sky of VALUES.sky) {
       const load = solar + battery + grid;
       if (load <= 0) continue; // a house cannot use less than nothing
