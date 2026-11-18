@@ -61,12 +61,13 @@ const shellHtml = (css) => `<style>${css}</style>
 <footer><ha-menu-button hidden></ha-menu-button><nav class="tabs">${PAGES.map((p) =>
   `<button type="button" data-page="${p}"><svg viewBox="0 0 24 24" aria-hidden="true">${TAB_ICON[p]}</svg><span></span></button>`).join("")}</nav></footer>`;
 
-// The gear's dialog: the display switches, the language, and for admins the setup check (see _fillCheck). Texts
+// The gear's dialog: the display switches, the language, the clock, and for admins the setup check (see _fillCheck). Texts
 // come later (see _dialogTexts).
 const gearDialog = (languages) => `<dialog class="show" aria-labelledby="show-title"><form method="dialog"><h2 id="show-title" data-t="gear.showOnDevice"></h2><p data-t="gear.showOnDeviceNote"></p>
 ${Object.entries(SWITCHES).map(([group, names]) => `<fieldset><legend data-t="gear.${group}"></legend>${names.map((n) =>
   `<label><span data-t="gear.switch${n[0].toUpperCase() + n.slice(1)}"></span><input type="checkbox" role="switch" name="${n}"></label>`).join("")}</fieldset>`).join("")}
 ${languagePicker(languages)}
+<fieldset class="clock"><legend id="clock-title" data-t="gear.clockTitle"></legend><select name="clock" aria-labelledby="clock-title"><option value="" data-t="gear.clockAuto"></option><option value="12" data-t="gear.clock12"></option><option value="24" data-t="gear.clock24"></option></select></fieldset>
 <fieldset class="check" hidden><legend data-t="gear.checkTitle"></legend><dl></dl></fieldset>
 <button data-t="gear.showDone"></button></form></dialog>`;
 

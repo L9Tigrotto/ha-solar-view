@@ -545,7 +545,7 @@ dialog:is(.show,.read)::backdrop{background:rgba(4,6,15,.5)}
 .show input[role="switch"]:checked::before{left:23px;background:var(--paper)}
 /* The language: a plain select, with each language's flag beside its name where the browser can draw options
    (appearance:base-select); elsewhere the names alone. */
-.show .language select{width:100%;min-height:44px;margin-top:8px;padding:8px 12px;border:1px solid var(--ink-2);border-radius:var(--r-s);background:var(--paper);color:var(--ink);font:inherit}
+.show :is(.language,.clock) select{width:100%;min-height:44px;margin-top:8px;padding:8px 12px;border:1px solid var(--ink-2);border-radius:var(--r-s);background:var(--paper);color:var(--ink);font:inherit}
 @supports (appearance:base-select){
   .show .language select,.show .language select::picker(select){appearance:base-select}
   .show .language select::picker(select){border:1px solid var(--ink-2);border-radius:var(--r-s);background:var(--paper);color:var(--ink);max-height:min(400px,60dvh);overflow-y:auto}

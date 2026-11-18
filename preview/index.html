@@ -2536,10 +2536,10 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
       && empty.monthDays[0].none && !empty.monthDays[1].none, "month days: not each day's rows, or a day without rows not none", m.monthDays, empty.monthDays);
   }
 
-  // 12 or 24 hours: the panel config first, then the viewer's profile.
-  const clockText = async (more, config) => $(await eveningAt21({ language: "en", locale: { language: "en", ...more } }, config), ".battery-say p").textContent;
-  console.assert(/[AP]M/.test(await clockText({})) && !/[AP]M/.test(await clockText({ time_format: "24" })) && !/[AP]M/.test(await clockText({}, { time_format: 24 }))
-    && /[AP]M/.test(await clockText({ time_format: "24" }, { time_format: "12" })), "time format: 12 or 24 hours not followed");
+  // 12 or 24 hours: this device's pick in the gear first, then the viewer's profile.
+  const clockText = async (more, hourClock) => $(await eveningAt21({ language: "en", locale: { language: "en", ...more }, props: { _hourClock: hourClock } }), ".battery-say p").textContent;
+  console.assert(/[AP]M/.test(await clockText({})) && !/[AP]M/.test(await clockText({ time_format: "24" })) && !/[AP]M/.test(await clockText({}, "24"))
+    && /[AP]M/.test(await clockText({ time_format: "24" }, "12")), "time format: 12 or 24 hours not followed");
 
   // Properties set before the element was defined (Home Assistant on a first visit) must still draw.
   p = document.createElement("solar-view");

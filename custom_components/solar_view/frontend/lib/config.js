@@ -64,7 +64,7 @@ const CONFIG_GROUPS = ["plant", "battery", "grid", "payback", "predictions", "ma
 // Every key readConfig reads. Any other says once that nobody reads it.
 const KEYS = ["battery_kwh", "battery_floor", "battery_max_charge_kw", "battery_max_discharge_kw", "battery_install_date", "battery_margin",
   "export_max_kw", "standby_w", "grid_max_kw", "system_cost", "install_date", "saved_before", "level", "usual_days", "quiet_hours",
-  ...MACHINE_TYPES, "bill_fixed", "tariff", "time_format", "advice", "advice_replace", "entities"];
+  ...MACHINE_TYPES, "bill_fixed", "tariff", "advice", "advice_replace", "entities"];
 const TARIFF_TYPES = ["single", "two", "three"];
 // How far the page predicts (the table in docs/how-it-works.md); no level is auto. What each level uses,
 // and the step down when its data is missing: modeOf in data.js.
@@ -198,9 +198,6 @@ function readConfig(energyPreferences, config, costs = {}) {
   const cost = figure(c.system_cost, "system_cost", 0, Infinity), installed = date(c.install_date, "install_date");
   const level = c.level == null ? null : LEVELS.includes(c.level) ? c.level : null;
   if (c.level != null && !level) warn(`level: ${shown(c.level)} is not one of ${LEVELS.join(", ")}, so the level is automatic`);
-  // The clock: 12 or 24 hours for every viewer, or "system" or "language" as in the profile (see hourCycle).
-  const timeFormat = c.time_format == null ? null : ["12", "24", "system", "language"].find((f) => f === String(c.time_format)) ?? null;
-  if (c.time_format != null && !timeFormat) warn(`time_format: ${shown(c.time_format)} is not 12, 24, system or language, so each viewer's profile decides`);
   if (c.advice != null && !isMap(c.advice)) warn(`advice: ${shown(c.advice)} is not a map of languages to pools of lines, so it is not used`);
   if (c.advice_replace != null && typeof c.advice_replace !== "boolean") warn(`advice_replace: ${shown(c.advice_replace)} is not true or false, so false is used`);
   const options = {
@@ -230,7 +227,6 @@ function readConfig(energyPreferences, config, costs = {}) {
     // The owner's own advice lines ({ it: { go: [...] } }), and whether a pool with own lines shows only those.
     advice: isMap(c.advice) ? c.advice : null,
     adviceReplace: c.advice_replace === true,
-    timeFormat,
   };
   return { ids: entityIds, options, misread: [...misread] };
 }

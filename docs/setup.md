@@ -190,17 +190,6 @@ prices:
 | `bill_fixed` | The fixed part of the electricity bill a month, in your currency: the id of a sensor, or a plain number. Added to every month's grid cost on Money. | `0` |
 | `tariff` | The contract's time bands: `type` and the band prices from `prices`, `sensor` or both. See [Time bands](#time-bands). | No bands |
 
-### Display
-
-```yaml
-display:
-  time_format: 24
-```
-
-| Option | Meaning | Default |
-|---|---|---|
-| `time_format` | The clock for every time on the page, for every user: `24`, `12`, `system` (the device's own clock) or `language` (the language's usual clock). | Each user's time format in their Home Assistant profile |
-
 ### Sensors
 
 Replace what the Energy settings say, or add what they cannot know (see [Names under sensors](#names-under-sensors)). Each takes one entity id or a list; an empty list `[]` switches that part off.
@@ -358,6 +347,7 @@ The gear at the top right opens "Show on this device":
 
 - switches for the sky: sun height, clouds, rain and snow;
 - the language of the page on this device (Automatic follows the Home Assistant profile);
+- the clock on this device: 12 or 24 hours (Automatic follows the Home Assistant profile);
 - for admins, the [Setup check](#what-shows-and-what-it-needs).
 
 Each device keeps its own choice, so a wall tablet can show less than a phone. Cards hide themselves when they have nothing to show, so they have no switch.

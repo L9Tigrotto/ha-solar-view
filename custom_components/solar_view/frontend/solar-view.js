@@ -28,6 +28,7 @@ const version = new URL(import.meta.url).search;
 // This device's language, set in the gear's dialog: one of LANGUAGES, kept apart from the Home Assistant
 // profile. Absent (Automatic) the page follows the viewer's language there. Each language by its own name.
 const LANGUAGE_KEY = "solar-view-language";
+const CLOCK_KEY = "solar-view-clock"; // this device's clock: "12" or "24"; none keeps the profile's
 const LANGUAGES = { en: "English", it: "Italiano", es: "Español", fr: "Français", de: "Deutsch", pt: "Português", nl: "Nederlands", pl: "Polski" };
 // The texts of a language are sections of lines (lines.now.advice.go[3]). A language's own file takes over
 // English's section by section, line by line; a pool of lines (an array) is replaced whole.
@@ -183,6 +184,7 @@ class SolarView extends HTMLElement {
     this._dialog = null; // the gear's dialog, built the first time it opens (see _gearDialog)
     try { this._show = JSON.parse(localStorage.getItem(SHOW_KEY)) ?? {}; } catch (e) { this._show = {}; }
     try { const l = localStorage.getItem(LANGUAGE_KEY); this._language = Object.hasOwn(LANGUAGES, l ?? "") ? l : ""; } catch (e) { this._language = ""; }
+    try { const c = localStorage.getItem(CLOCK_KEY); this._hourClock = c === "12" || c === "24" ? c : ""; } catch (e) { this._hourClock = ""; }
     // The tab bar floats over the pages: they keep its height free at their foot (--foot, see footer in styles.js).
     // Rects come zoomed, --foot is in the panel's own pixels (as in the hints below). 0 where the bar is not at
     // the bottom (the wide layout puts the menu button in a corner).
@@ -408,6 +410,14 @@ class SolarView extends HTMLElement {
       if (!Object.hasOwn(LANGUAGES, language.value) && language.value !== "") return;
       this._language = language.value;
       try { this._language ? localStorage.setItem(LANGUAGE_KEY, this._language) : localStorage.removeItem(LANGUAGE_KEY); } catch (e) { /* this visit only */ }
+      this._render();
+    });
+    // The clock: applied at once; Automatic clears it and the viewer's profile decides again.
+    const clock = /** @type {HTMLSelectElement} */ (d.querySelector('select[name="clock"]'));
+    clock.value = this._hourClock;
+    clock.addEventListener("change", () => {
+      this._hourClock = clock.value === "12" || clock.value === "24" ? clock.value : "";
+      try { this._hourClock ? localStorage.setItem(CLOCK_KEY, this._hourClock) : localStorage.removeItem(CLOCK_KEY); } catch (e) { /* this visit only */ }
       this._render();
     });
     d.addEventListener("change", (/** @type {On<Event>} */ e) => {
@@ -703,7 +713,7 @@ class SolarView extends HTMLElement {
     const now = Date.now(), clock = clockOf(hass.config?.time_zone);
     const data = loading ? placeholder(hass, entityIds, source?.options, this._last, now) : readData(hass, entityIds, source.options, this._stats, this._looked, now);
     const day = this.testDay ?? Date.parse(clock(now).key) / DAY; // testDay: preview harness only (?day=)
-    const cycle = hourCycle(this._options.timeFormat, hass.locale);
+    const cycle = hourCycle(this._hourClock || null, hass.locale);
     const timeZone = hass.config?.time_zone, currency = hass.config?.currency || "EUR", fKey = [locale, currency, cycle, timeZone].join("|");
     if (this._formatKey !== fKey) {
       this._formatKey = fKey;

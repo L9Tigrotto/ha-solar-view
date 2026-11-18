@@ -1,6 +1,6 @@
 /* Numbers, money, times and dates as the page writes them, in the language on screen. No imports. */
 
-// 12 or 24 hour clock: the panel's `time_format` (readConfig's timeFormat), else the viewer's profile in Home Assistant
+// 12 or 24 hour clock: this device's pick in the gear ("12" or "24"), else the viewer's profile in Home Assistant
 // (Time format: "12", "24", "system" or "language"). undefined leaves it to the language.
 // The device's own clock is asked once: it builds an Intl.DateTimeFormat, and hourCycle runs on every render.
 let systemCycle;
