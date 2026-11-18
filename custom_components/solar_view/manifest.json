@@ -1,10 +1,11 @@
 {
   "domain": "solar_view",
   "name": "Solar view",
-  "codeowners": [],
+  "codeowners": ["@L9Tigrotto"],
   "config_flow": true,
   "dependencies": ["energy", "frontend", "http", "panel_custom", "recorder"],
   "documentation": "https://github.com/L9Tigrotto/ha-solar-view",
+  "issue_tracker": "https://github.com/L9Tigrotto/ha-solar-view/issues",
   "integration_type": "service",
   "iot_class": "cloud_polling",
   "requirements": ["pypdf==7.1.0"],

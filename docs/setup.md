@@ -10,44 +10,29 @@ This guide is for the person who installs the page. The people who read it need 
   - a battery with its power sensor, its state of charge and its capacity;
   - a price on the grid connection, for the Money page;
   - a solar forecast linked to the solar panels (Forecast.Solar or Open-Meteo Solar Forecast, for example), for the coming days and the "wait" advice.
-- Optional: [HACS](https://hacs.xyz), to install and update in a few clicks. Without it, copy the files by hand.
+- Optional: [HACS](https://hacs.xyz), to install and update in a few clicks. Without it, copy the folder by hand.
 
 Developed and tested on Home Assistant 2026.9. Power sensors in the Energy settings are a fairly recent addition. On an older version, name the sensors yourself under [`sensors`](#sensors).
 
 ## Install with HACS
 
-1. In HACS, open the three dots menu, **Custom repositories**. Add `https://github.com/L9Tigrotto/ha-solar-view` with the type **Dashboard**.
-2. Search HACS for **Solar View** and download it. The files land in `config/www/community/ha-solar-view/`.
-3. Add this to `configuration.yaml`:
+1. In HACS, open the three dots menu, **Custom repositories**. Add `https://github.com/L9Tigrotto/ha-solar-view` with the type **Integration**.
+2. Search HACS for **Solar View** and download it. Restart Home Assistant when HACS asks.
+3. Settings, Devices & services, Add integration, **Solar view**. "Solar view" appears in the sidebar.
+4. Optional: put your options in `config/solar_view.yaml` (see [Options](#options)).
 
-   ```yaml
-   panel_custom:
-     - name: solar-view
-       url_path: solar
-       sidebar_title: Solar
-       sidebar_icon: mdi:solar-power-variant
-       module_url: /hacsfiles/ha-solar-view/solar-view.js
-   ```
-
-4. Restart Home Assistant. "Solar" appears in the sidebar.
-
-HACS may also list the file under Settings, Dashboards, Resources. The page is a panel, not a card, and does not need it there: you can delete that entry.
-
-**Updating:** new versions show up in Settings, Updates. Install the update and reload the page. On a phone, if the old page stays, close the app fully and open it again.
+**Updating:** new versions show up in Settings, Updates. Install the update and restart Home Assistant. On a phone, if the old page stays, close the app fully and open it again.
 
 ## Install by hand
 
-1. Copy the `custom_components/solar_view/frontend` folder of this repository into `config/www/` and rename it to `solar-view`. You then have `config/www/solar-view/solar-view.js` with the folders `lib/`, `pages/` and `strings/` beside it.
-2. Add the `panel_custom` entry above, with `module_url: /local/solar-view/solar-view.js?v=1`.
-3. Restart Home Assistant.
+1. Copy the `custom_components/solar_view` folder of this repository into `config/custom_components/`.
+2. Restart Home Assistant, then add the **Solar view** integration as in step 3 above.
 
-**Updating:** replace the files, raise the number after `?v=` in `module_url`, and restart Home Assistant.
-
-The number matters. Browsers and the phone app keep files under `/local/` for a long time. The main file loads all the others with its own `?v=`, so one new number refreshes them all.
+**Updating:** replace the folder and restart Home Assistant.
 
 ## Every change needs a restart
 
-Home Assistant reads `panel_custom` only when it starts. After **every** change under `config:` (or to `module_url`), do a full restart: Settings, System, the power button, Restart Home Assistant. A YAML reload is not enough, and neither is clearing the app's cache.
+The integration reads `config/solar_view.yaml` when it starts. After **every** change to it, restart Home Assistant: Settings, System, the power button, Restart Home Assistant. Clearing the app's cache is not enough.
 
 ## What shows, and what it needs
 
@@ -80,23 +65,11 @@ A level without its data steps down to the next one that has it, and says so onc
 
 ## Options
 
-Everything is optional. It goes under `config:` in the same `panel_custom` entry, in groups. The groups only keep things tidy: every key works in any group, or at the top with no group. A key the page does not know, or a value it cannot read, is ignored and named once in the browser console, and in the Setup check's "Options not used" row. Remember the [restart](#every-change-needs-a-restart).
+Everything is optional. It goes in `config/solar_view.yaml`, in groups. The groups only keep things tidy: every key works in any group, or at the top with no group. A key the page does not know, or a value it cannot read, is ignored and named once in the browser console, and in the Setup check's "Options not used" row. Remember the [restart](#every-change-needs-a-restart).
 
 The options reach the browser of every user who can open Home Assistant, admins or not, so a `!secret` among them is readable there.
 
-To keep the options out of `configuration.yaml`, put them in a file of their own:
-
-```yaml
-panel_custom:
-  - name: solar-view
-    url_path: solar
-    sidebar_title: Solar
-    sidebar_icon: mdi:solar-power-variant
-    module_url: /hacsfiles/ha-solar-view/solar-view.js
-    config: !include solar_view.yaml
-```
-
-`solar_view.yaml` then holds the groups, starting at the left margin.
+`solar_view.yaml` holds the groups, starting at the left margin.
 
 ### Plant
 
@@ -383,7 +356,7 @@ Every user sees the same pages, in the language and time format of their profile
 | "Last update: 14:05" under the headline | No live sensor has been updated for 20 minutes. The inverter or its integration may be frozen. |
 | A part of the page is missing | Open the gear's Setup check (admins): a part that is off says what to set, and "Options not used" names a misspelt key or a value it could not read. The browser console has the same, in lines that start with `solar-view`. |
 | A grey loading skeleton that stays | Home Assistant is still starting, or the statistics have not answered. |
-| The old page after an update | Installed by hand: raise `?v=` and restart. On a phone, close the app fully and open it again. |
+| The old page after an update | Restart Home Assistant. On a phone, close the app fully and open it again. |
 
 ## Known limits
 
@@ -399,4 +372,4 @@ Every user sees the same pages, in the language and time format of their profile
 
 The page talks only to your own Home Assistant. It keeps three things in the browser's `localStorage`: the last numbers it showed (`solar-view-last`, so the loading skeleton has the right shape), the display switches (`solar-view-show`) and the language picked in the gear (`solar-view-language`). Nothing leaves the device.
 
-The files are served without login, under `/hacsfiles/` or `/local/`, like everything in `config/www`. They hold code only, never your data. Do not put secrets in them.
+The files are served without login, under `/solar_view/`. They hold code only, never your data. Do not put secrets in them.
