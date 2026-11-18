@@ -63,7 +63,7 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
             return None
         weather = merge_weather(hourly, model)
         rows = await self._rows(entry_config, now)
-        profile = roof_profile(rows, latitude, longitude, time_zone, now) if rows is not None else None
+        profile = roof_profile(rows, latitude, longitude, now) if rows is not None else None
         if rows == []:
             self._say("no_stats", "Solar view: the Energy settings' solar panels have no statistics yet, no forecast")
         elif rows is not None and profile is None:
@@ -72,7 +72,7 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
             await self._store.async_save(self._saved)
             return None
         self._said -= {"no_stats", "not_ready"}
-        sun = sun_hours(profile, weather, time_zone)
+        sun = sun_hours(profile, weather)
         pending, done = update_pending(self._saved.get("pending", {}), sun, now, time_zone)
         if done:
             async_add_external_statistics(self.hass, {

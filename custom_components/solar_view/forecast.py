@@ -60,19 +60,25 @@ def _p90(values: list[float]) -> float:
     return values[0] if len(values) == 1 else statistics.quantiles(values, n=10, method="inclusive")[-1]
 
 
-def roof_profile(rows: list[Row], latitude: float, longitude: float, time_zone: ZoneInfo, now: datetime) -> dict[int, float] | None:
-    """kWh per W/m2 of sunlight for each local hour of the day: the 90th percentile of made over clear sky.
+def roof_profile(rows: list[Row], latitude: float, longitude: float, now: datetime) -> dict[int, float] | None:
+    """kWh per W/m2 of sunlight for each UTC hour of the day: the 90th percentile of made over clear sky. UTC, not
+    local, so a clock change never mixes two solar hours. A row whose previous hour had sun and is missing is left
+    out: the recorder's catch-up row carries the energy of every hour missed. A dark or dim hour missed (clear sky
+    at most CLEAR_MIN_W: a sensor unavailable at night) carries next to none, so the morning's first row stays.
     None until the clearest hour of today has MIN_ROWS unthrottled rows."""
     since = now - timedelta(days=WINDOW_DAYS)
+    starts = {r.start for r in rows}
     by_hour: dict[int, list[tuple[float, bool]]] = {}
     for r in rows:
         if r.start < since or r.kwh is None or not math.isfinite(r.kwh):
             continue
+        if r.start - HOUR not in starts and clear_sky(r.start - HOUR, latitude, longitude) > CLEAR_MIN_W:
+            continue
         cs = clear_sky(r.start, latitude, longitude)
         if cs > CLEAR_MIN_W:
-            by_hour.setdefault(r.start.astimezone(time_zone).hour, []).append((r.kwh / cs, r.throttled))
-    midnight = now.astimezone(time_zone).replace(hour=0, minute=0, second=0, microsecond=0)
-    clearest = max(range(24), key=lambda h: clear_sky((midnight + timedelta(hours=h)).astimezone(timezone.utc), latitude, longitude))
+            by_hour.setdefault(r.start.astimezone(timezone.utc).hour, []).append((r.kwh / cs, r.throttled))
+    midnight = now.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    clearest = max(range(24), key=lambda h: clear_sky(midnight + timedelta(hours=h), latitude, longitude))
     if sum(not t for _, t in by_hour.get(clearest, [])) < MIN_ROWS:
         return None
     profile = {}
@@ -119,9 +125,9 @@ def merge_weather(hourly: dict, model: str) -> dict[datetime, Weather]:
     return out
 
 
-def sun_hours(profile: dict[int, float], weather: dict[datetime, Weather], time_zone: ZoneInfo) -> dict[datetime, float]:
-    """kWh mid per UTC hour start: the roof profile at that local hour times the forecast sunlight."""
-    return {t: profile[t.astimezone(time_zone).hour] * w.sw for t, w in weather.items() if w.sw is not None}
+def sun_hours(profile: dict[int, float], weather: dict[datetime, Weather]) -> dict[datetime, float]:
+    """kWh mid per UTC hour start: the roof profile at that UTC hour times the forecast sunlight."""
+    return {t: profile[t.astimezone(timezone.utc).hour] * w.sw for t, w in weather.items() if w.sw is not None}
 
 
 def _midnight(day: date, time_zone: ZoneInfo) -> datetime:

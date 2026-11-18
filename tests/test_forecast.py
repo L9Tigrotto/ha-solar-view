@@ -48,53 +48,79 @@ def rows_for(days, ratio, end=utc("2026-11-16T00:00")):
 
 
 def at_local_hour(days, hour, ratio, throttled=False, end=utc("2026-11-16T00:00")):
-    """One row a day at local `hour`, for `days` days before `end`."""
+    """One row a day at local `hour`, with the hour before it (a row needs its previous hour), for `days` days before `end`."""
     out = []
     for d in range(1, days + 1):
         local = (end - timedelta(days=d)).astimezone(ROME).replace(hour=hour)
-        t = local.astimezone(UTC)
-        out.append(f.Row(t, ratio * f.clear_sky(t, LAT, LON), throttled))
+        for t in (local.astimezone(UTC) - timedelta(hours=1), local.astimezone(UTC)):
+            out.append(f.Row(t, ratio * f.clear_sky(t, LAT, LON), throttled))
     return out
 
 
 def test_profile_is_p90_of_ratio_over_clear_rows():
-    p = f.roof_profile(rows_for(14, 0.004), LAT, LON, ROME, NOW)
-    assert p[12] == pytest.approx(0.004) and p[2] == 0
+    p = f.roof_profile(rows_for(14, 0.004), LAT, LON, NOW)
+    assert p[11] == pytest.approx(0.004) and p[2] == 0
 
 
 def test_profile_ignores_rows_with_clear_sky_under_50():
     rows = rows_for(14, 0.004)
-    base = f.roof_profile(rows, LAT, LON, ROME, NOW)
+    base = f.roof_profile(rows, LAT, LON, NOW)
     dim = [r for r in rows if 0 < f.clear_sky(r.start, LAT, LON) <= 50]
     assert dim, "no dim hours to test with"
     spiked = [f.Row(r.start, 100.0, False) if r in dim else r for r in rows]
-    assert f.roof_profile(spiked, LAT, LON, ROME, NOW) == base
+    assert f.roof_profile(spiked, LAT, LON, NOW) == base
 
 
 def test_profile_leaves_out_throttled_rows():
     # high on purpose: kept, they would lift the 90th percentile
     rows = at_local_hour(10, 12, 0.004) + at_local_hour(4, 12, 0.01, throttled=True)
-    p = f.roof_profile(rows, LAT, LON, ROME, NOW)
-    assert p[12] == pytest.approx(0.004)
+    p = f.roof_profile(rows, LAT, LON, NOW)
+    assert p[11] == pytest.approx(0.004)    # local 12 in Rome in November is UTC 11
 
 
 def test_profile_uses_throttled_rows_as_a_floor_under_5():
     rows = at_local_hour(10, 12, 0.004) + at_local_hour(4, 13, 0.001, throttled=True)
-    p = f.roof_profile(rows, LAT, LON, ROME, NOW)
-    assert p[13] == pytest.approx(0.001)       # not 0: the throttled rows are all it has
+    p = f.roof_profile(rows, LAT, LON, NOW)
+    assert p[12] == pytest.approx(0.001)       # not 0: the throttled rows are all it has
 
 
 def test_profile_not_ready_until_clearest_hour_has_5_rows():
-    assert f.roof_profile(rows_for(4, 0.004), LAT, LON, ROME, NOW) is None
-    assert f.roof_profile(rows_for(5, 0.004), LAT, LON, ROME, NOW) is not None
+    assert f.roof_profile(rows_for(4, 0.004), LAT, LON, NOW) is None
+    assert f.roof_profile(rows_for(5, 0.004), LAT, LON, NOW) is not None
     throttled = at_local_hour(10, 12, 0.004, throttled=True)
-    assert f.roof_profile(throttled, LAT, LON, ROME, NOW) is None
+    assert f.roof_profile(throttled, LAT, LON, NOW) is None
 
 
 def test_profile_ignores_rows_older_than_14_days():
     cut = NOW - timedelta(days=14)
     rows = [f.Row(r.start, r.kwh * (2.5 if r.start < cut else 1), False) for r in rows_for(20, 0.004)]
-    assert f.roof_profile(rows, LAT, LON, ROME, NOW)[12] == pytest.approx(0.004)
+    assert f.roof_profile(rows, LAT, LON, NOW)[11] == pytest.approx(0.004)
+
+
+def test_profile_skips_row_after_a_missing_hour():
+    rows = rows_for(14, 0.004)
+    gap = utc("2026-11-15T10:00")
+    catch_up = [f.Row(r.start, r.kwh * 3, False) if r.start == gap + timedelta(hours=1) else r
+                for r in rows if r.start != gap]   # hour 10 never recorded, hour 11 holds both
+    assert f.roof_profile(catch_up, LAT, LON, NOW)[11] == pytest.approx(0.004)
+
+
+def test_profile_keeps_first_row_after_a_dark_hour_missing():
+    rows = rows_for(14, 0.004)
+    # A sensor unavailable at night and at dawn: no rows while the clear sky is at most CLEAR_MIN_W.
+    lit = [r for r in rows if f.clear_sky(r.start, LAT, LON) > f.CLEAR_MIN_W]
+    assert len(lit) < len(rows)
+    assert f.roof_profile(lit, LAT, LON, NOW) == f.roof_profile(rows, LAT, LON, NOW)
+
+
+def test_profile_is_keyed_by_utc_hour_across_a_clock_change():
+    # same UTC hour, 14 days either side of the change to winter time: one solar hour, one profile entry
+    end = utc("2026-11-16T00:00")
+    rows = [f.Row(t, 0.004 * f.clear_sky(t, LAT, LON), False)
+            for t in (end - timedelta(hours=h + 1) for h in range(14 * 24))]
+    p = f.roof_profile(rows, LAT, LON, NOW)
+    ws = {t: f.Weather(500, 0, 0) for t in (utc("2026-10-20T11:00"), utc("2026-11-20T11:00"))}
+    assert f.sun_hours(p, ws) == {t: pytest.approx(p[11] * 500) for t in ws}
 
 
 # ---- weather ----
@@ -131,7 +157,7 @@ ONE = {h: 0.001 for h in range(24)}  # 500 W/m2 makes 0.5 kWh every hour
 
 
 def build(now, w):
-    return f.attributes(f.sun_hours(ONE, w, ROME), w, now, ROME, LAT, LON)
+    return f.attributes(f.sun_hours(ONE, w), w, now, ROME, LAT, LON)
 
 
 @pytest.mark.parametrize("now,n", [(utc("2026-11-16T09:30"), 48), (utc("2026-03-28T09:30"), 47), (utc("2026-10-24T09:30"), 49)])
@@ -168,7 +194,7 @@ def test_left_counts_only_the_part_of_today_still_ahead():
 
 
 def test_wh_hours_from_start_of_today_in_wh():
-    sun = f.sun_hours(ONE, flat(utc("2026-11-15T20:00"), 24 * 3), ROME)
+    sun = f.sun_hours(ONE, flat(utc("2026-11-15T20:00"), 24 * 3))
     wh = f.wh_hours(sun, utc("2026-11-16T08:30"), ROME)
     assert min(wh) == "2026-11-15T23:00:00+00:00" and wh["2026-11-15T23:00:00+00:00"] == 500.0
     assert "2026-11-15T22:00:00+00:00" not in wh
@@ -176,7 +202,7 @@ def test_wh_hours_from_start_of_today_in_wh():
 
 def test_sun_hours_skip_hours_without_sunlight_given():
     w = {utc("2026-11-16T11:00"): f.Weather(None, 50, 0), utc("2026-11-16T12:00"): f.Weather(400, 50, 0)}
-    assert f.sun_hours(ONE, w, ROME) == {utc("2026-11-16T12:00"): pytest.approx(0.4)}
+    assert f.sun_hours(ONE, w) == {utc("2026-11-16T12:00"): pytest.approx(0.4)}
 
 
 def test_pending_keeps_last_forecast_of_the_day_before_and_writes_once():
