@@ -47,10 +47,15 @@ function moneySoFar(todayHours, buyAt, sellAt, standbyKwhPerHour, now) {
 // ponytail: a month whose cost statistic started part way through counts only that part.
 function moneyOf(data, key) {
   const p = data.price, months = data.sensorMonths;
+  // Saved without a cost to average (no kWh bought) and no flat buy price: the bands' prices, weighted by this
+  // month's grid share in each when known, else evenly.
+  const bandPrices = Object.entries(data.bands?.prices ?? {}).filter(([, v]) => Number.isFinite(v)), share = data.bands?.share;
+  const weights = bandPrices.map(([b]) => (share ? share[b] ?? 0 : 1)), total = weights.reduce((s, w) => s + w, 0);
+  const savedRate = p.buy ?? (total > 0 ? bandPrices.reduce((s, [, v], i) => s + v * weights[i], 0) / total : null);
   const onRecord = {
     cost: (x) => num(x.costMoney) ?? pricedEnergy(x.gridImportKwh, p.buy),
     earned: (x) => (!data.sends ? 0 : num(x.earnedMoney) ?? pricedEnergy(x.gridExportKwh, p.sell)),
-    saved: (x) => { const self = selfKwh(x); return self !== null && num(x.costMoney) !== null && x.gridImportKwh > 0 ? self * x.costMoney / x.gridImportKwh : pricedEnergy(self, p.buy); },
+    saved: (x) => { const self = selfKwh(x); return self !== null && num(x.costMoney) !== null && x.gridImportKwh > 0 ? self * x.costMoney / x.gridImportKwh : pricedEnergy(self, savedRate); },
   };
   const fixedFees = data.billFixed ?? {}, fxKeys = Object.keys(fixedFees.months ?? {}).sort();
   const fixedAt = (monthKey) => fixedFees.months?.[monthKey] ?? fixedFees.months?.[fxKeys.filter((k) => k < monthKey).at(-1) ?? fxKeys[0]] ?? (fixedFees.now === undefined ? 0 : fixedFees.now);
@@ -171,9 +176,10 @@ function paybackLeft(owed, past, lastKey, soFar = null, /** @type {{ lat?: numbe
 // Months differ more in sun than in money: in summer the house cannot use most of it and it goes out cheap.
 // So: the sun follows monthSun times one scale; the house's use per day follows the sun's per day in a straight
 // line (heating in winter; flat with under 3 months, too few to tell a season from an odd month), at least half
-// the lowest on record; the share of its use the sun covers saturates, 1 - e^(-b·sun/use), b fitted to the
-// months with sun; that part earns what a kWh saved earned, the rest what a kWh sent did (`sell` when nothing
-// went out yet). A month without its kWh or money is left out (a month with no sun stays: polar night, snow).
+// the lowest on record; the share of its use the sun covers saturates, 1 - e^(-b·sun/use), never more than the
+// sun made, b the median of the months with sun (a month away, little used and little covered, would drag a
+// mean down); that part earns what a kWh saved earned, the rest what a kWh sent did (`sell` when nothing went out
+// yet). A month without its kWh or money is left out (a month with no sun stays: polar night, snow).
 // null without a latitude or a month to fit, and the caller takes the average month. One value per calendar
 // month: the walk asks for the same months again and again.
 // ponytail: use saturates at all of it, which takes a battery; without one the guess is high in summer. A second
@@ -187,7 +193,8 @@ function seasonGuess(all, latitude, sell) {
   const xs = past.map((x) => sky(x.key)), ys = past.map((x) => x.load / daysIn(x.key));
   const mx = xs.reduce((s, v) => s + v, 0) / n, my = ys.reduce((s, v) => s + v, 0) / n, vx = xs.reduce((s, v) => s + (v - mx) ** 2, 0);
   const slope = n >= 3 && vx > 0 ? xs.reduce((s, v, i) => s + (v - mx) * (ys[i] - my), 0) / vx : 0, floor = Math.min(...ys) / 2;
-  const lit = past.filter((x) => x.sun > 0), b = sum(lit, (x) => (-Math.log(1 - Math.min(SELF_MAX, x.self / x.load)) * x.load) / x.sun) / lit.length;
+  const bs = past.filter((x) => x.sun > 0).map((x) => (-Math.log(1 - Math.min(SELF_MAX, x.self / x.load)) * x.load) / x.sun).sort((a, b) => a - b);
+  const b = bs.length % 2 ? bs[(bs.length - 1) / 2] : (bs[bs.length / 2 - 1] + bs[bs.length / 2]) / 2;
   const self = sum(past, (x) => x.self), sent = past.filter((x) => Number.isFinite(x.out)), out = sum(sent, (x) => x.out);
   if (!Number.isFinite(scale) || !(scale >= 0) || !(self > 0) || !(b > 0)) return null;
   const perSelf = sum(past, (x) => x.saved) / self, perOut = out >= 1 ? sum(sent, (x) => x.earned) / out : sell;
@@ -195,7 +202,7 @@ function seasonGuess(all, latitude, sell) {
   return (key) => {
     if (seen.has(key.slice(5))) return seen.get(key.slice(5));
     const sun = scale * monthSun(key, latitude), use = Math.max(floor, my + slope * (sky(key) - mx)) * daysIn(key);
-    const covered = use * (1 - Math.exp((-b * sun) / use)), v = perSelf * covered + perOut * Math.max(0, sun - covered);
+    const covered = Math.min(sun, use * (1 - Math.exp((-b * sun) / use))), v = perSelf * covered + perOut * Math.max(0, sun - covered);
     seen.set(key.slice(5), v);
     return v;
   };
