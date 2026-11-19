@@ -367,6 +367,14 @@ class Bills:
                 self._files[digest] = path.name
                 try:
                     months = await self.hass.async_add_executor_job(lambda p=path: reader(p))
+                except ImportError as err:
+                    # A library the reader needs is missing (pypdf, gone after a Home Assistant update): not the
+                    # bill's fault, so forgotten and read again each hour until it is back. Said once.
+                    del self._files[digest]
+                    if ("import", path.name) not in self._warned:
+                        self._warned.add(("import", path.name))
+                        _LOGGER.warning("Solar view: bill %s could not be read: %s (read again each hour until it is installed)", path.name, err)
+                    continue
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.warning("Solar view: bill %s could not be read: %s", path.name, err)
                     continue
