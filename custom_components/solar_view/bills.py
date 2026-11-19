@@ -245,11 +245,13 @@ def load_reader(folder: Path) -> Callable[[Path], dict[str, dict[str, float]]] |
     """The `bill_months(path)` of <folder>/bill_reader.py: a function that turns one bill PDF into
     {"2026-09": {"f1": .., "f2": .., "f3": .., "fixed": ..}}, written by the owner for their own supplier's layout
     (none ships here). None without the file; an error in it raises."""
+    import importlib
     import importlib.util
 
     file = folder / READER_FILE
     if not file.is_file():
         return None
+    importlib.invalidate_caches()  # a library installed by hand while Home Assistant runs (pypdf) is found too
     spec = importlib.util.spec_from_file_location("solar_view_bill_reader", file)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
