@@ -78,9 +78,13 @@ export const num = (v, min = -Infinity, max = Infinity) => {
 export const stateNum = (hass, id) => { const v = parseFloat(hass.states[id]?.state); return Number.isFinite(v) ? v : null; };
 // A price entity's value (its state, or `v` read from its statistics) per kWh: Home Assistant's Energy settings take
 // prices per MWh and per Wh too, by the entity's unit ("EUR/MWh"). null when it has no value.
-const PER_KWH = { MWh: 1e-3, Wh: 1e3 };
-export const priceOf = (hass, id, v = stateNum(hass, id)) =>
-  (Number.isFinite(v) ? v * (PER_KWH[String(hass.states[id]?.attributes?.unit_of_measurement).split("/")[1]?.trim()] ?? 1) : null);
+// A price in cents or pence ("c/kWh", "ct/kWh", "p/kWh", "¢/kWh") is a hundredth of the currency.
+const PER_KWH = { MWh: 1e-3, Wh: 1e3 }, MINOR = new Set(["c", "ct", "cent", "cents", "p", "¢"]);
+export const priceOf = (hass, id, v = stateNum(hass, id)) => {
+  if (!Number.isFinite(v)) return null;
+  const [money, energy] = String(hass.states[id]?.attributes?.unit_of_measurement).split("/").map((s) => s?.trim());
+  return v * (PER_KWH[energy] ?? 1) * (MINOR.has(money?.toLowerCase()) ? 0.01 : 1);
+};
 // A figure the owner gives as a number, a number typed as text, or the id of an entity holding one (read by `read`);
 // null when none.
 export const numberOrEntity = (v, hass, read = stateNum) => num(v) ?? (typeof v === "string" ? read(hass, v) : null);

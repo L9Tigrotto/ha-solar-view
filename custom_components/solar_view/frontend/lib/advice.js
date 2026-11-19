@@ -7,6 +7,7 @@ const { DAY, HOUR, LASTS_MAX_H, warnOnce } = await import(`./core.js${v}`);
 // ---- Rules (tune here) ----
 const POOR_SHARE = 0.55;      // a forecast for today under this share of a usual day is a poor day
 const BETTER_TIMES = 1.5;     // tomorrow must beat today by this factor before saying "wait for tomorrow"
+const BETTER_MIN_KWH = 1;    // and by this much: 0.2 against 0.4 kWh is no reason to wait
 const LASTS_MIN_H = 0.5;      // "enough until" is only shown from this many hours up to LASTS_MAX_H
 const SURPLUS_W = 1000;   // solar minus house use above this: good moment for big appliances
 const FADE_MIN_W = 500;   // the sun forecast for this hour must reach this before a drop in the next 3 hours is worth a warning
@@ -43,7 +44,7 @@ function advice(n, forecast, daytime, word) {
     return !high && forecast && forecast.fade.now >= FADE_MIN_W && forecast.fade.next < forecast.fade.now * FADE_SHARE ? "soon" : "go";
   if (isLow(word) && (n.solarW < LOW_SOLAR_W || n.gridImportW > IMPORT_W)) return "low";
   if (daytime && forecast && forecast.tomorrow !== null && forecast.usual !== null
-    && forecast.today < forecast.usual * POOR_SHARE && forecast.tomorrow >= forecast.today * BETTER_TIMES && forecast.tomorrow > forecast.today) return "wait";
+    && forecast.today < forecast.usual * POOR_SHARE && forecast.tomorrow >= forecast.today * BETTER_TIMES && forecast.tomorrow - forecast.today >= BETTER_MIN_KWH) return "wait";
   if (daytime && forecast && forecast.fade.next >= LATER_MIN_W && forecast.fade.next >= forecast.fade.now * LATER_TIMES) return "later";
   return "ok";
 }

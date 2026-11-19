@@ -7,7 +7,7 @@ const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ ne
 /** @type {[typeof import("./core.js"), typeof import("./sky.js"), typeof import("./advice.js"),
  *   typeof import("./config.js"), typeof import("./forecast.js"), typeof import("./stats.js"),
  *   typeof import("./money.js")]} */
-const [{ HOUR, FULL_CHARGE, roundTo, clockOf, dayHours, hourStart, inHour, shiftKey, noonOf, monthDayKeys, stateNum, numberOrEntity, priceOf, warnOnce },
+const [{ HOUR, FULL_CHARGE, roundTo, clockOf, dayHours, inHour, shiftKey, noonOf, monthDayKeys, stateNum, numberOrEntity, priceOf, warnOnce },
   { SKY_LOW_DEG, weatherOf, cloudNow, raining, snowing, dawnOf, greyOf, coverOf, moonPhase }, { wearOf }, { BATTERY_FLOOR_PERCENT },
   { sensorOf, sensorSpread, forecastOf, lookAhead, bandOf, bandName, bandPrices, findBills }, { ENERGY }, { moneySoFar }] = await Promise.all([
   import(`./core.js${v}`), import(`./sky.js${v}`), import(`./advice.js${v}`), import(`./config.js${v}`), import(`./forecast.js${v}`), import(`./stats.js${v}`), import(`./money.js${v}`)]);
@@ -63,7 +63,9 @@ const paybackPredicts = (data) => !weatherOnly(data) && !!(data.outlook || data.
 function adviceForecast(mode, stats, ahead, now, clock) {
   if (mode.level === "usual_days_weather") return stats.forecast ?? null;
   if (!ahead || !fromSensor(mode)) return null;
-  const at = (i) => (ahead.hours.find((h) => h.t === hourStart(now + i * HOUR, clock))?.sun[1] ?? 0) * 1000; // kWh in an hour is its mean kW
+  // The forecast hour holding the time, not one starting at the clock's hour: the sensor's hours start on the
+  // whole UTC hour, :30 on the clock in a half hour time zone.
+  const at = (i) => (ahead.hours.find((h) => inHour(h.t, now + i * HOUR))?.sun[1] ?? 0) * 1000; // kWh in an hour is its mean kW
   const day = (k) => { const x = ahead.days.find((d) => d.d === k)?.sun?.[1]; return Number.isFinite(x) ? x : null; };
   const today = clock(now).key, sun = day(today);
   return sun === null ? null : { fade: { now: at(0), next: (at(1) + at(2) + at(3)) / 3 }, today: sun, tomorrow: day(shiftKey(today, 1)), usual: stats.sunUsual ?? null };
@@ -122,13 +124,13 @@ function predict(hass, entityIds, options, stats, sensor, now, clock) {
     const throttled = options.exportMaxKw != null && ((stats.chargeLevelDay ?? []).some(([, p]) => p >= FULL_CHARGE) || n.chargeLevel >= FULL_CHARGE);
     const base = { now, clock, solarWh: stats.solarWh, usual, price, sunSoFar: stats.today.solarKwh, sunUntil: stats.sunUntil, throttled };
     const l = mode.level, ahead = l === "none" ? null : l === "weather" ? forecastOf({ ...base, sensor })
-      : forecastOf({ ...base, sensor: null, solarWh: l === "usual_days" ? {} : stats.solarWh, solarSpread: sensorSpread(facts) });
+      : forecastOf({ ...base, sensor: null, solarWh: l === "usual_days" ? {} : stats.solarWh, solarSpread: facts?.linked ? sensorSpread(facts) : null });
     // Hours already past are priced by the sensor's own hours while it is fresh, else at the flat price.
-    const given = new Map((facts?.hours ?? []).map((h) => [h.t, h]));
-    const priceAt = (field) => (t) => (given.has(t) ? given.get(t)[field] : price[field]);
+    const priceAt = (field) => (t) => { const h = facts?.hours.find((x) => inHour(x.t, t)); return h ? h[field] : price[field]; };
     const standby = stats.standbyW / 1000, soFar = moneySoFar(stats.todayHours, priceAt("buy"), priceAt("sell"), standby, now);
     const batterySettings = hasBattery(entityIds) ? options.battery : null;
-    const battery = batterySettings && { kwh: batterySettings.kwh, floor: batterySettings.floor, maxChargeKw: batterySettings.maxChargeKw, maxDischargeKw: batterySettings.maxDischargeKw, efficiency: stats.efficiency };
+    // The charge in % is of what the battery holds today: its size as bought times its state of health.
+    const battery = batterySettings && { kwh: batterySettings.kwh == null ? batterySettings.kwh : batterySettings.kwh * healthShare(hass, entityIds), floor: batterySettings.floor, maxChargeKw: batterySettings.maxChargeKw, maxDischargeKw: batterySettings.maxDischargeKw, efficiency: stats.efficiency };
     // Without house use (level weather) there is no outlook: the page shows what it shows without a forecast (no
     // ghosts, money, best time, lasts until). So does a day whose statistics are incomplete: an unknown figure must
     // not count as 0 in what follows from them.
@@ -170,9 +172,27 @@ const lastSeen = (hass, entityIds) => {
   const t = entityIds.map((id) => Date.parse(hass.states[id]?.last_updated)).filter(Number.isFinite);
   return t.length ? Math.max(...t) : null;
 };
+// lastSeen over all `groups` of ids (the inverter's, the grid meter's, ...), and no later than any group's own
+// newest last_reported: Home Assistant stamps that on every write, a value unchanged too, so a group whose
+// integration went silent shows even while another (a separate grid meter) keeps writing. A group with an id
+// that has no last_reported (an older Home Assistant) is not judged alone: an inverter at rest at night
+// changes nothing for hours, and last_updated alone would call it frozen.
+const seenOf = (hass, groups) => {
+  const all = lastSeen(hass, groups.flat());
+  if (all === null) return null;
+  const own = groups.filter((g) => g.length).map((g) => g.map((id) => Date.parse(hass.states[id]?.last_reported)))
+    .filter((t) => t.every(Number.isFinite)).map((t) => Math.max(...t));
+  return Math.min(all, ...own);
+};
 // The time of the last reading when it is too old to be live (see lastSeen), else null. A time ahead of this clock
 // (the phone's clock behind Home Assistant's) is never frozen.
 const staleSince = (data, now) => (data.seen !== null && now - data.seen > STALE_MS ? data.seen : null);
+// The share of its size as bought the battery holds today: the lowest battery_health sensor in %, 1 without one or
+// with a reading outside 1..100.
+const healthShare = (hass, entityIds) => {
+  const health = Math.min(...(entityIds.healthPercent ?? []).map((id) => stateNum(hass, id) ?? Infinity));
+  return health >= 1 && health <= 100 ? health / 100 : 1;
+};
 // The Energy settings' prices now: text is an entity id (see priceOf), unless it is a number typed as text.
 const pricesOf = (hass, entityIds) => ({ buy: numberOrEntity(entityIds.price.buy, hass, priceOf), sell: numberOrEntity(entityIds.price.sell, hass, priceOf) });
 
@@ -189,7 +209,7 @@ function live(hass, entityIds, options, facts, now) {
   const battery = hasBattery(entityIds);
   return {
     now: reading(hass, entityIds),
-    seen: lastSeen(hass, [...entityIds.solarW, ...entityIds.batteryW, ...entityIds.gridW, ...entityIds.chargeLevel, ...entityIds.loadW]),
+    seen: seenOf(hass, [[...entityIds.solarW, ...entityIds.batteryW, ...entityIds.chargeLevel], entityIds.gridW, entityIds.loadW]),
     // Kept simple: without sun.sun the sky falls back to three steps from solar power.
     sun: Number.isFinite(elevation) ? { elevation, rising: !!sun.attributes.rising, dawn: dawnOf(sun.attributes) }
       : { elevation: raw >= 500 ? 30 : raw >= SOLAR_NOISE_W ? SKY_LOW_DEG : -10, rising: false },
@@ -322,4 +342,4 @@ function placeholder(hass, entityIds, options, last, now = Date.now()) {
   };
 }
 
-export { LAST_KEY, NO_MODE, lastSeen, staleSince, modeOf, fromSensor, weatherOnly, paybackPredicts, adviceForecast, bandsOf, predict, reading, live, project, readData, slim, remembered, placeholder };
+export { LAST_KEY, NO_MODE, lastSeen, seenOf, healthShare, staleSince, modeOf, fromSensor, weatherOnly, paybackPredicts, adviceForecast, bandsOf, predict, reading, live, project, readData, slim, remembered, placeholder };

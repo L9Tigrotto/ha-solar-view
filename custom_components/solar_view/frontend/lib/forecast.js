@@ -8,22 +8,25 @@ const { HOUR, FIVE_MIN, FULL_CHARGE, LASTS_MAX_H, WHOLE_DAY_H, hourStart, dayHou
 
 // ---- Rules (tune here) ----
 const EFFICIENCY = 0.95;   // battery round trip until there are enough days to measure it
-const EFFICIENCY_MIN = 0.85;
+const EFFICIENCY_MIN = 0.75; // an AC-coupled battery runs 75-82 %
 const EFFICIENCY_MAX = 1;
 const EFFICIENCY_DAYS = 7; // days of battery rows needed before the measured round trip is trusted
 
-// Battery round trip from the statistics: out / in, clamped, the default until enough days.
-export const efficiencyOf = (outKwh, inKwh, days) =>
-  !(days >= EFFICIENCY_DAYS) || !(inKwh > 0) || !(outKwh >= 0) ? EFFICIENCY : Math.min(EFFICIENCY_MAX, Math.max(EFFICIENCY_MIN, outKwh / inKwh));
+// Battery round trip from the statistics: out / in, clamped, the default until enough days. `storedKwh`: what the
+// battery held more at the end than at the start (negative: less); it went in but has not come out yet.
+export const efficiencyOf = (outKwh, inKwh, days, storedKwh = 0) =>
+  !(days >= EFFICIENCY_DAYS) || !(inKwh > 0) || !(outKwh >= 0) ? EFFICIENCY
+    : Math.min(EFFICIENCY_MAX, Math.max(EFFICIENCY_MIN, (outKwh + (Number.isFinite(storedKwh) ? storedKwh : 0)) / inKwh));
 
-// Walks the hours from now: spare sun charges the battery (capped by the charge rate and the room left,
-// losses taken on the way in), then goes to the grid up to the export limit, the rest is lost (throttled).
-// A shortfall takes the battery down to its floor (capped by the discharge rate), then the grid. The
+// Walks the hours from now: spare sun charges the battery (capped by the charge rate and the room left),
+// then goes to the grid up to the export limit, the rest is lost (throttled). A shortfall takes the battery
+// down to its floor (capped by the discharge rate), then the grid. The round trip's loss is split evenly,
+// half on the way in and half on the way out (√efficiency each). The
 // present hour counts firstShare of its sun, use and limits. kwh 0 is no battery. kWh and percent out,
 // one step per hour.
 export function simulate(hours, chargeLevel, battery, exportMaxKw, firstShare) {
   const { kwh, floor, maxChargeKw, maxDischargeKw = null, efficiency } = battery;
-  const floorKwh = (kwh * floor) / 100;
+  const floorKwh = (kwh * floor) / 100, way = Math.sqrt(efficiency);
   // A charge under the floor (floor typed wrong, grid charging) still counts from the floor: never negative.
   // Over 100 % or no value at all (sensor unavailable) would make energy from nothing or NaN everywhere.
   let stored = kwh > 0 ? Math.min(kwh, Math.max((kwh * (Number.isFinite(chargeLevel) ? chargeLevel : floor)) / 100, floorKwh)) : 0;
@@ -33,13 +36,13 @@ export function simulate(hours, chargeLevel, battery, exportMaxKw, firstShare) {
     let fromBattery = 0, fromGrid = 0, toGrid = 0, lost = 0;
     if (sun >= use) {
       const spare = sun - use;
-      const charge = Math.min(spare, maxChargeKw == null ? Infinity : maxChargeKw * share, (kwh - stored) / efficiency);
-      stored += charge * efficiency;
+      const charge = Math.min(spare, maxChargeKw == null ? Infinity : maxChargeKw * share, (kwh - stored) / way);
+      stored += charge * way;
       toGrid = Math.min(spare - charge, exportMaxKw == null ? Infinity : exportMaxKw * share);
       lost = spare - charge - toGrid;
     } else {
-      fromBattery = Math.max(0, Math.min(use - sun, stored - floorKwh, maxDischargeKw == null ? Infinity : maxDischargeKw * share)); // 0 when the charge is under the floor
-      stored -= fromBattery;
+      fromBattery = Math.max(0, Math.min(use - sun, (stored - floorKwh) * way, maxDischargeKw == null ? Infinity : maxDischargeKw * share)); // 0 when the charge is under the floor
+      stored -= fromBattery / way;
       fromGrid = use - sun - fromBattery;
     }
     return { t: h.t, made: sun - lost, fromBattery, fromGrid, toGrid, lost, chargeLevel: kwh > 0 ? (stored / kwh) * 100 : 0 };
@@ -60,6 +63,7 @@ export function simulate(hours, chargeLevel, battery, exportMaxKw, firstShare) {
 const FRESH_MS = 3 * HOUR; // a sensor older than this is not trusted: the page builds its own
 const SKY_MIN_KWH = 0.5;   // today's usual sun by now before the sun so far scales the rest of today
 const SKY_MAX = 1.5;       // at most this many times the usual sun for the rest of today
+const SKY_FLOOR = 0.2;     // and at least this share: morning fog lifts, a frozen meter reads 0 (snow on the panels reads high)
 export const SOLAR_SPREAD = 0.2;  // the low and high run of a day from the Energy settings' solar forecast: this much either way
 
 // [low, mid, high] of one field summed over the hours of day `key` from `from` on; the hour
@@ -70,7 +74,8 @@ const sumOf = (hours, field, clock, key, from) => hours.reduce((s, h) =>
 // The forecast sensor (sensor.solar_view_forecast) when it can be trusted, else null: written less than FRESH_MS
 // ago (either way: a time ahead of this clock would otherwise stay fresh for ever; a small skew still passes),
 // `days` a list of dated entries, `left.sun` and every hour's sun given. Its hours parsed, in order of t; a t
-// that does not parse, an hour given twice (the first kept) or an entry that is no hour at all is dropped.
+// that does not parse, an hour given twice (the first kept) or an entry that is no hour at all is dropped. linked: the
+// Energy settings' solar forecast is this sensor's integration alone (its `linked` attribute).
 export function sensorOf(sensor, now) {
   const a = sensor?.attributes, written = Date.parse(sensor?.state);
   const hours = (Array.isArray(a?.hours) ? a.hours : []).filter((h) => h && typeof h === "object")
@@ -78,7 +83,7 @@ export function sensorOf(sensor, now) {
     .filter((h) => Number.isFinite(h.t)).sort((x, y) => x.t - y.t).filter((h, i, s) => !i || h.t !== s[i - 1].t);
   const fresh = Math.abs(now - written) < FRESH_MS && Array.isArray(a?.days) && a.days.every((d) => d && typeof d.d === "string")
     && Array.isArray(a.left?.sun) && hours.length > 0 && hours.every((h) => Array.isArray(h.sun));
-  return fresh ? { written, hours, days: a.days, left: a.left } : null;
+  return fresh ? { written, hours, days: a.days, left: a.left, linked: a.linked === true } : null;
 }
 
 // The low and high of the sun as multiples of its mid, as the fresh sensor learned them (see sensorOf; every day
@@ -121,7 +126,7 @@ export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar
     const covered = new Set(Object.keys(solarWh ?? {}).map((t) => clock(+t).key));
     guessed = !covered.has(shiftKey(today, 1));
     // Today on the usual day goes as the sun went so far: made by now over the usual day by now, once
-    // the usual day had SKY_MIN_KWH by now (a grey morning makes a grey afternoon), at most SKY_MAX.
+    // the usual day had SKY_MIN_KWH by now (a grey morning makes a grey afternoon), SKY_FLOOR to SKY_MAX.
     // ponytail: one factor for the whole rest of today; weigh recent hours more if mornings mislead.
     // By now means by the end of the statistics behind sunSoFar (sunUntil): they lag a few minutes.
     const upTo = Math.min(now, sunUntil ?? now);
@@ -130,7 +135,7 @@ export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar
     // throttled: export is capped and the battery was full today, so the sun so far was held back, not
     // clouded: it may only raise the rest of today.
     const sky = covered.has(today) || !(usualByNow >= SKY_MIN_KWH) || !Number.isFinite(sunSoFar) ? 1
-      : Math.min(SKY_MAX, throttled ? Math.max(1, sunSoFar / usualByNow) : sunSoFar / usualByNow);
+      : Math.min(SKY_MAX, Math.max(SKY_FLOOR, throttled ? Math.max(1, sunSoFar / usualByNow) : sunSoFar / usualByNow));
     // Low and high: a forecast day the fresh sensor's learned spread (solarSpread), else SOLAR_SPREAD either way; a usual day's sun, and house use, as its days
     // spread (usual.spread: [low, high] over the mean, see usualDay).
     const spread = usual.spread ?? { sun: [1, 1], use: [1, 1] }, solar = solarSpread ?? [1 - SOLAR_SPREAD, 1 + SOLAR_SPREAD];
@@ -375,7 +380,7 @@ function advise(rows, bad, now, n, battery, settings, firstShare, clock) {
   const dawn = rows.at(-1).from != null;
   const tryOn = (runRows, base, t, m) => {
     const loaded = withLoad(runRows, now, t, m.kwh, m.hours, firstShare), steps = runSimulation(loaded);
-    const missing = marginBattery.kwh > 0 ? Math.max(0, (((base.at(-1).chargeLevel - steps.at(-1).chargeLevel) / 100) * marginBattery.kwh) / marginBattery.efficiency) : 0;
+    const missing = marginBattery.kwh > 0 ? Math.max(0, (((base.at(-1).chargeLevel - steps.at(-1).chargeLevel) / 100) * marginBattery.kwh) / Math.sqrt(marginBattery.efficiency)) : 0;
     let grid = dawn ? 0 : missing, fromBattery = 0, cost = missing * (dawn ? sell : buy)(runRows.at(-1));
     steps.forEach((step, i) => {
       const more = step.fromGrid - base[i].fromGrid;

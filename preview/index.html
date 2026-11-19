@@ -361,7 +361,7 @@ function fakeForecast(s, now = Date.now()) {
   const today = clock(now).key, range = (v) => [v * 0.85, v, v * 1.1];
   const total = (field, key, from = -Infinity) => hours.reduce((s, h) => s + (clock(Date.parse(h.t)).key === key && Date.parse(h.t) >= from ? h[field]?.[1] ?? 0 : 0), 0);
   return { state: new Date(written).toISOString(), attributes: {
-    hours,
+    hours, linked: true, // the Energy settings' forecast is this one, as on the owner's Home Assistant
     left: { sun: range(total("sun", today, written)), use: null },
     days: Array.from({ length: 15 }, (_, i) => clock(localMidnight(-i) + 12 * H).key)
       .map((d, i) => {
@@ -896,7 +896,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => flatLines(t).map(([, v]) 
     console.assert(JSON.stringify(got) === JSON.stringify(c.expect), `simulate: ${c.name}`, got, c.expect);
   }
   const { efficiencyOf } = await import("../custom_components/solar_view/frontend/lib/forecast.js");
-  console.assert(efficiencyOf(9, 10, 6) === 0.95 && efficiencyOf(9, 10, 7) === 0.9 && efficiencyOf(5, 10, 30) === 0.85 && efficiencyOf(11, 10, 30) === 1, "efficiency: wrong default or clamp");
+  console.assert(efficiencyOf(9, 10, 6) === 0.95 && efficiencyOf(9, 10, 7) === 0.9 && efficiencyOf(5, 10, 30) === 0.75 && efficiencyOf(11, 10, 30) === 1, "efficiency: wrong default or clamp");
 }
 
 // Check: the forecast shape, from the sensor or built by the page, at fixed times in Rome
@@ -1074,11 +1074,13 @@ for (const text of Object.values(TEXTS).flatMap((t) => flatLines(t).map(([, v]) 
     // range holds the mid and stays within the floor to 100 %; at the floor the battery cannot fall.
     const flat = aheadOf(sunnyAt, () => 0, () => 0.5);
     const inHour = (now, chargeLevel) => lookAhead(aheadOf(now, () => 0, () => 0.5), now, clock, { chargeLevel, loadW: 500, solarW: 0 }, battery, settings, soFar).chargeInHour;
-    console.assert(same(inHour(sunnyAt, 60).map(r3), [55, 55, 55]) && same(inHour(sunnyAt + H / 2, 60).map(r3), [55, 55, 55]), "in an hour: not 0.5 kWh down an hour on", inHour(sunnyAt, 60), inHour(sunnyAt + H / 2, 60));
+    // Half the round trip's loss on the way out: 0.5 kWh given takes 0.5 / √0.95 from the battery.
+    const out = (kwh) => r3(60 - (kwh / Math.sqrt(battery.efficiency)) * 10), down = out(0.5);
+    console.assert(same(inHour(sunnyAt, 60).map(r3), [down, down, down]) && same(inHour(sunnyAt + H / 2, 60).map(r3), [down, down, down]), "in an hour: not 0.5 kWh down an hour on", inHour(sunnyAt, 60), inHour(sunnyAt + H / 2, 60));
     console.assert(same(inHour(sunnyAt, 20), [20, 20, 20]) && same(inHour(sunnyAt, 22).map(r3), [20, 20, 20]), "in an hour: fell under the floor", inHour(sunnyAt, 22));
     // The present draw counts here as in lasts until: 20:30 at 60 %, an oven at 2 kW to 21:00, then 0.5.
     const oven = (loadW) => lookAhead(aheadOf(sunnyAt + 9.5 * H, () => 0, () => 0.5), sunnyAt + 9.5 * H, clock, { chargeLevel: 60, loadW, solarW: 0 }, battery, settings, soFar).chargeInHour.map(r3);
-    console.assert(same(oven(500), [55, 55, 55]) && same(oven(2000), [47.5, 47.5, 47.5]), "in an hour: the present draw not used", oven(500), oven(2000));
+    console.assert(same(oven(500), [down, down, down]) && same(oven(2000), Array(3).fill(out(1.25))), "in an hour: the present draw not used", oven(500), oven(2000));
     // And a cloud now: noon, 2 kWh of sun forecast against 0.5 of use, none read now.
     const cloud = (solarW) => lookAhead(aheadOf(sunnyAt + H, () => 2, () => 0.5), sunnyAt + H, clock, { chargeLevel: 60, loadW: 500, solarW }, battery, settings, soFar).chargeInHour[1];
     console.assert(cloud(0) < 60 && cloud(2000) > 60, "in an hour: the present sun not used", cloud(0), cloud(2000));

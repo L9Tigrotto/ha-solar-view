@@ -12,10 +12,16 @@
     "expect": [{ "t": 1792933200000, "made": 2.65, "fromBattery": 0, "fromGrid": 0, "toGrid": 0, "lost": 0.35, "chargeLevel": 71.5 }]
   },
   {
-    "name": "efficiency before cap",
+    "name": "half the loss on the way in",
     "hours": [{ "t": 1792933200000, "sun": 1, "use": 0 }],
-    "chargeLevel": 50, "battery": { "kwh": 10, "floor": 20, "maxChargeKw": 2.15, "efficiency": 0.9 }, "exportMaxKw": 0, "firstShare": 1,
+    "chargeLevel": 50, "battery": { "kwh": 10, "floor": 20, "maxChargeKw": 2.15, "efficiency": 0.81 }, "exportMaxKw": 0, "firstShare": 1,
     "expect": [{ "t": 1792933200000, "made": 1, "fromBattery": 0, "fromGrid": 0, "toGrid": 0, "lost": 0, "chargeLevel": 59 }]
+  },
+  {
+    "name": "half the loss on the way out",
+    "hours": [{ "t": 1792933200000, "sun": 0, "use": 0.9 }],
+    "chargeLevel": 50, "battery": { "kwh": 10, "floor": 20, "maxChargeKw": null, "efficiency": 0.81 }, "exportMaxKw": 0, "firstShare": 1,
+    "expect": [{ "t": 1792933200000, "made": 0, "fromBattery": 0.9, "fromGrid": 0, "toGrid": 0, "lost": 0, "chargeLevel": 40 }]
   },
   {
     "name": "export limit",
