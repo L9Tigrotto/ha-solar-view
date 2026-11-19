@@ -9,7 +9,7 @@ This guide is for the person who installs the page. The people who read it need 
   - a grid connection with its power sensor;
   - a battery with its power sensor, its state of charge and its capacity;
   - a price on the grid connection, for the Money page;
-  - a solar forecast linked to the solar panels (Forecast.Solar or Open-Meteo Solar Forecast, for example), for the coming days and the "wait" advice.
+  - Solar view picked as the solar panels' forecast in the Energy settings (step 4 below), for the coming days and the "wait" advice.
 - Optional: [HACS](https://hacs.xyz), to install and update in a few clicks. Without it, copy the folder by hand.
 
 Developed and tested on Home Assistant 2026.9. Power sensors in the Energy settings are a fairly recent addition. On an older version, name the sensors yourself under [`sensors`](#sensors).
@@ -19,7 +19,8 @@ Developed and tested on Home Assistant 2026.9. Power sensors in the Energy setti
 1. In HACS, open the three dots menu, **Custom repositories**. Add `https://github.com/L9Tigrotto/ha-solar-view` with the type **Integration**.
 2. Search HACS for **Solar View** and download it. Restart Home Assistant when HACS asks.
 3. Settings, Devices & services, Add integration, **Solar view**. "Solar view" appears in the sidebar.
-4. Optional: put your options in `config/solar_view.yaml` (see [Options](#options)).
+4. Settings, Dashboards, Energy: set the solar panels' forecast to **Solar view**, and to nothing else (another forecast beside it counts the sun twice). Until then, Settings, Repairs shows "Solar view: pick it as the solar forecast".
+5. Optional: put your options in `config/solar_view.yaml` (see [Options](#options)).
 
 **Updating:** new versions show up in Settings, Updates. Install the update and restart Home Assistant. On a phone, if the old page stays, close the app fully and open it again.
 
@@ -28,7 +29,7 @@ Developed and tested on Home Assistant 2026.9. Power sensors in the Energy setti
 ## Install by hand
 
 1. Copy the `custom_components/solar_view` folder of this repository into `config/custom_components/`.
-2. Restart Home Assistant, then add the **Solar view** integration as in step 3 above.
+2. Restart Home Assistant, then add the **Solar view** integration and pick it as the solar forecast, as in steps 3 and 4 above.
 
 **Updating:** replace the folder and restart Home Assistant.
 
@@ -48,7 +49,7 @@ The page hides what it cannot fill. Nothing shows as a zero that is really "unkn
 | Now: coming days | A solar forecast, or the forecast sensor | Energy settings |
 | Battery warning | A state of health sensor, or the battery's install date | `battery_health`, `battery_install_date` |
 | Energy: Power origin, Today by hour, Production | The energy sensors | Energy settings |
-| Money page | A price on the grid connection, or the band prices of `tariff`, or `system_cost` alone | Energy settings, `tariff`, `system_cost` |
+| Money page | A price on the grid connection, or the band prices of `tariff` | Energy settings, `tariff` |
 | Money: Payback | What the system cost. Hidden while no price is set, like the other Money cards. | `system_cost` |
 | Money: price bands | Your contract's time bands | `tariff` |
 
@@ -249,9 +250,18 @@ Calling again for a month replaces it; `month` alone removes it. The integration
 
 #### Reading the bills
 
-Instead of typing the figures, copy each bill's PDF into a `solar_view_bills` folder in the config folder (`config/solar_view_bills/`, beside `configuration.yaml`). The integration reads it on start and at a quarter past each hour, and stores every month the bill covers as the action would: each band's price with every per-kWh charge, excise and VAT, and the fixed part with VAT. The folder is the switch: without it nothing is read. A folder made while Home Assistant runs is read from the next restart or reload of the integration.
+Instead of typing the figures, copy each bill's PDF into a `solar_view_bills` folder in the config folder (`config/solar_view_bills/`, beside `configuration.yaml`). The integration reads the folder on start and at a quarter past each hour, and stores every month a bill covers as the action would. The folder is the switch: without it nothing is read. A folder made while Home Assistant runs is read from the next restart or reload of the integration.
 
-- It reads Servizio a Tutele Graduali bills laid out like Hera's. Other suppliers' layouts are untested.
+Every supplier lays its bill out differently, so no reader ships with Solar view: you write your own and put it in that folder as `bill_reader.py`. It must define one function:
+
+```python
+def bill_months(path):  # path: pathlib.Path of one bill PDF
+    return {"2026-09": {"f1": 0.31, "f2": 0.35, "f3": 0.31, "fixed": 10.89}}  # the months the bill covers
+```
+
+Each month gives its band prices per kWh with every per-kWh charge, excise and VAT in (`f1`, `f2` and `f3`; or `f1` and `f23`; or `f1` alone), and `fixed`, the month's fixed fees with VAT, as in the table above (no TV licence, adjustments for earlier months or one-off charges). Read the PDF with whatever you like, such as `pypdf`, which you install in Home Assistant yourself. On Home Assistant OS and Container, a package installed by hand is gone after each Home Assistant update: install it again then. Without a `bill_reader.py`, the PDFs are ignored and the log says so once.
+
+Home Assistant runs `bill_reader.py` as Python with its own rights. Anyone who can write to `solar_view_bills/` (a network share you drop PDFs into, say) can change it and run any code in Home Assistant, so share that folder only with people you would give admin access to.
 - Each file is read once, known by its bytes. A copy of the same file under another name (`bill(1).pdf`) is skipped, and a month you later fix or remove with the action stays as you left it. The same bill downloaded again usually has other bytes: it is read again and replaces its months.
 - A file that could not be read is not tried again. To read it again, change it (download it anew) or remove it and the file `.storage/solar_view.files`.
 - Two bills with the same month: the one read last wins (two read together: the later by name). A correction copied in after its original replaces it; copy an original in after its correction and the original wins.
@@ -261,7 +271,7 @@ If your config folder is in git, add `solar_view_bills/` to its `.gitignore`: bi
 
 #### Months without a bill (Italy, PUN Index GME)
 
-For a contract priced on the PUN Index GME by band (such as Servizio a Tutele Graduali), turn on "Estimate months without a bill from the PUN Index GME" in the integration's options (Settings, Devices and services, Solar view, Configure). Every month after your first bill that has no bill of its own, this month included, is then estimated from the last bill before it: each band's price moves by 1.21 times what the PUN Index moved in that band since the billed month (1.10 for grid losses, 1.10 for VAT), and the fixed part stays the bill's. The bill's other per-kWh charges are taken as they were, so an estimate can be a cent or two off.
+For a contract priced on the PUN Index GME by band (such as Servizio a Tutele Graduali), turn on "Estimate months without a bill from the PUN Index GME (Italy)" in the integration's options (Settings, Devices and services, Solar view, Configure, Weather and forecast). Every month after your first bill that has no bill of its own, this month included, is then estimated from the last bill before it: each band's price moves by 1.21 times what the PUN Index moved in that band since the billed month (1.10 for grid losses, 1.10 for VAT), and the fixed part stays the bill's. The bill's other per-kWh charges are taken as they were, so an estimate can be a cent or two off.
 
 The integration downloads each month's hourly PUN from GME once (this month's once a day) and prices this month again at a quarter past each hour. Daily returns, the Prices card's bands, the advice and the days ahead use this month's estimated prices; `sensor.solar_view_bills` marks estimated months with `estimate: true`. Once the bill comes, give its figures as above and they replace the estimate. A month that starts on a weekend or a holiday has no F1 hour yet, so it stays unestimated until its first working day.
 
@@ -316,7 +326,7 @@ Rules:
 
 - **The first band in the list that fits an hour wins.** Put the specific bands first and the catch-all (no `hours`, no `days`) last. Overlaps are therefore allowed.
 - **Every hour of every weekday must be covered**, or the page warns once in the browser console ("tariff.bands: no band covers ...") and uses no bands. A last band without `hours` and `days` covers the rest.
-- **The page works by whole hours.** An hour belongs to the band that covers its half past minute, so `00:30-07:30` holds the hours from 00:00 to 07:00, and `"23:00-7:00"` the hours from 23:00 to 06:00.
+- **The page works by whole hours.** An hour belongs to the band that covers its half past minute, so `00:30-07:30` holds the hours from 00:00 to 06:00, and `"23:00-7:00"` the hours from 23:00 to 06:00.
 - **Holidays count as Sundays.** `holidays` is a list of dates, `MM-DD` for every year or `YYYY-MM-DD` for one day, and may include `italy` (Italy's national holidays and Easter Monday). No other country's calendar is built in.
 
 With bands of your own, `sensor.solar_view_bills` (the Italian bill and PUN prices, by F1, F2, F3) is not used for the bands: the prices come from `price` or `sensor`.
@@ -402,7 +412,7 @@ Every user sees the same pages, in the language and time format of their profile
 
 **Why is the Balance red?** In that day or month the grid cost more than the sun saved and sold.
 
-**Where is the Money page?** It needs a price on the grid connection in the Energy settings, the band prices of `tariff`, or `system_cost`.
+**Where is the Money page?** It needs a price on the grid connection in the Energy settings, or the band prices of `tariff`. `system_cost` alone is not enough: Payback hides while no price is set.
 
 **Why does Now say "Learning your usual day"?** The page needs 3 days on record before it can predict. It counts the days down.
 
@@ -421,7 +431,7 @@ Every user sees the same pages, in the language and time format of their profile
 
 - Statistics reach back only to when Home Assistant started to record a sensor. To see earlier years, import the history (most inverter apps export a CSV) into the same sensors' long-term statistics, for example with the Import Statistics integration from HACS. The imported running total must meet the first value Home Assistant recorded, or that day shows a huge spike.
 - Today's totals come from the 5 minute statistics and can lag a few minutes.
-- More panels on the same sensors are not noticed at once. The usual day catches up over `usual_days` days. Update the panel size in your solar forecast, and raise `system_cost` by what the extension cost.
+- More panels on the same sensors are not noticed at once. The usual day catches up over `usual_days` days, and the Solar view forecast within 14, as it learns the roof from the last 14 days. Raise `system_cost` by what the extension cost.
 - "Enough until" knows the usual day, not today's plans. Weekdays and weekends share one usual day.
 - A house with neither a battery nor a grid power sensor reads "using energy from the panels" at night.
 - The thresholds behind the advice (for example 1000 W of spare sun) are constants in `custom_components/solar_view/frontend/lib/advice.js`, not options.
@@ -429,6 +439,8 @@ Every user sees the same pages, in the language and time format of their profile
 
 ## Privacy
 
-The page talks only to your own Home Assistant. It keeps three things in the browser's `localStorage`: the last numbers it showed (`solar-view-last`, so the loading skeleton has the right shape), the display switches (`solar-view-show`) and the language picked in the gear (`solar-view-language`). Nothing leaves the device.
+The page talks only to your own Home Assistant. It keeps four things in the browser's `localStorage`: the last numbers it showed (`solar-view-last`, so the loading skeleton has the right shape), the display switches (`solar-view-show`), and the language and the clock picked in the gear (`solar-view-language`, `solar-view-clock`). They never leave the device.
+
+The integration sends no household or energy data anywhere. Once an hour it asks Open-Meteo for the weather at the latitude and longitude in its options. With the PUN estimate on, it downloads GME's public PUN prices (see [Months without a bill](#months-without-a-bill-italy-pun-index-gme)).
 
 The files are served without login, under `/solar_view/`. They hold code only, never your data. Do not put secrets in them.

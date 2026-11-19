@@ -39,8 +39,6 @@ What each level shows:
 
 `weather` has no house use, so nothing that needs it shows there.
 
-### Old names
-
 Any other value that is not one of the four says so once in the browser console, and the level is automatic.
 
 ### Step down
@@ -152,9 +150,9 @@ A figure nobody can price says "no price on record". A day or month with no numb
 - **Payback:** with `system_cost` set, a ring of how much of the cost has come back since `install_date`, plus `saved_before`. Under it: "This month: 18 € saved" (Questo mese: 18 € risparmiati), or "saved and sold" while export is on, and about how long is left. Once paid back, the month it happened and what came back since. With no price set, the card is hidden.
   - The time left counts each coming month like the same month last year. While there is less than a year on record, it guesses from the months so far and the sun at Home Assistant's latitude. Summer brings more sun, but the house uses less of it, so most of the extra goes out at the selling price. Until a year is on record, the time left is a range: every coming month 20 percent better and worse.
   - The rest of this month counts first: what such a month brings, less what this one brought so far.
-- **Daily returns:** a line of what the system brought back each day of this month (savings, without the bill's fixed part), a dot a day. Tap a day to see its Savings (saved plus export), Grid cost and Balance. With a forecast that has house use, the days left this month continue the line as dashes. They are priced at the Energy settings' price.
-- **Electricity prices:** the price now of a kWh bought from the grid and, while export is on, sold to it. The buy price is the tariff's band now when there are bands, else the forecast sensor's present hour while it is fresh, else the Energy settings' price. With two or more bands (Italy's, or your own `tariff.bands`: the first listed band that fits an hour wins, holidays count as Sundays), a box per band shows its hours today, the share of this month's grid energy bought in it, and its price.
-- **Month balance:** each of the last 12 months' Balance as a bar, oldest on the left, the same months as Production. A bar goes down, in red, when the grid cost more. Under the bars, the picked month: its grid cost on the left of a middle line, its savings and sales on the right ("Saved + export", Risparmio + vendita, while export is on), then Saved, Export (while export is on) and Balance. For this month, faded bars show where each should end: this month so far plus the rest of today and every day to come.
+- **Daily returns:** a line of what the system brought back each day of this month (savings, without the bill's fixed part), a dot a day. Tap a day to see its Savings (saved plus export), Grid cost and Balance. With a forecast that has house use, the days left this month continue the line as dashes. They are priced at the band's price when there are bands (an estimated month's estimate included), else at the Energy settings' price.
+- **Electricity prices:** the price now of a kWh bought from the grid and, while export is on, sold to it. The buy price is the tariff's band now when there are bands, else the forecast sensor's present hour while it is fresh, else the Energy settings' price. With two or more bands (Italy's, or your own `tariff.bands`: the first listed band that fits an hour wins, holidays count as Sundays), a box per band shows its hours today, the share of this month's grid energy bought in it, and its price. A `*` after the card's title: the prices are this month's PUN estimate, its bill is not in yet.
+- **Month balance:** each of the last 12 months' Balance as a bar, oldest on the left, the same months as Production. A bar goes down, in red, when the grid cost more. Under the bars, the picked month: its grid cost on the left of a middle line, its savings and sales on the right ("Saved + export", Risparmio + vendita, while export is on), then Saved, Export (while export is on), **Fixed fees** (Costi fissi: the bill's fixed part, already inside the grid cost, when there is one) and Balance. A `*` after a month's name: no bill of its own yet, so its fixed fees are the last bill's (or `bill_fixed`). For this month, faded bars show where each should end: this month so far plus the rest of today and every day to come.
 
 ## The sky
 

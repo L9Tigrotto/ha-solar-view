@@ -25,7 +25,20 @@ There is no build step. The files in `custom_components/solar_view/frontend/` ar
 | `strings/en.js` | Every English text, in sections by page: `lines.tabs`, `shared`, `now` (with `now.advice`), `energy`, `money`, `help`, `gear`, `setup`. Also the fallback: any line another language lacks reads in English. |
 | `strings/it.js`, `strings/es.js`, ... | Every text of one language, loaded the first time it is on screen. |
 
-Outside `frontend/`:
+The integration itself, in `custom_components/solar_view/`:
+
+| File | What is in it |
+|---|---|
+| `__init__.py` | Setup, the panel and the `set_month_prices` action. |
+| `config_flow.py`, `translations/` | The setup and the Options dialog, and their texts. |
+| `settings.py` | The page settings of the Options dialog, checked and merged with `solar_view.yaml`. |
+| `panel.py` | Serves `frontend/` and registers the sidebar panel. |
+| `coordinator.py`, `forecast.py`, `energy.py` | The hourly forecast: Open-Meteo's weather, the roof profile, the Energy settings' Solar Forecast. |
+| `sensor.py` | `sensor.solar_view_forecast` and `sensor.solar_view_bills`. |
+| `bills.py`, `pun.py` | Bill prices (the action and `bill_reader.py`) and the PUN estimate from GME. |
+| `tests/` (repository root) | The Python tests, run with `pytest`. |
+
+Outside `custom_components/`:
 
 | File | What is in it |
 |---|---|
@@ -59,6 +72,7 @@ Then open `http://127.0.0.1:3000/preview/`. Always use `/preview/?…` for a lin
 | `nodata` | The Energy settings were never set up. |
 | `offline` | The sensors exist but have no value. |
 | `sunny`, `cloudy`, `rain` | With the mock forecast sensor, in that weather. |
+| `billsEstimated` | A bills sensor with a bill two months back, last month and this one estimated from it. Open it with `&page=money`. |
 | `stale` | The mock forecast sensor is 4 hours old, so the page builds its own forecast. |
 | `firstDays` | No usual day yet and no sensor: no forecast at all. |
 | `batteryUnknown` | A battery of unknown size. |
@@ -113,7 +127,7 @@ The round sliders button beside the gear opens a drawer that changes the page li
 
 ## Checks
 
-Run all of these before a commit that changes `frontend/`.
+Run all of these before a commit that changes `frontend/`. Before one that changes a `.py` file, run `python -m pytest -q`: it must end with 0 failures.
 
 - **Unit tests:** `node --test test/` must end with 0 failures. The `test/` folder is not in git: it exists only in the maintainer's working copy.
 - **Types:** `npx -p typescript@5.6.3 tsc -p jsconfig.json --noEmit` must give 0 errors. It checks the JSDoc types of `frontend/`, non-strict.
@@ -147,7 +161,7 @@ There is no `?v=` to raise: the panel's address carries a hash of the page's fil
 
 The repository has no releases, so HACS follows the latest commit on `main`. Every merge into `main` reaches every HACS install as an update. Run the checks before merging.
 
-Do not push the page's move into `custom_components/solar_view/frontend/` while HACS still follows `main`: a Dashboard install looks for `dist/solar-view.js` and stops updating. First tag the last commit with `dist/` as a release, push the tag, and check that HACS offers it.
+Do not push the page's move into `custom_components/solar_view/frontend/` while HACS still follows `main`: a Dashboard install looks for `dist/solar-view.js` and stops updating. First push the tag `dashboard-final` (the last commit with `dist/`), make it a release, and check that HACS offers it.
 
 ## Adding or fixing a language
 
@@ -155,6 +169,10 @@ Each language has its own file, `frontend/strings/xx.js`, named by the language 
 
 - Every line of `en` must be there, and the language must have its own name in `LANGUAGES` (in `solar-view.js`). The gear lists it from there.
 - An advice pool can have its own lines, two or more, except `now.advice.go`. That one needs the same number of lines as in `en`, in the same order, since each line names the appliance its icon shows.
+- Some lines are found by their place in the pool, so keep the same sentence at the same index as in `en`: the lines about big loads in `low` and `empty` (`LOAD_LINES` in `lib/advice.js`), and the lines that name a washer, dryer or dishwasher in `go`, `later` and `wait` (`MACHINE_LINES`).
+- `{date}` must stay the first placeholder of a line that has it: the page finds the date there to make it bold (`boldDate` in `lib/draw.js`).
+- `setup.setupPath` keeps its ` › ` between the steps: the page splits it there.
+- The gear shows a flag beside each language: add one for the code to `FLAG` in `lib/shell.js`.
 - A text must not contain a double quote, `<`, `>`, `&` or an em dash: some go into HTML attributes.
 - Advice lines must fit two rows on a phone. Tab names and the labels under the icons must stay short.
 - Many texts are fragments joined in code: `now.houseUsing` takes one of `now.sourceNames` as `{source}`, for example. Read how the pages use a key before you translate it.

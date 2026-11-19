@@ -6,7 +6,7 @@ Most solar dashboards are for whoever installed the system. This one is for ever
 
 Any brand works, because it reads Home Assistant's own Energy settings. Three pages: **Now** (the house right now, the battery and the coming days), **Energy** (today hour by hour and a year of production) and **Money** (payback, daily returns, prices and the month balance). Swipe between them on a phone; on a wide screen they stand side by side. Light and dark. 8 languages (en, it, es, fr, de, pt, nl, pl) and a 12 or 24 hour clock, following each user's profile. Big phone text gets a layout of its own.
 
-A Home Assistant integration that serves the page: no build step. Installs and updates through HACS. No data leaves your Home Assistant.
+A Home Assistant integration that serves the page: no build step. Installs and updates through HACS. No household or energy data leaves your Home Assistant: the integration asks Open-Meteo for the weather at your location and, with the Italian PUN estimate on, GME for its public prices (see [Privacy](docs/setup.md#privacy)).
 
 ![Now, Energy and Money side by side on a desktop, light theme](docs/screenshots/desktop-light.png)
 
@@ -24,6 +24,7 @@ On a phone, one page at a time:
 
 1. In HACS, add `https://github.com/L9Tigrotto/ha-solar-view` as a custom repository of type **Integration**, then download **Solar View** and restart Home Assistant.
 2. Settings, Devices & services, Add integration, **Solar view**. The page appears in the sidebar.
+3. Settings, Dashboards, Energy: set the solar panels' forecast to **Solar view**, and to nothing else.
 
 You need the Energy dashboard set up with a power sensor for the solar panels. A grid power sensor, a battery, prices and a solar forecast are optional: each turns on more of the page. Options, install by hand, a FAQ and troubleshooting are in the [setup guide](docs/setup.md).
 
