@@ -192,6 +192,9 @@ const SCENARIOS = {
   sunny:   { v: [2500, -2100, 0, 70, 42, false], today: [7.8, 6.1, 0.2, 0], ahead: "sunny", expect: "ok" },
   cloudy:  { v: [700, 100, 0, 55, 30, false], today: [3.1, 5.2, 0.4, 0], ahead: "cloudy", expect: "ok" },
   rain:    { v: [150, 250, 0, 45, 25, false], today: [1.4, 5.0, 0.6, 0], ahead: "rain", expect: "ok" },
+  // Bills sensor with a bill two months back, last month and this one estimated from it: ?scenario=billsEstimated&page=money
+  // shows "Electricity prices *" and the last two months starred in Month balance.
+  billsEstimated: { v: [2500, -2100, 0, 70, 42, false], today: [7.8, 6.1, 0.2, 0], ahead: "sunny", billsEstimated: true, expect: "ok" },
   stale:   { v: [2500, -2100, 0, 70, 42, false], today: [7.8, 6.1, 0.2, 0], ahead: "stale", hourly: { solarKwh: 0.5 }, expect: "ok" },
   // The first days after install: no usual day, and the service writes nothing until there is one.
   firstDays: { v: [0, 350, 0, 60, -20, false], today: [15.2, 12.4, 0.3, 0.1], firstDays: true, expect: "ok" },
@@ -373,6 +376,11 @@ function fakeForecast(s, now = Date.now()) {
 function fakeBills(s) {
   const d0 = new Date(localMidnight()), prev = new Date(d0.getFullYear(), d0.getMonth() - 1, 1);
   const key = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`;
+  if (s.billsEstimated) { // a bill two months back, last month and this one estimated from it (the bill's fixed part carried on)
+    const at = (n) => { const d = new Date(d0.getFullYear(), d0.getMonth() + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
+    const prices = { f1: 0.31, f2: 0.35, f3: 0.31 }, months = { [at(-2)]: { prices, fixed: 10.89, money: null }, [at(-1)]: { prices, fixed: 10.89, estimate: true, money: null }, [at(0)]: { prices, fixed: 10.89, estimate: true, money: null } };
+    return { state: at(0), attributes: { months } };
+  }
   return { state: key, attributes: { months: { [key]: { prices: { f1: 0.3 }, fixed: null, money: priced && !s.noPrices ? { cost: 14.6, saved: 98 } : null } } } };
 }
 
@@ -420,6 +428,7 @@ const panel = document.querySelector("solar-view");
 pinVisible(panel);
 if (q.has("day")) panel.testDay = Number(q.get("day"));
 panel.narrow = innerWidth < 870;
+addEventListener("resize", () => { panel.narrow = innerWidth < 870; }); // as Home Assistant does
 
 // The drawer: the scenario is a preset, and what the drawer changes goes on top of it. `ctl` holds the
 // drawer's state; ctlOf reads a preset into it, current() turns it back into the scenario the main panel
@@ -913,9 +922,9 @@ for (const text of Object.values(TEXTS).flatMap((t) => flatLines(t).map(([, v]) 
   const days = [{ d: "2026-10-24", sun: [3, 6, 9], use: [8, 9.6, 12] }, { d: "2026-10-25", sun: [4, 6, 8], use: [8, 9, 11] }];
 
   // Fresh, written at 10:40 (the 10:00 hour; under 3 h old), read at 13:30: hours from 13:00 copied,
-  // left rebased (2.5 of the 6 sun hours left).
+  // left rebased (2.5 of the 5 1/3 sun hours left at 10:40: the sensor counts its write hour by the part ahead).
   const now = at("2026-10-24T13:30:00+02:00");
-  const fresh = sensorOf("2026-10-24T10:40:00+02:00", "2026-10-24", "2026-10-25", { sun: [3, 6, 9], use: [4, 4.6, 5.5] }, days);
+  const fresh = sensorOf("2026-10-24T10:40:00+02:00", "2026-10-24", "2026-10-25", { sun: [8 / 3, 16 / 3, 8], use: [4, 4.6, 5.5] }, days);
   const a = forecastOf({ sensor: fresh, now, clock, solarWh: {}, usual, price });
   console.assert(a?.from === "sensor" && a.hours.some((h) => h.cloud != null), "forecast: fresh sensor not used", a);
   // The sensor's 36 hours to the end of tomorrow and no more, read for their sun alone (level weather): its house use dropped.
@@ -1734,7 +1743,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => flatLines(t).map(([, v]) 
     bars[0].click();
     p.hass = { ...p.hass }; await tick();
     console.assert(shown("#money .recent") === "0" && shown("#energy .daily") === String(n - 1), "money days: a pick moved Energy's, or was lost", shown("#money .recent"), shown("#energy .daily"));
-  } else console.assert(!bars.length && (extras ? $(p, "#money .payback .note")?.textContent === t.paybackNoPrice : !$(p, "#money .payback")), "money days without prices, or payback not saying no price");
+  } else console.assert(!bars.length && !$(p, "#money .payback"), "money days without prices, or payback not saying no price");
   p = await draw(fakeHass(SCENARIOS.sunny), en, {});
   console.assert(!$(p, "#money .payback"), "payback without a system cost");
   // Paid back: the month it happened and what came back since, a check in the full ring; or no month when it was
@@ -1924,7 +1933,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
     const key = clockOf(TZ)(lastFirst.getTime() + 432e5).key.slice(0, 7), button = $(p, `#money .months [data-month="${key}"]`);
     button?.click();
     const months = $(p, "#money .months");
-    console.assert(button && !button.querySelector("i") && months?.querySelector(".note")?.textContent === t.shared.noData && !months.querySelector(".split"),
+    console.assert(button && !button.querySelector("i") && months?.querySelector(".note")?.textContent === t.shared.noData[0].toUpperCase() + t.shared.noData.slice(1) && !months.querySelector(".split"),
       "money month: a month with no rows not said, or drawn", months?.innerHTML, key);
   }
 }
@@ -2108,7 +2117,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
     const sky = Object.values(SKY[theme]).flatMap((c) => c.slice(0, 3)).concat(skyAt(90, false, darkMode, 1).colors.slice(0, 3), darkMode ? [] : ["#ffffff"]);
     const lightest = sky.reduce((a, b) => (lum(b) > lum(a) ? b : a));
     const marks = ["--sun", "--home", "--battery", "--grid", "--sent", "--low"].map((name) => [name, (style.getPropertyValue(`${name}-mark`) || style.getPropertyValue(name)).trim()]);
-    const drawn = { "share rings": "#energy .today .ring .val", "battery ring": ".battery .ring :is(.val,.ghost,.range)", "battery today line": [".chargeLine .past", "stroke"], "picked month bar": [".year [aria-pressed=true] i:not(.ghost)", "backgroundColor"], "chart line": [".chargeLine .series", "stroke"], gear: ".gear svg",
+    const drawn = { "share rings": "#energy .today .ring .val", "battery ring": ".battery .ring .val", "battery today line": [".chargeLine .past", "stroke"], "picked month bar": [".year [aria-pressed=true] i:not(.ghost)", "backgroundColor"], "chart line": [".chargeLine .series", "stroke"], gear: ".gear svg",
       "coming days pill": [".days .track i", "backgroundColor"], "day dot": [".week li:not(.today,.ahead) .col i", "backgroundColor"], "today outline": [".week li.today .col i", "outlineColor"] };
     for (const [what, how] of Object.entries(drawn)) {
       const [sel, prop = "stroke"] = [].concat(how);

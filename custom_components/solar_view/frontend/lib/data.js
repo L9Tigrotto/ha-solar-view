@@ -83,14 +83,15 @@ function bandsOf(hass, entityIds, options, stats, now, clock) {
   const tariffOptions = options.tariff, month = clock(now).key.slice(0, 7);
   // A tariff with bands of its own is not Italy's: the bills sensor's prices are by Italian band, so they do not apply.
   const own = typeof tariffOptions?.type === "object";
-  const billed = own ? undefined : findBills(hass)?.attributes?.months?.[month]?.prices, names = billed && Object.keys(billed).sort().join();
+  const billMonth = own ? undefined : findBills(hass)?.attributes?.months?.[month], billed = billMonth?.prices, names = billed && Object.keys(billed).sort().join();
   let type = billed && Object.values(billed).every(Number.isFinite) ? BILLED[names] : undefined;
+  const estimate = !!type && billMonth.estimate === true;  // the PUN's estimate, not this month's bill
   let prices = type ? Object.fromEntries(names.split(",").map((b) => [b, billed[b]])) : null;
   if (!type) {
     if (!tariffOptions) return null;
     type = tariffOptions.type;
     prices = bandPrices(type, Object.fromEntries(Object.entries(tariffOptions.prices).map(([k, p]) => [k, numberOrEntity(p, hass, priceOf)])),
-      tariffOptions.sensor ? [...(stats.priceRows ?? []).map((r) => ({ ...r, mean: priceOf(hass, tariffOptions.sensor, r.mean) })), { start: now, mean: priceOf(hass, tariffOptions.sensor) }] : [], clock);
+      tariffOptions.sensor ? [...(stats.priceRows ?? []).map((r) => ({ ...r, mean: priceOf(hass, tariffOptions.sensor, r.mean ?? null) })), { start: now, mean: priceOf(hass, tariffOptions.sensor) }] : [], clock);
     if (!prices) { warnOnce("tariff needs a price for each of its bands, from prices (price on each band) or sensor"); return null; }
   }
   const used = {};
@@ -99,7 +100,7 @@ function bandsOf(hass, entityIds, options, stats, now, clock) {
     if (r.change > 0 && c.key.startsWith(month)) { const b = bandOf(c.key, c.hour, type); used[b] = (used[b] ?? 0) + r.change; }
   }
   const bought = Object.values(used).reduce((a, x) => a + x, 0);
-  return { type, prices, share: bought > 0 ? Object.fromEntries(Object.keys(prices).map((b) => [b, (used[b] ?? 0) / bought])) : null };
+  return { type, prices, estimate, share: bought > 0 ? Object.fromEntries(Object.keys(prices).map((b) => [b, (used[b] ?? 0) / bought])) : null };
 }
 
 // The forecast and what follows from it (ghosts, lasts until, best time, money, month end), worked out when the
@@ -156,7 +157,7 @@ function reading(hass, entityIds) {
   const chargeLevels = entityIds.chargeLevel.map((id) => [stateNum(hass, id), entityIds.chargeWeight[id] || 1]).filter((s) => s[0] !== null);
   return {
     solarW: solar,
-    loadW: entityIds.loadW.some((id) => stateNum(hass, id) !== null) ? watts(hass, entityIds.loadW) : Math.max(0, solar + batteryWatts + grid),
+    loadW: entityIds.loadW.some((id) => stateNum(hass, id) !== null) ? Math.max(0, watts(hass, entityIds.loadW)) : Math.max(0, solar + batteryWatts + grid),
     gridImportW: Math.max(0, grid), gridExportW: Math.max(0, -grid),
     batteryChargeW: Math.max(0, -batteryWatts), batteryDischargeW: Math.max(0, batteryWatts),
     // null: there is a battery, but nothing tells how full it is.
@@ -268,7 +269,7 @@ function readData(hass, entityIds, options, stats, looked = {}, now = Date.now()
 const slim = (data) => ({ ...data,
   ahead: data.ahead && { ...data.ahead, hours: [] },
   pastDays: Object.fromEntries(Object.entries(data.pastDays ?? {}).map(([k, days]) =>
-    [k, [{ date: days[0]?.date, solarKwh: days.some((d) => !d.none) ? days.reduce((s, d) => s + (d.none ? 0 : d.solarKwh), 0) : null,
+    [k, [{ date: days[0]?.date, solarKwh: days.some((d) => !d.none && Number.isFinite(d.solarKwh)) ? days.reduce((s, d) => s + (!d.none && Number.isFinite(d.solarKwh) ? d.solarKwh : 0), 0) : null,
       missing: days.filter((d) => d.none).length }]])),
 });
 

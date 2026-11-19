@@ -107,6 +107,10 @@ const machineLines = (strings) => Object.entries(MACHINE_LINES).flatMap(([pool, 
 function withOwnAdvice(strings, options, lang) {
   const own = options.advice?.[lang];
   if (!own) return strings;
+  if (typeof own !== "object" || Array.isArray(own)) {
+    warnOnce(`advice.${lang}: give pools by name (see Your own advice lines in docs/setup.md)`);
+    return strings;
+  }
   const pools = { ...strings.now.advice };
   for (const [name, ownLines] of Object.entries(own)) {
     // An empty YAML entry arrives as null.
@@ -129,7 +133,7 @@ function outlookLastsH(n, batterySettings, until, now) {
 
 function batteryWord(chargeLevel, floor) {
   const p = Math.round(chargeLevel);
-  return p <= floor ? "empty" : p < floor + LOW_ABOVE_FLOOR ? "low" : p < HIGH_CHARGE ? "good" : p < 100 ? "nearlyFull" : "full";
+  return p <= floor ? "empty" : p >= 100 ? "full" : p < floor + LOW_ABOVE_FLOOR ? "low" : p < HIGH_CHARGE ? "good" : p < 100 ? "nearlyFull" : "full";
 }
 // "" (no state of charge) is neither.
 const isLow = (word) => word === "low" || word === "empty";

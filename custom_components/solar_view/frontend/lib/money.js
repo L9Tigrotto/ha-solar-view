@@ -54,16 +54,22 @@ function moneyOf(data, key) {
   };
   const fixedFees = data.billFixed ?? {}, fxKeys = Object.keys(fixedFees.months ?? {}).sort();
   const fixedAt = (monthKey) => fixedFees.months?.[monthKey] ?? fixedFees.months?.[fxKeys.filter((k) => k < monthKey).at(-1) ?? fxKeys[0]] ?? (fixedFees.now === undefined ? 0 : fixedFees.now);
+  const fixedIn = (monthKey) => { const own = months?.[monthKey]?.fixed; return Number.isFinite(own) ? own : fixedAt(monthKey); };
   const got = (k, x, monthKey) => {
     const v = months?.[monthKey]?.money?.[k], r = Number.isFinite(v) ? v : onRecord[k](x);
-    const own = months?.[monthKey]?.fixed, fixed = Number.isFinite(own) ? own : fixedAt(monthKey);
+    const fixed = fixedIn(monthKey);
     return r === null ? null : k !== "cost" ? r : fixed === null ? null : r + fixed;
   };
   const back = (x, monthKey) => sumKnown([got("saved", x, monthKey), got("earned", x, monthKey)]);
   const net = (x, monthKey) => { const c = got("cost", x, monthKey), b = back(x, monthKey); return c === null || b === null ? null : b - c; };
   const coming = moneyAhead(data), m = data.month, soFarNet = m && !m.none ? net(m, key) : null;
   const end = { net: coming?.rest != null && soFarNet !== null ? soFarNet + coming.rest : null };
-  return { onRecord, fixedAt, got, back, net, end, coming };
+  // A month's fixed part is a guess (its bill is not in yet) only where the bills sensor exists: the bill's own
+  // figure is stored, never the PUN estimate's copy of an earlier bill's. Months before the first bill keep
+  // bill_fixed as set, not a guess.
+  const firstBill = months ? Object.keys(months).sort()[0] : undefined;
+  const guessed = (monthKey) => firstBill !== undefined && monthKey >= firstBill && !(Number.isFinite(months[monthKey]?.fixed) && !months[monthKey].estimate);
+  return { onRecord, fixedAt, fixedIn, got, back, net, end, coming, guessed };
 }
 
 // What each month brought back (saved and earned), for payback: each month as the month card reads it (this one so
@@ -74,6 +80,7 @@ function ledgerOf(data, key, { back, got }) {
   const ledger = [], have = new Map(data.months ?? []), lastKey = shiftMonth(key, -1);
   for (let monthKey = [...have.keys(), key].sort()[0]; monthKey <= key; monthKey = shiftMonth(monthKey, 1)) {
     const x = monthKey === key ? data.month : have.get(monthKey) ?? (monthKey === lastKey ? data.lastMonth : null);
+    if (monthKey === key && x?.none) continue; // the first minutes of a month: nothing on record yet, nothing back
     ledger.push({ key: monthKey, back: x ? back(x, monthKey) : null, ...(x && {
       sun: x.solarKwh, load: x.loadKwh, out: x.gridExportKwh,
       self: selfKwh(x),

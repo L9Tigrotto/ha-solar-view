@@ -1,7 +1,7 @@
-/* Solar page in plain words: a Home Assistant custom panel (panel_custom in configuration.yaml).
+/* Solar page in plain words: a Home Assistant custom panel, registered by the integration (see panel.py).
    Home Assistant sets `hass` on the element, so login, live states and language come for free.
-   Served WITHOUT login, under /hacsfiles/ (HACS) or /local/ (copied by hand): never put a secret here.
-   /local/ is cached hard: there, bump ?v= in configuration.yaml after every edit of any file. /hacsfiles/ tells the browser not to cache.
+   Served WITHOUT login, from the integration's static path: never put a secret here. The panel URL's ?v= is a
+   hash of every file here, so an edit reaches the browser once the integration reloads.
 
    This file is the element: loading, the render, focus and hints. What each other file holds: docs/development.md.
    Sections here: rules, parts, the gear, focus, the element. */
@@ -54,7 +54,7 @@ guess = supported(guess) ?? supported(document.documentElement.lang || navigator
  *   typeof import("./lib/stats.js"), typeof import("./lib/data.js"), typeof import("./lib/draw.js"), typeof import("./lib/money.js"),
  *   typeof import("./pages/now.js"), typeof import("./pages/energy.js"), typeof import("./pages/money.js"),
  *   typeof import("./lib/shell.js")]} */
-const [, , { CSS }, { findForecast }, { MINUTE, FIVE_MIN, DAY, clockOf, quarterPast, stateNum, say, cap, esc, warnOnce, lineAt }, { formats, hourCycle },
+const [, , { CSS }, { findForecast, findBills }, { MINUTE, FIVE_MIN, DAY, clockOf, quarterPast, stateNum, say, cap, esc, warnOnce, lineAt }, { formats, hourCycle },
   { readConfig, requiredIds, optionalIds, setupCheck }, { skyAt }, { withOwnAdvice }, { totals, fetchStats },
   { LAST_KEY, predict, readData, slim, remembered, placeholder, staleSince },
   { line, SUN_RAYS }, , { nowView, nowPage, writeNow, learnLines, whenSeen }, { energyView, energyPage }, { paybackView, moneyView, moneyPage },
@@ -109,8 +109,13 @@ let zoom; // textScale's answer, measured once per load: it forces a layout of t
 // formats, the texts, the day, and the versions of the statistics and the forecast), then the live values each page
 // draws, as themselves (a few hundred bytes). A picked day or hour changes its page in place (see _wireWeek); a
 // picked month draws again whatever the keys (see _redraw). payback: what payback reads (see paybackView).
+// The bills sensor's months can be a long list: keyed by the object, which Home Assistant keeps until the sensor
+// changes, not written out on every state change in the house.
+const monthsIds = new WeakMap();
+let monthsCount = 0;
+const monthsId = (months) => (months ? monthsIds.get(months) ?? (monthsIds.set(months, ++monthsCount), monthsCount) : 0);
 function pageKeys(data, { base, now, clock, sky }) {
-  const money = JSON.stringify([data.sends, data.payback, data.lat, data.price, data.priceNow, data.billFixed?.now, data.sensorMonths]);
+  const money = JSON.stringify([data.sends, data.payback, data.lat, data.price, data.priceNow, data.billFixed?.now, monthsId(data.sensorMonths)]);
   return {
     now: `${base}|${JSON.stringify([data.now, data.sun, data.weather, data.moon, data.battery, data.wear, sky.day, staleSince(data, now)])}`,
     // Today by hour moves its now line every 5 minutes.
@@ -229,14 +234,17 @@ class SolarView extends HTMLElement {
   disconnectedCallback() {
     this._run++;
     this._dropped = true;
+    clearTimeout(this._held); clearTimeout(this._lateTask);
+    this._held = undefined; this._lateTask = null;
     document.removeEventListener("visibilitychange", this._onVisible);
   }
   // While the tab is hidden or the panel off the page, Home Assistant's updates are only kept: the
   // last one is worked through when the panel is seen again.
   _asleep() { return !!this._dropped || (this.isConnected && document.hidden); }
-  _wake() { if (this._dirty && this._hass && !this._asleep()) { this._dirty = false; this.hass = this._hass; } }
+  _wake() { if ((this._dirty || Date.now() >= this._next) && this._hass && !this._asleep()) { this._dirty = false; this.hass = this._hass; } }
 
-  // A page out of view pauses its animations (see .page[data-out] in styles.js).
+  // A page out of view pauses its animations (see .page[data-out] in styles.js). It is not made inert: Tab
+  // walks on to the next page's controls and the pager follows the focus (see seen in _write).
   _markOut() { PAGES.forEach((p) => this.shadowRoot.getElementById(p).toggleAttribute("data-out", !!this._visible && !this._visible.has(p))); }
 
   _paint(prefix, colors) { colors.slice(0, 3).forEach((c, i) => this.style.setProperty(`--${prefix}${i + 1}`, c)); }
@@ -263,7 +271,9 @@ class SolarView extends HTMLElement {
       this._hintFor = element; // see _render
       // What the mark is, small, over its value, split at the sentence's first colon ("12:00 PM: about
       // 3 kW" splits after "PM"); a dot in the mark's colour when it has one (--c).
-      const [, title, body] = element.dataset.hint.match(/^(?:(.+?)\s?:\s)?(.+)$/s);
+      const parts = element.dataset.hint.match(/^(?:(.+?)\s?:\s)?(.+)$/s);
+      if (!parts) { hide(); return; } // an empty hint
+      const [, title, body] = parts;
       const line = (tag, text) => Object.assign(document.createElement(tag), { textContent: text });
       tip.replaceChildren(...(title ? [line("small", title)] : []), line("b", cap(body)));
       const dot = element.style.getPropertyValue("--c");
@@ -344,6 +354,14 @@ class SolarView extends HTMLElement {
   // opens: until then it is not in the panel, so it costs no restyle.
   _wireShow() {
     this._gear.addEventListener("click", () => { const d = this._gearDialog(); this._fillCheck(d); d.showModal(); });
+    // A tap on the dimmed page around an open dialog closes it, as Done does: the dialog itself is the target
+    // there, outside its own box.
+    this.shadowRoot.addEventListener("click", (/** @type {On<MouseEvent>} */ e) => {
+      const d = e.target;
+      if (!(d instanceof HTMLDialogElement) || !d.open) return;
+      const r = d.getBoundingClientRect();
+      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) d.close();
+    });
     // The "?" button is redrawn with its page, so focus goes back to the one on screen now.
     this._pager.addEventListener("click", (/** @type {On<MouseEvent>} */ e) => {
       const help = /** @type {HTMLElement} */ (e.target.closest?.(".help"));
@@ -382,7 +400,7 @@ class SolarView extends HTMLElement {
       misread: (r) => [lines.gear.checkUnusedOptions, r.names.map(esc).join(", ")],
     };
     const { options, ids: entityIds, misread } = this._source;
-    box.querySelector("dl").innerHTML = setupCheck(options, { mode: data.mode, sensor: !!this._looked.facts, battery: !!data.battery, money: !this._views.money?.empty, forecast: entityIds.hasForecast, outlook: !!data.outlook, misread })
+    box.querySelector("dl").innerHTML = setupCheck(options, { mode: data.mode, sensor: !!this._looked.facts, battery: !!data.battery, money: !this._views.money?.empty, forecast: entityIds.hasForecast, outlook: !!data.outlook?.hoursAhead, misread })
       .map((r) => said[r.key](r)).map(([term, definition]) => `<div><dt>${term}</dt><dd>${definition}</dd></div>`).join("");
   }
 
@@ -567,8 +585,9 @@ class SolarView extends HTMLElement {
     this._hass = hass;
     if (this._asleep()) { this._dirty = true; return; }
     this._showMenu();
-    // A forecast the sensor just wrote is worked through at once, without asking the statistics again.
-    if (this._stats && findForecast(hass)?.state !== this._seen) this._lookAhead();
+    // A forecast the sensor just wrote, or bills just priced (the bands), is worked through at once, without
+    // asking the statistics again.
+    if (this._stats && (findForecast(hass)?.state !== this._seen || findBills(hass)?.last_updated !== this._seenBills)) this._lookAhead();
     if (Date.now() >= this._next) this._loadSoon();
     this._render();
   }
@@ -586,6 +605,7 @@ class SolarView extends HTMLElement {
   _lookAhead() {
     const hass = this._hass, { ids: entityIds, options } = this._source, sensor = findForecast(hass);
     this._seen = sensor?.state;
+    this._seenBills = findBills(hass)?.last_updated;
     this._lookVersion++;
     this._looked = predict(hass, entityIds, options, this._stats, sensor, Date.now(), clockOf(hass.config?.time_zone));
   }
@@ -612,7 +632,9 @@ class SolarView extends HTMLElement {
       const source = readConfig(setup.prefs, this._panel?.config, setup.info?.cost_sensors), { ids: entityIds, options } = source;
       // The skeleton takes its shape from the settings while the statistics load (see placeholder).
       if (!this._source && run === this._run) { this._source = source; this._render(); }
-      const { rows, kept } = await fetchStats(hass, entityIds, options, this._kept ?? {}, now, clock);
+      // billedBands: this month's bands come from the bills sensor (no tariff: needed), so the share bought in each is asked.
+      const billedBands = Object.keys(findBills(hass)?.attributes?.months?.[clock(now).key.slice(0, 7)]?.prices ?? {}).length > 1;
+      const { rows, kept } = await fetchStats(hass, entityIds, { ...options, billedBands }, this._kept ?? {}, now, clock);
       // `hass` and `panel` can each start a load: only the newest may answer, or entities read without
       // the config could land last.
       if (run !== this._run) return;
@@ -644,7 +666,7 @@ class SolarView extends HTMLElement {
     this._linesVersion++;
     learnLines(STRINGS[lang]);
     const lines = this._lines;
-    this._pager.setAttribute("aria-label", lines.tabs.label);
+    this.shadowRoot.querySelector(".tabs").setAttribute("aria-label", lines.tabs.label);
     [lines.tabs.now, lines.tabs.energy, lines.tabs.money].forEach((label, i) => { this._tabs[i].lastChild.textContent = label; });
     this._gear.setAttribute("aria-label", lines.gear.gearLabel);
     this._dialogTexts();
@@ -706,7 +728,7 @@ class SolarView extends HTMLElement {
     // The copy kept last time is read once a visit, not on every update while loading.
     if (this._last === undefined) this._last = remembered();
     if (loading && !source && !this._last && Date.now() < (this._holdUntil ??= Date.now() + 1000)) {
-      this._held ??= setTimeout(() => this._render(), 1000);
+      this._held ??= setTimeout(() => { this._held = undefined; this._holdUntil = 0; this._render(); }, 1000);
       return;
     }
     // One read of the clock per render, handed to everything drawn.
@@ -880,6 +902,8 @@ class SolarView extends HTMLElement {
     }
     // Pages come back after an error message; Money only with a card to show.
     PAGES.forEach((p, i) => { $(p).hidden = this._tabs[i].hidden = p === "money" && this._views.money.empty; });
+    // The page in view just hid (Money with nothing left to show): back to Now, tab and pager together.
+    if (this._tabs.some((b) => b.hidden && b.hasAttribute("aria-current"))) this._activatePage?.("now", true);
     if (focused) focusTarget($(focusedPage), focused)?.focus({ preventScroll: true });
   }
 

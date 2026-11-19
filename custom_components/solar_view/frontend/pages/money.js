@@ -33,7 +33,7 @@ function paybackView(data, now, clock) {
 /** @param {import("../lib/data.js").ViewInput} c */
 function moneyView({ data, now, clock, pick }, payback = paybackView(data, now, clock)) {
   const p = data.price, c = clock(now), key = c.key.slice(0, 7), lastKey = shiftMonth(key, -1);
-  const { onRecord, got, back, net, end, coming } = moneyOf(data, key);
+  const { onRecord, got, back, net, end, coming, guessed, fixedIn } = moneyOf(data, key);
   // The price now: the tariff's band now when it has bands, else the sensor's present hour while it is fresh (at
   // every level), else the Energy settings' one. Selling only while export is on.
   const hour = data.priceNow, bd = data.bands, bandNow = bd && bandOf(c.key, c.hour, bd.type);
@@ -41,7 +41,7 @@ function moneyView({ data, now, clock, pick }, payback = paybackView(data, now, 
   // With two or three bands, one box each under buying: its name, its runs of hours today, the share of this month's
   // grid energy bought in it and its price; the band now outlined.
   const runs = bd && bd.type !== "single" ? bandRuns(now, clock, bd.type) : null;
-  const prices = buy === null && !selling ? null : { buy, sell, selling, type: bd?.type, bandNow: runs ? bandNow : null, allDay: runs?.length === 1,
+  const prices = buy === null && !selling ? null : { buy, sell, selling, type: bd?.type, estimate: !!bd?.estimate, bandNow: runs ? bandNow : null, allDay: runs?.length === 1,
     bands: runs && Object.entries(bd.prices).map(([band, price]) => ({ band, price, runs: runs.filter((r) => r.band === band), share: bd.share ? bd.share[band] : null })) };
   // Finished months from the month rows (last month from its day rows, as `lastMonth`, until it has one), this one
   // from the day rows (as `month`).
@@ -61,8 +61,8 @@ function moneyView({ data, now, clock, pick }, payback = paybackView(data, now, 
     const cost = x && got("cost", x, at), brought = x && back(x, at);
     const endCost = at !== key ? null : coming?.cost != null && cost !== null ? cost + coming.cost : null;
     const endBack = at !== key ? null : coming?.back != null && brought !== null ? brought + coming.back : null;
-    month = { key, at, sends: data.sends, endNet: end.net,
-      months: Object.fromEntries(yearKeys(key).map((monthKey) => [monthKey, { net: row(monthKey) ? net(row(monthKey), monthKey) : null, noPrice: !!row(monthKey) && !anyPrice }])),
+    month = { key, at, sends: data.sends, endNet: end.net, fixed: x ? fixedIn(at) : null,
+      months: Object.fromEntries(yearKeys(key).map((monthKey) => [monthKey, { net: row(monthKey) ? net(row(monthKey), monthKey) : null, noPrice: !!row(monthKey) && !anyPrice, guess: !!row(monthKey) && guessed(monthKey) }])),
       picked: x && { cost, saved: got("saved", x, at), earned: got("earned", x, at), brought, net: net(x, at), endCost, endBack } };
   }
   // This month day by day: what each day brought back from its day rows, priced as the months without the fixed
@@ -81,8 +81,8 @@ function moneyView({ data, now, clock, pick }, payback = paybackView(data, now, 
     help: {
       payback: ["help.paybackArc", "help.paybackCost", ...(paybackPredicts(data) ? ["help.paybackLeft"] : [])],
       recent: ["help.returnsBar", ...(data.sends ? ["help.returnsSold"] : []), ...(coming?.days.length ? ["help.returnsAhead"] : []), "help.dayToday", "help.returnsPick"],
-      prices: ["help.pricesBuy", ...(runs ? ["help.pricesBands"] : []), ...(data.sends && sell != null ? ["help.pricesSell"] : []), "help.pricesRates"],
-      table: ["help.balanceBars", ...(ghost ? ["help.balanceEnd"] : []), "help.balanceSplit", "help.balanceNet"],
+      prices: ["help.pricesBuy", ...(runs ? ["help.pricesBands"] : []), ...(data.sends && sell != null ? ["help.pricesSell"] : []), "help.pricesRates", ...(bd?.estimate ? ["help.pricesEstimate"] : [])],
+      table: ["help.balanceBars", ...(ghost ? ["help.balanceEnd"] : []), "help.balanceSplit", "help.balanceNet", ...(month && Object.values(month.months).some((m) => m.guess) ? ["help.balanceGuess"] : [])],
     } };
 }
 
@@ -107,7 +107,7 @@ function pricesCard(v, lines, format) {
   const flow = (label, x, out, more = "") => `<div class="price${out ? " out" : ""}"><p class="rate"><span>${label}</span> <b>${format.money(x)}<small> /kWh</small></b></p>
       <p class="route"><svg class="end" viewBox="-17 -17 34 34" role="img" aria-label="${lines.shared.home}">${HOUSE}</svg><span class="arrow" aria-hidden="true">${out ? '<i></i><svg viewBox="17 7 6 10"><path d="m18 8 4 4-4 4"/></svg>' : '<svg viewBox="1 7 6 10"><path d="M6 8 2 12l4 4"/></svg><i></i>'}</span><svg class="end" viewBox="0 0 24 24" role="img" aria-label="${lines.shared.grid}">${PLUG}</svg></p>${more}</div>`;
   return `<section class="card prices">
-      <h2>${lines.money.pricesTitle}</h2>${helpButton(lines, "prices")}
+      <h2>${lines.money.pricesTitle}${v.estimate ? " *" : ""}</h2>${helpButton(lines, "prices")}
       ${v.buy === null ? "" : flow(lines.money.buyGrid + nowTag, v.buy, false, bandList)}${v.selling ? flow(lines.money.sellGrid, v.sell, true) : ""}
     </section>`;
 }
@@ -124,15 +124,16 @@ function monthCard(v, sign, lines, format) {
   const side = (className, label, n, color, ahead) => `<div class="side ${className}"><span>${label}</span><span class="track">${ahead > 0 ? `<i class="ghost" style="--c:${markOf(color)};--w:${w(ahead)}%"></i>` : ""}${!(n > 0) ? "" : `<i style="--c:${markOf(color)};--w:${w(n)}%"></i>`}</span><b>${format.money(n)}</b></div>`;
   return `<section class="card months" data-pick="balance">
       <h2><span>${lines.money.monthBalance}</span> <span class="num">${sign}</span></h2>${helpButton(lines, "table")}
-      ${monthPicker(lines, format, key, at, (k) => v.months[k].net, (k, n) => `${named(k)}: ${n === null ? (v.months[k].noPrice ? lines.shared.noPrice : lines.shared.noData) : say(lines.money.hintBalance, { money: format.money(n) })}`, "--battery", true, (k) => (k === key ? v.endNet : null))}
+      ${monthPicker(lines, format, key, at, (k) => v.months[k].net, (k, n) => `${named(k)}: ${n === null ? (v.months[k].noPrice ? lines.shared.noPrice : lines.shared.noData) : say(lines.money.hintBalance, { money: format.money(n) })}`, "--battery", true, (k) => (k === key ? v.endNet : null), (k) => v.months[k].guess)}
       <div class="stepped">${monthSteps(lines, key, at, (k) => cap(named(k)))}<h3 class="chart-title">${cap(named(at))}</h3></div>
       ${x ? `<div class="split">${side("cost", lines.money.gridCost, x.cost, "--grid", x.endCost)}${side("back", v.sends ? lines.money.savedAndExport : lines.shared.savedLabel, x.brought, "--sun", x.endBack)}</div>
       ${readout("", [
         [lines.shared.savedLabel, format.money(x.saved), "--sun"],
         v.sends ? [lines.shared.exportLabel, format.money(x.earned), "--sent"] : null,
+        v.fixed ? [lines.money.fixedFees, format.money(v.fixed), "--grid"] : null,  // inside the grid cost above
         netRow(lines, format, x.net),
       ])}
-      ${at === key && v.endNet !== null ? `<p class="note">${say(lines.money.balanceEnd, { money: cents(format, v.endNet) })}</p>` : ""}` : `<p class="note">${lines.shared.noData}</p>`}
+      ${at === key && v.endNet !== null ? `<p class="note">${say(lines.money.balanceEnd, { money: cents(format, v.endNet) })}</p>` : ""}` : `<p class="note">${cap(lines.shared.noData)}</p>`}
     </section>`;
 }
 

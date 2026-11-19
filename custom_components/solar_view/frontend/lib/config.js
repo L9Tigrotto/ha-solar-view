@@ -47,7 +47,7 @@ const ENTITIES = {
 
 // "0-7" or "23:30-6:30" as [from, to] in hours; null when it is not that.
 const quietHours = (v) => {
-  const m = typeof v === "string" && v.trim().match(/^(\d{1,2})(?::(\d\d))?\s*-\s*(\d{1,2})(?::(\d\d))?$/);
+  const m = typeof v === "string" && v.trim().match(/^(\d{1,2})(?::([0-5]\d))?\s*-\s*(\d{1,2})(?::([0-5]\d))?$/);
   const q = m && [+m[1] + (+m[2] || 0) / 60, +m[3] + (+m[4] || 0) / 60];
   return q && q.every((h) => h <= 24) ? q : null;
 };
@@ -151,7 +151,7 @@ function ownTariff(t) {
     if (hours?.some((h) => !h || h[0] === h[1])) return bad(`${at}.hours ${shown(b.hours)} is not hours such as "23:00-7:00" or "0:30-7:30"`);
     const days = b.days == null ? null : [].concat(b.days).flatMap((d) => DAY_NAMES[String(d).toLowerCase()] ?? [-1]);
     if (days?.includes(-1)) return bad(`${at}.days ${shown(b.days)} holds a day that is not mon to sun, weekdays or weekends`);
-    if (name in prices && b.price != null) return bad(`${shown(name)} is a band twice with a price each`);
+    if (Object.hasOwn(prices, name) && b.price != null) return bad(`${shown(name)} is a band twice with a price each`);
     bands.push({ name, hours: hours && hours.map(([from, to]) => [Math.round(from * 60), Math.round(to * 60)]), days: days && [...new Set(days)] });
     const price = numberOrId(b.price, `${at}.price`);
     if (price != null) prices[name] = price;
@@ -188,7 +188,7 @@ function readConfig(energyPreferences, config, costs = {}) {
     // One id or a list; [] switches the part off.
     const given = own[name] == null ? null : [].concat(own[name]), kept = given?.filter((id) => typeof id === "string" && id);
     if (given && kept.length < given.length) warn(`sensors.${name}: ${shown(own[name])} holds something that is not an entity id, left out`);
-    entityIds[key] = kept ?? flat.filter((s) => s.type === type && s[field]).map((s) => s[field]);
+    entityIds[key] = [...new Set(kept ?? flat.filter((s) => s.type === type && s[field]).map((s) => s[field]))];
   }
   const batteries = energySources.filter((s) => s.type === "battery");
   const sized = batteries.length > 0 && batteries.every((b) => b.capacity > 0);

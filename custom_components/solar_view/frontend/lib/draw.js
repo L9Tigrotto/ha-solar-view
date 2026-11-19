@@ -73,7 +73,7 @@ const SWATCH = {
   solid: `<rect x="9" y="1" width="12" height="15" rx="2" stroke="none"/>`,
   ghost: `<rect x="9.75" y="1.75" width="10.5" height="13.5" rx="2" class="faded"/>`,
   usual: `<path d="M1 8H29" fill="none" stroke-dasharray="4 3"/>`,
-  pill: `<rect x="1" y="5" width="28" height="6" rx="3" class="track" stroke="none"/><rect x="1" y="5" width="17" height="6" rx="3" stroke="none"/><path d="M13 8H24" fill="none" stroke="var(--range)" stroke-width="3" stroke-linecap="round"/>`,
+  pill: `<rect x="1" y="5" width="28" height="6" rx="3" class="track" stroke="none"/><rect x="1" y="5" width="17" height="6" rx="3" stroke="none"/><path d="M13 8H24" fill="none" stroke="var(--paper)" stroke-opacity=".65" stroke-width="5" stroke-linecap="round"/><path d="M13 8H24" fill="none" stroke="var(--ink)" stroke-opacity=".78" stroke-width="3" stroke-linecap="round"/>`,
   mark: `<path d="M15 1V15" fill="none"/>`,
   arc: `<path d="M3 8H27" fill="none" stroke-width="8"/>`,
   line: `<path d="M1 13L9 8L17 10L29 3" fill="none" stroke-linejoin="round"/>`,
@@ -201,14 +201,14 @@ function dayLine(lines, format, key, list, v, name, line, at, { live = true, bet
   const days = vals.map((x, i) => {
     const day = list[i], coming = ahead[i - list.length];
     const className = [i % 3 && "quiet", coming ? "ahead" : !day ? "future" : x === null ? "none" : live && i === last && "today"].filter(Boolean).join(" ");
-    return `<li ${day ? hint(name(day, x), "") : coming ? hint(coming[1], "") : ""} style="--c:${SUN_DOT}" data-i="${i}"${className ? ` class="${className}"` : ""}${i === at ? ' aria-current="true"' : ""}><span class="col">${x === null ? "" : `<i style="--v:${h(x).toFixed(1)}%"></i>`}</span><span class="date">${i + 1}</span></li>`;
+    return `<li ${day ? hint(name(day, x), "button") : coming ? hint(coming[1], "button") : ""} style="--c:${SUN_DOT}" data-i="${i}"${className ? ` class="${className}"` : ""}${i === at ? ' aria-current="true"' : ""}><span class="col">${x === null ? "" : `<i style="--v:${h(x).toFixed(1)}%"></i>`}</span><span class="date">${i + 1}</span></li>`;
   }).join("");
   const pickedLines = [...list.map((day, i) => line(day, v(day), `<b>${cap(live && i === last ? lines.shared.todaySoFar : say(lines.shared.onDate, { date: format.date(new Date(day.date)) }))}</b>`)), ...ahead.map((a) => a[2])];
   return `<div class="dayline">
         <div class="area"><svg class="chargeLine" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${g.lines}<line class="axis" x1="0" x2="100" y1="100" y2="100"/><path class="series" style="--c:${SUN_DOT}" d="${d}"/>${later ? `<path class="series later" style="--c:${SUN_DOT}" d="${later}"/>` : ""}</svg>${g.ticks}</div>
-        <ol class="week" style="--n:${n}">${days}</ol>
+        <ol class="week" role="group" style="--n:${n}">${days}</ol>
       </div>${between}
-      <div class="stepped">${steps(lines, "Day", at, end)}<div class="picked" aria-live="polite" aria-atomic="true">${pickedLines.map((l, i) => `<div class="day" data-i="${i}"${i === at ? "" : " hidden"}>${l}</div>`).join("")}</div></div>`;
+      ${end < 0 ? "" : `<div class="stepped">${steps(lines, "Day", at, end)}<div class="picked" aria-live="polite" aria-atomic="true">${pickedLines.map((l, i) => `<div class="day" data-i="${i}"${i === at ? "" : " hidden"}>${l}</div>`).join("")}</div></div>`}`;
 }
 // "Now" or "usual use" over a chart at x (0 to 100), kept inside the card near its ends.
 const nowLabel = (x, text) => `<span class="now-label${x < 8 ? " start" : x > 92 ? " end" : ""}" style="--x:${x}%">${text}</span>`;
@@ -225,15 +225,16 @@ const monthTotal = (caption, items) => `<div class="month-total">${readout(capti
 // above and below together fill the bar. Under each its short name, the year on the last month before the
 // year changes, and "so far" on this month; on a narrow card one letter and two digits ("O", "’25").
 // Hovering one shows its hint `name(key, v)`; a click picks it (see _wireWeek). `ghost(key)`, when not
-// null, is where a month should end: a faded bar behind its solid one, on the same scale.
-function monthPicker(lines, format, currentMonth, at, v, name, color, both = false, ghost = () => null) {
+// null, is where a month should end: a faded bar behind its solid one, on the same scale. `star(key)`: an
+// asterisk after its name (a figure of it is a guess).
+function monthPicker(lines, format, currentMonth, at, v, name, color, both = false, ghost = (_k) => null, star = (_k) => false) {
   const keys = yearKeys(currentMonth), vals = keys.map(v), ghosts = keys.map(ghost);
   const up = Math.max(0, ...vals.map((x) => x ?? 0), ...ghosts.map((x) => x ?? 0)), down = both ? Math.max(0, ...vals.map((x) => -(x ?? 0)), ...ghosts.map((x) => -(x ?? 0))) : 0;
   const top = Math.max(up + down, 1e-9), tall = (x) => ((Math.abs(x) / top) * 100).toFixed(1);
   return `<ol class="year${both ? " both" : ""}"${both ? ` style="--zero:${((down / top) * 100).toFixed(1)}%"` : ""}>${keys.map((k, i) => {
     const x = vals[i], c = markOf(x < 0 ? "--low" : color);
     return `<li><button type="button" data-month="${k}" aria-pressed="${k === at}" style="--c:${c}" ${hint(name(k, x), "")}><span class="bar">${x === null ? ""
-      : `${ghosts[i] === null ? "" : `<i class="ghost${ghosts[i] < 0 ? " neg" : ""}" style="--v:${tall(ghosts[i])}%"></i>`}<i${x < 0 ? ' class="neg"' : ""} style="--v:${tall(x)}%"></i>`}</span><span><span class="wide">${format.month(k)}</span><span class="narrow">${format.monthNarrow(k)}</span></span><small>${
+      : `${ghosts[i] === null ? "" : `<i class="ghost${ghosts[i] < 0 ? " neg" : ""}" style="--v:${tall(ghosts[i])}%;--c:${markOf(ghosts[i] < 0 ? "--low" : color)}"></i>`}<i${x < 0 ? ' class="neg"' : ""} style="--v:${tall(x)}%"></i>`}</span><span><span class="wide">${format.month(k)}${star(k) ? "*" : ""}</span><span class="narrow">${format.monthNarrow(k)}${star(k) ? "*" : ""}</span></span><small>${
       k === currentMonth ? lines.shared.soFar : i < 11 && keys[i + 1].slice(0, 4) !== k.slice(0, 4) ? `<span class="wide">${k.slice(0, 4)}</span><span class="narrow">’${k.slice(2, 4)}</span>` : ""}</small></button></li>`;
   }).join("")}</ol>`;
 }

@@ -80,7 +80,7 @@ export const stateNum = (hass, id) => { const v = parseFloat(hass.states[id]?.st
 // prices per MWh and per Wh too, by the entity's unit ("EUR/MWh"). null when it has no value.
 const PER_KWH = { MWh: 1e-3, Wh: 1e3 };
 export const priceOf = (hass, id, v = stateNum(hass, id)) =>
-  (Number.isFinite(v) ? v * (PER_KWH[String(hass.states[id]?.attributes?.unit_of_measurement).split("/")[1]] ?? 1) : null);
+  (Number.isFinite(v) ? v * (PER_KWH[String(hass.states[id]?.attributes?.unit_of_measurement).split("/")[1]?.trim()] ?? 1) : null);
 // A figure the owner gives as a number, a number typed as text, or the id of an entity holding one (read by `read`);
 // null when none.
 export const numberOrEntity = (v, hass, read = stateNum) => num(v) ?? (typeof v === "string" ? read(hass, v) : null);
@@ -100,7 +100,7 @@ export const roundTo = (x, to) => (Number.isFinite(x) ? Math.round(x * to) / to 
 
 // say("{first} and {second}", { first, second }): placeholders are words.
 export const say = (text, parts) => text.replace(/\{(\w+)\}/g, (_, k) => parts[k]);
-export const cap = (text) => text[0].toUpperCase() + text.slice(1);
+export const cap = (text) => (text ? text[0].toUpperCase() + text.slice(1) : text);
 // A line by its path as the markup keeps it, "gear.showDone".
 export const lineAt = (lines, path) => path.split(".").reduce((section, key) => section?.[key], lines);
 // Text typed by the owner goes into the page as text, never as markup.

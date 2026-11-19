@@ -32,8 +32,8 @@ function energyView({ data, now, clock, pick }) {
     help: {
       share: share.noUse ? [] : ["help.shareSun", ...(data.battery ? ["help.shareBattery"] : []), "help.shareGrid", "help.shareNumber", "help.shareTotal",
         ...(ringsAhead(data) ? ["help.shareAhead"] : [])],
-      hoursToday: ["help.hoursBars", ...(data.outlook || weatherOnly(data) ? ["help.hoursGhost"] : []),
-        ...(noChargeLevel ? [] : ["help.hoursLine", ...(data.outlook ? ["help.hoursAhead"] : []), "help.hoursFloor"]), "help.hoursPick"],
+      hoursToday: ["help.hoursBars", ...(data.outlook?.hoursAhead || weatherOnly(data) ? ["help.hoursGhost"] : []),
+        ...(noChargeLevel ? [] : ["help.hoursLine", ...(data.outlook?.hoursAhead ? ["help.hoursAhead"] : []), "help.hoursFloor"]), "help.hoursPick"],
       daily: ["help.monthBars", ...(coming?.end != null ? ["help.monthEnd"] : []), "help.dayLine", ...(coming?.days.length ? ["help.monthAhead"] : []), "help.dayToday", "help.dayPick"],
     } };
 }
@@ -259,10 +259,11 @@ function hoursTodayCard(v, lines, format, clock) {
   });
   // The same hours over each chart, each with the hour's sentence as its hint: hovering either shows the
   // hour on both, a tap picks it on both (see _wireWeek). Only the top chart's row takes focus. A pick kept
-  // from a longer day falls back to this hour.
-  const at = v.at;
+  // from a longer day falls back to this hour; one with nothing to say (the first minutes of an hour without a
+  // forecast) to the last hour that has.
+  const lastSaid = said.findLastIndex(([, name]) => name), at = said[v.at]?.[1] ? v.at : lastSaid;
   const dot = (color, val, over = 0.5) => `<i style="--c:${markOf(color)};--v:${Math.min(100, Math.max(0, val)).toFixed(1)}%;--x:${over.toFixed(2)}"></i>`;
-  const cells = (named, dots) => said.map(([, name], i) => `<li${name ? (named ? ` ${hint(name, "")}` : ` data-hint="${name}"`) : ""} data-i="${i}"${name ? "" : ' class="future"'}${i === at ? ' aria-current="true"' : ""}>${dots(i)}</li>`).join("");
+  const cells = (named, dots) => said.map(([, name], i) => `<li${name ? (named ? ` ${hint(name, "button")}` : ` data-hint="${name}"`) : ""} data-i="${i}"${name ? "" : ' class="future"'}${i === at ? ' aria-current="true"' : ""}>${dots(i)}</li>`).join("");
   // What is still to come shaded, now a line across both charts, named once over the top one (kept inside the card near midnight).
   const xNow = x(now), nx = xNow.toFixed(2);
   const later = `<rect class="later" x="${nx}" y="0" width="${(100 - xNow).toFixed(2)}" height="100"/><line class="now-line" x1="${nx}" x2="${nx}" y1="0" y2="100"/>`;
@@ -279,18 +280,18 @@ function hoursTodayCard(v, lines, format, clock) {
           ${v.ahead.length ? `<path class="ahead" d="${path([[now, v.nowChargeLevel], ...v.ahead])}"/>` : ""}
           <line class="axis" x1="0" x2="100" y1="100" y2="100"/>
         </svg>${charge.ticks}<span class="floor-label" style="bottom:${v.floor}%">${say(lines.energy.batteryFloor, { percent: v.floor })}</span>
-        <ol class="hours24" style="--n:${N}">${cells(true, (i) => { const d = chargeDot(hour[i]); return d ? dot("--battery", d[1], d[0]) : ""; })}</ol>
+        <ol class="hours24" role="group" style="--n:${N}">${cells(true, (i) => { const d = chargeDot(hour[i]); return d ? dot("--battery", d[1], d[0]) : ""; })}</ol>
       </div>` : ""}
       ${title(lines.energy.energyFlowTitle, "kWh")}<div class="plot">${chargeLevel ? "" : label}
         <svg class="chargeLine" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
           ${later}${kwh.lines}<line class="axis" x1="0" x2="100" y1="100" y2="100"/>${series}
         </svg>${kwh.ticks}
-        <ol class="hours24" style="--n:${N}"${chargeLevel ? ' aria-hidden="true"' : ""}>${cells(!chargeLevel, (i) => SERIES.map(([, color], k) => (known(hourly[i], k) ? dot(color, hourly[i].v[k] / kwh.max * 100, across(i)) : "")).join(""))}</ol>
+        <ol class="hours24" role="group" style="--n:${N}"${chargeLevel ? ' aria-hidden="true"' : ""}>${cells(!chargeLevel, (i) => SERIES.map(([, color], k) => (known(hourly[i], k) ? dot(color, hourly[i].v[k] / kwh.max * 100, across(i)) : "")).join(""))}</ol>
       </div>
       <div class="ticks">${[0, 8, 16].map((h) => hours.findIndex((timestamp) => clock(timestamp).hour === h)).filter((i) => i >= 0).map((i) => `<span style="left:${(i / N) * 100}%">${format.hour(new Date(hours[i]))}</span>`).join("")}<span style="right:0">${format.time(new Date(day0 + N * H - MINUTE))}</span></div>
       ${legend}
       ${v.hasRows ? "" : `<p class="note">${cap(lines.shared.noData)}</p>`}
-      <div class="stepped">${steps(lines, "Hour", at, said.findLastIndex(([, name]) => name))}<div class="picked" aria-live="polite" aria-atomic="true">${said.map(([h, name, figures], i) => `<div class="day" data-i="${i}"${i === at ? "" : " hidden"}>${figures || (name && name.replace(h, `<b>${h}</b>`))}</div>`).join("")}</div></div>
+      ${lastSaid < 0 ? "" : `<div class="stepped">${steps(lines, "Hour", at, lastSaid)}<div class="picked" aria-live="polite" aria-atomic="true">${said.map(([h, name, figures], i) => `<div class="day" data-i="${i}"${i === at ? "" : " hidden"}>${figures || (name && name.replace(h, `<b>${h}</b>`))}</div>`).join("")}</div></div>`}
     </section>`;
 }
 
@@ -327,7 +328,7 @@ function productionView(data, pick, coming) {
   const total = (k) => { const s = daysOf(k).map((d) => (d.none ? null : d.solarKwh)).filter(Number.isFinite); return s.length ? s.reduce((a, x) => a + x, 0) : null; };
   const missing = (k) => daysOf(k).reduce((n, d) => n + (d.none ? 1 : 0) + (d.missing ?? 0), 0);
   return { cur: currentMonth, at, totals: Object.fromEntries(yearKeys(currentMonth).map((k) => [k, total(k)])), missing: Object.fromEntries(yearKeys(currentMonth).map((k) => [k, missing(k)])), days: daysOf(at),
-    end: coming?.end ?? null, ahead: at === currentMonth && coming ? coming.days : [], pick: pick?.daily };
+    end: coming?.end ?? null, ahead: at === currentMonth && coming ? coming.days : [], pick: pick?.daily, sends: !!data.sends };
 }
 // Production: the 12 months as bars (see monthPicker), the picked month's total under them, then its days (see
 // dayLine). This month's days to come are dashed on, and its bar and total say where it should end.
@@ -351,13 +352,13 @@ function productionCard(v, lines, format) {
         at === currentMonth && end !== null ? [lines.energy.monthEndEstimate, say(lines.energy.monthEndAbout, { energy: kwh(end) }), "--sun", false, true] : null])}</div>
       <h3 class="chart-title"><span>${lines.energy.dailyProduction}</span> <span class="num">${cap(format.monthYear(at))}</span></h3>
       ${dayLine(lines, format, at, v.days, (d) => (d.none ? null : d.solarKwh),
-        (d, n) => (n === null ? `${format.date(new Date(d.date))}: ${lines.shared.noData}` : say(lines.energy.hintDayProduction, { date: format.date(new Date(d.date)), energy: format.kwh(n) })), (d, n, lead) => picked(lines, format, d, lead), v.pick, { live: at === currentMonth, ahead })}
+        (d, n) => (n === null ? `${format.date(new Date(d.date))}: ${lines.shared.noData}` : say(lines.energy.hintDayProduction, { date: format.date(new Date(d.date)), energy: format.kwh(n) })), (d, n, lead) => picked(lines, format, d, lead, v.sends), v.pick, { live: at === currentMonth, ahead })}
     </section>`;
 }
 // A picked day's figures, `lead` over them (see dayLine): what the sun made, the house used and the grid
-// gave, how much was home made, and what was sent when there was any (or when that is unknown). Without
+// gave, how much was home made, and what was sent when there was any (or when that is unknown) on a plant that sends. Without
 // numbers on record, only that; an unknown figure as a dash.
-function picked(lines, format, x, lead) {
+function picked(lines, format, x, lead, sends) {
   if (x.none) return readout(lead, [[lines.shared.noData, "—"]]);
   const share = ownShare(x);
   return readout(lead, [
@@ -365,7 +366,7 @@ function picked(lines, format, x, lead) {
     [lines.shared.homeUse, format.kwh(x.loadKwh), "--home"],
     [lines.shared.fromGrid, format.kwh(x.gridImportKwh), "--grid"],
     [lines.shared.selfSupplied, share === null ? "—" : `${format.num(percent(share))}%`, "--battery"],
-    x.gridExportKwh == null || x.gridExportKwh >= SENT_KWH ? [lines.shared.sentToGrid, format.kwh(x.gridExportKwh), "--sent"] : null,
+    sends && (x.gridExportKwh == null || x.gridExportKwh >= SENT_KWH) ? [lines.shared.sentToGrid, format.kwh(x.gridExportKwh), "--sent"] : null,
   ]);
 }
 

@@ -42,9 +42,11 @@ function flowSvg(n, sky, night, lines, label, hints, battery, batteryColor, cove
   // A live flow: a dim arrow (line and head in one group, so they dim as one shape), a bright
   // streak running along it, and a bright copy of the head that lights as the streak lands.
   const head = (k, className) => `<path class="tip ${className}" d="M-5.5 -3.85L3.3 0L-5.5 3.85Z" transform="translate(${TIPS[k][0]} ${TIPS[k][1]}) rotate(${TIPS[k][2]})"/>`;
-  const flowLines = Object.keys(PATHS).filter((k) => battery || !/Battery/i.test(k)).map((k) => on[k]
+  // Each flow in a group of its own, and the halo in one even when it is not drawn: a flow switching on or off
+  // keeps every other element in its place, so morph (solar-view.js) leaves their animations running.
+  const flowLines = Object.keys(PATHS).filter((k) => battery || !/Battery/i.test(k)).map((k) => `<g>${on[k]
     ? `<g class="arrow"><path class="ln" d="${PATHS[k]}"/>${head(k, "")}</g><path class="streak" d="${PATHS[k]}" pathLength="100"/>${head(k, "lit")}`
-    : `<path class="ln" d="${PATHS[k]}"/>`).join("");
+    : `<path class="ln" d="${PATHS[k]}"/>`}</g>`).join("");
   const node = (x, y, text, body) => `<g class="node" data-focus-key="flow:${x}:${y}" ${hint(text)}><rect class="hit" x="${x - 36}" y="${y - 26}" width="72" height="78" fill="transparent"/>${body}</g>`;
   const [icon, sun] = skyIcon(night, cover, moon);
   const batteryW = n.batteryChargeW || n.batteryDischargeW;
@@ -58,7 +60,7 @@ function flowSvg(n, sky, night, lines, label, hints, battery, batteryColor, cove
   <defs>
     <radialGradient id="halo"><stop offset="0" style="stop-color:var(--glow);stop-opacity:.6"/><stop offset="1" style="stop-color:var(--glow);stop-opacity:0"/></radialGradient>
   </defs>
-  ${night || ["overcast", "rain", "snow"].includes(cover) ? "" : `<circle class="halo" cx="170" cy="36" r="${Math.round(54 + 24 * sky.day)}" fill="url(#halo)"/>`}
+  <g>${night || ["overcast", "rain", "snow"].includes(cover) ? "" : `<circle class="halo" cx="170" cy="36" r="${Math.round(54 + 24 * sky.day)}" fill="url(#halo)"/>`}</g>
   ${flowLines}
   <g class="node" data-focus-key="flow:sun" ${hint(hints.sun)}><rect class="hit" x="142" y="8" width="96" height="98" fill="transparent"/>
   <g class="sky-icon" data-icon="${icon}" transform="translate(146 12) scale(2)" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round">${sun}</g>

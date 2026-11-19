@@ -23,7 +23,7 @@ export const CSS = `
   /* Accents: amber, teal green, rose, plum, blue. They double as the marks on charts and rings (see markOf),
      3:1 or more on the lightest sky and on white. Sent is the grid colour, faded; savings (the money
      page's marks) a teal of their own. */
-  --range:#fe640b; --sun:#a3650c; --battery:#277c61; --low:#b64259; --grid:#7956a8; --home:#2f6eae;
+  --sun:#a3650c; --battery:#277c61; --low:#b64259; --grid:#7956a8; --home:#2f6eae;
   --sent-mark:#8965b3; --return-mark:#277b72;
   --f:ui-rounded,"SF Pro Rounded","Segoe UI Variable Text","Segoe UI",system-ui,Roboto,"Helvetica Neue",Arial,sans-serif;
   --ease:cubic-bezier(.22,1,.36,1);
@@ -43,7 +43,7 @@ export const CSS = `
   --ink:#ffffff; --ink-2:#d3def0; --paper:#0b1626;
   --card:rgba(8,16,36,.7); --card-line:rgba(255,255,255,.13);
   --track:rgba(255,255,255,.17);
-  --range:#fe640b; --sun:#e9bf69; --battery:#72c6a4; --low:#ed9cad; --grid:#b4a0d7; --home:#87b5df;
+  --sun:#e9bf69; --battery:#72c6a4; --low:#ed9cad; --grid:#b4a0d7; --home:#87b5df;
   /* Marks: the plain colours where they reach 3:1 on the lightest night sky, lighter where not. */
   --home-mark:#94bde3; --grid-mark:#c2b1de; --low-mark:#efa5b4; --sent-mark:#d9ccec; --return-mark:#80cfbf;
 }
@@ -160,7 +160,7 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .hint.on{opacity:1;visibility:visible}
 
 /* Cards: translucent fill plus one hairline, no shadow and no blur: a backdrop-filter here drew a blurred copy
-   of the month columns over them in Chrome whenever a hint showed. The tab bar the same. */
+   of the month columns over them in Chrome whenever a hint showed. (The floating tab bar blurs: it covers no columns.) */
 .card{padding:16px 18px 18px;border-radius:18px;background:var(--card);border:1px solid var(--card-line)}
 .card h2{font-size:var(--t-h);font-weight:700;margin-bottom:10px}
 /* A card with a "?" in its top right corner: the heading keeps clear of it. */
@@ -272,7 +272,10 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .ring .lead{fill:none;stroke:var(--ink-2);stroke-width:1.2;stroke-linecap:butt}
 .ring circle{fill:var(--c)}
 .part{position:absolute;font-size:var(--t-s);line-height:1.25;white-space:nowrap;color:var(--ink-2)}
-.part.left{right:110%;top:58.5%;translate:0 -50%}
+/* A side label longer than the room beside the ring (the card less the 140px ring and its two 14px gaps,
+   halved) wraps between its words ("Aus dem / Netz") instead of passing the card's edge. */
+.part.left,.part.right{white-space:normal;width:max-content;max-width:calc(50cqi - 84px);text-wrap:balance}
+.part.left{right:110%;top:58.5%;translate:0 -50%;text-align:right}
 .part.right{left:110%;top:58.5%;translate:0 -50%}
 .part.top{left:50%;bottom:106%;translate:-50% 0}
 /* With a forecast (see ringsAhead): the same split in an hour and at the end of the day, small and
@@ -284,9 +287,11 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .share .rings-ahead .ring-box{width:100px;margin:0}
 .rings-ahead .ring .lead{display:none}
 .share .rings-ahead .ring-mid .big{font-size:calc(30px / var(--zt))}
-@container share (min-width:420px){
+@container share (min-width:470px){
   .rings{flex-direction:row;justify-content:center}
-  .share .rings > div > .ring-box{margin-inline:66px 74px}
+  .share .rings > div > .ring-box{margin-inline:84px 92px}
+  /* Each side label keeps inside its margin (less its 14px gap), the right one clear of the small rings beside it. */
+  .share .rings > div > .ring-box :is(.part.left,.part.right){max-width:78px}
   .rings-ahead{flex-direction:column;gap:8px;margin:28px 0 0}
 }
 /* Too narrow for the side labels (a small phone, or big text): they drop under the ring's ends, next to
@@ -294,7 +299,8 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 @container share (max-width:240px){
   .share .ring-box{margin-bottom:calc(30px / var(--zt) + 4px)}
   .share .ring .lead{display:none}
-  .share .part.left{right:auto;left:-12px;top:100%;translate:0 0}
+  .share :is(.part.left,.part.right){max-width:none;white-space:nowrap}
+  .share .part.left{right:auto;left:-12px;top:100%;translate:0 0;text-align:left}
   .share .part.right{left:auto;right:-12px;top:100%;translate:0 0}
 }
 .payback .money{margin-top:8px;font-size:var(--t-m);color:var(--ink-2)}
@@ -326,7 +332,7 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .days.with-use{margin-top:20px}
 .days .track{position:relative;height:8px;border-radius:var(--pill);background:var(--track)}
 .days .track i{position:absolute;inset-block:0;left:0;width:max(8px,var(--v));border-radius:var(--pill);background:var(--sun-mark,var(--sun))}
-.days .track b{position:absolute;top:2.5px;height:3px;left:var(--a);width:calc(var(--b) - var(--a));border-radius:1.5px;background:var(--range)}
+.days .track b{position:absolute;top:2.5px;height:3px;left:var(--a);width:calc(var(--b) - var(--a));border-radius:1.5px;background:var(--ink);opacity:.78;box-shadow:0 0 0 1px color-mix(in srgb,var(--paper) 65%,transparent)}
 .days .track .use{position:absolute;top:-14px;bottom:-14px;left:var(--u);width:1.25px;translate:-50% 0;background:var(--ink);opacity:.55}
 .days li:first-child .use{top:-4px}
 .days li:last-child .use{bottom:-4px}
@@ -628,13 +634,13 @@ dialog form > button{display:block;min-height:44px;margin:16px 0 0 auto;padding:
 :host([big]) .days .now-label{display:none}
 :host([big]) .days.with-use{margin-top:4px}
 /* Owner detail, for the wide screen only (see below): Power origin's small rings and their help line. */
-.read li:has(> [data-t^=helpShareAhead]){display:none}
+.read li:has(> [data-t="help.shareAhead"]){display:none}
 
 /* The owner detail above, on the wide screen. By the panel's name: the small rings sit in Power origin's own
    container (see .share). */
 @container panel (min-width:1004px){
   .rings-ahead{display:flex}
-  .read li:has(> [data-t^=helpShareAhead]):not([hidden]){display:flex}
+  .read li:has(> [data-t="help.shareAhead"]):not([hidden]){display:flex}
 }
 
 /* Wide panels: no paging, the pages stand side by side. */

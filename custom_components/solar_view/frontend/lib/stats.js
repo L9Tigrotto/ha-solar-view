@@ -171,8 +171,8 @@ function totals(entityIds, options, rows, clock, now, geo) {
   const days = byDay(daily, entityIds, clock), recentDays = byDay(recent, entityIds, clock);
   // A statistic without 5 minute rows (one imported from outside) only has its day row.
   const recentToday = recentDays.get(today);
-  days.set(today, recentToday ?? days.get(today));
-  // In the first hour of a day the 5 minute rows (25 hours of them) still hold all of yesterday, while its day row
+  if (recentToday) days.set(today, recentToday);
+  // In the first hour of a day the 5 minute rows (26 hours of them) still hold all of yesterday, while its day row
   // lacks its last hour or is missing (day rows are made from hour rows, written about 12 minutes past each hour).
   const yesterday = shiftKey(today, -1);
   if (at.hour === 0 && recentDays.has(yesterday)) days.set(yesterday, recentDays.get(yesterday));
@@ -236,7 +236,9 @@ function totals(entityIds, options, rows, clock, now, geo) {
   const dayWatthours = {}, hourWatthours = {};
   // Not asked at levels that leave the Energy settings' solar forecast out (see FETCHES): then {}.
   for (const f of Object.values(forecast || {})) for (const [time, v] of Object.entries(f.wh_hours || {})) {
-    const t = Date.parse(time), c = clock(t), hour = hourStart(t, clock);
+    const t = Date.parse(time);
+    if (!Number.isFinite(t) || !Number.isFinite(v)) continue;
+    const c = clock(t), hour = hourStart(t, clock);
     dayWatthours[c.key] = (dayWatthours[c.key] || 0) + v;
     hourWatthours[hour] = (hourWatthours[hour] || 0) + v;
   }
@@ -324,12 +326,12 @@ const allIds = (entityIds) => PARTS.flatMap((k) => entityIds[k]);
 // The machines' energy sensors (their runs, see machineOf).
 const machineIds = (options) => [...new Set((options.machines ?? []).map((a) => a.sensor).filter(Boolean))];
 // 5 minute rows from an hour before midnight (a day the clocks change still fits). In the first hour of a day,
-// 25 hours: totals takes yesterday from them while its day row is missing.
-const recentSince = (now, clock) => { const at = clock(now); return at.hour === 0 ? now - 25 * HOUR : hourStart(now, clock) - (at.hour + 1) * HOUR; };
+// 26 hours (yesterday may have 25): totals takes yesterday from them while its day row is missing.
+const recentSince = (now, clock) => { const at = clock(now); return at.hour === 0 ? now - 26 * HOUR : hourStart(now, clock) - (at.hour + 1) * HOUR; };
 // Each call: [period, ids, start, types (default change)], or none for the solar forecast (a call of its own).
 const FETCHES = [
   // 366 days reach the first day of the oldest month Production shows (see yearKeys) from any day.
-  { name: "days", life: "day", ask: (entityIds, options, now) => ["day", allIds(entityIds), now - 366 * DAY] },
+  { name: "days", life: "day", ask: (entityIds, options, now) => ["day", allIds(entityIds), now - 367 * DAY] },
   // From the first on record: payback, Month balance.
   { name: "months", life: "day", ask: (entityIds) => ["month", allIds(entityIds), Date.UTC(2000, 0, 1)] },
   { name: "usual", life: "day", when: draws, ask: (entityIds, options, now) => ["hour", ENERGY.flatMap((k) => entityIds[k]), now - options.usualDays * DAY] },
@@ -341,9 +343,10 @@ const FETCHES = [
   { name: "fixed", life: "day", ask: (entityIds, options) => ["month", typeof options.billFixed === "string" ? [options.billFixed] : [], Date.UTC(2000, 0, 1), ["mean"]] },
   // 25 hours cover today, even a long one.
   { name: "chargeLevel", life: "hour", ask: (entityIds, options, now) => ["hour", entityIds.chargeLevel, now - 25 * HOUR, ["mean"]] },
-  // With a tariff of two or three bands, the grid's hour rows of this month: the share bought in each band.
+  // With a tariff of two or three bands, or such bands from the bills sensor, the grid's hour rows of this month:
+  // the share bought in each band.
   // Asked whole once a day, then from the newest row kept (see toAsk).
-  { name: "gridMonth", life: "hour", grow: true, ask: (entityIds, options, now, clock) => ["hour", options.tariff && options.tariff.type !== "single" ? entityIds.gridImportKwh : [], now - (+clock(now).key.slice(8) + 1) * DAY] },
+  { name: "gridMonth", life: "hour", grow: true, ask: (entityIds, options, now, clock) => ["hour", (options.tariff && options.tariff.type !== "single") || options.billedBands ? entityIds.gridImportKwh : [], now - (+clock(now).key.slice(8) + 1) * DAY] },
   { name: "solarForecast", life: "hour", when: solarFc, ask: () => null },
   { name: "recent", life: "new", ask: (entityIds, options, now, clock) => ["5minute", allIds(entityIds), recentSince(now, clock)] },
 ];

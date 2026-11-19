@@ -145,13 +145,13 @@ export function forecastOf({ sensor, now, clock, solarWh, usual, price, sunSoFar
     days = [today, shiftKey(today, 1)].map((d) => ({ d, sun: sumOf(all, "sun", clock, d, -Infinity), use: sumOf(all, "use", clock, d, -Infinity) }));
   }
   // A range of a total is kept by scaling it with the mid hours still ahead over the mid hours it
-  // covers: `left` from its write hour when written today, else today's entry in days from the start
-  // of today. Without one (or no mid hours to scale by) the hours are summed, low with low.
+  // covers: `left` from its write time (the sensor counts that hour by its part still ahead) when written
+  // today, else today's entry in days from the start of today. Without one (or no mid hours to scale by) the hours are summed, low with low.
   const rebase = (field) => {
     const sameDay = clock(written).key === today;
     const base = sameDay ? a.left[field] : days.find((d) => d.d === today)?.[field];
     const ahead = sumOf(all, field, clock, today, now);
-    const whole = sumOf(all, field, clock, today, sameDay ? hourStart(written, clock) : -Infinity)[1];
+    const whole = sumOf(all, field, clock, today, sameDay ? written : -Infinity)[1];
     return Array.isArray(base) && whole > 0 ? base.map((v) => (v * ahead[1]) / whole) : ahead;
   };
   const left = /** @type {Ahead["left"]} */ (Object.fromEntries(["sun", "use"].map((f) => [f, fresh ? (f === "use" ? null : rebase(f)) : sumOf(all, f, clock, today, now)])));
@@ -289,12 +289,13 @@ const TIE = 1e-9;
 
 // One simulated hour's money added to m { saved, cost, earned }: what the grid gave at `buy`, the house's own use
 // (`ownUse`, standby taken off) less the grid's part at `buy`, what was sent at `sell`. null + a number is a
-// number in JS: a figure whose price is unknown must stay unknown (null).
+// number in JS: a figure whose price is unknown must stay unknown (null). Except the export without a sell
+// price: an hour that sends nothing (night) earns 0 whatever the price, or it would blank the day.
 const addMoney = (m, step, ownUse, price) => {
   const { buy, sell } = price ?? {}, plus = (sum, kwh, rate) => (rate == null || sum == null ? null : sum + kwh * rate);
   m.cost = plus(m.cost, step.fromGrid, buy);
   m.saved = plus(m.saved, Math.max(0, ownUse - step.fromGrid), buy);
-  m.earned = plus(m.earned, step.toGrid, sell);
+  m.earned = step.toGrid <= TIE ? m.earned : plus(m.earned, step.toGrid, sell);
 };
 // [low, mid, high] over the bad, mid and good runs; null when any run has no value.
 const range3 = (v) => (v.some((x) => x == null) ? null : [Math.min(...v), v[1], Math.max(...v)]);
@@ -313,7 +314,7 @@ function lastsUntil(rows, now, n, battery, firstShare) {
     if (r.sun >= r.use) return Infinity;
     // Past the discharge rate the grid gives the rest: the battery only drains at that rate.
     const share = i ? 1 : firstShare, need = Math.min(r.use - r.sun, battery.maxDischargeKw ?? Infinity) * share;
-    if (left <= need) { const t = start + (left / need) * share * HOUR; return t <= end ? t : null; }
+    if (left <= need) { const t = start + (need ? (left / need) * share * HOUR : 0); return t <= end ? t : null; }
     left -= need;
   }
   return null;
@@ -404,7 +405,7 @@ function advise(rows, bad, now, n, battery, settings, firstShare, clock) {
     const c = clock(pick.t), band = settings.bandAt?.(pick.t) ?? null, bandNow = settings.bandAt?.(now) ?? null;
     const free = pick.free, onBattery = pick.fromBattery > m.kwh / 2;
     const why = pick === first ? (free ? (onBattery ? "batteryNow" : "sunNow") : "bestNow")
-      : free ? (onBattery ? "marginBattery" : c.key === today ? "sun" : marginBattery.kwh > 0 ? "sunTomorrow" : "sunTomorrowNoBattery")
+      : free ? (onBattery ? "battery" : c.key === today ? "sun" : marginBattery.kwh > 0 ? "sunTomorrow" : "sunTomorrowNoBattery")
         : band && bandNow && band.buy < bandNow.buy - TIE ? "cheaper" : "grid";
     // The meter: only for now, the forecast knows hour means, not peaks.
     const room = marginBattery.kwh > 0 && n.chargeLevel > marginBattery.floor ? marginBattery.maxDischargeKw ?? Infinity : 0;
@@ -441,13 +442,16 @@ export function lookAhead(ahead, now, clock, n, battery, settings, soFar) {
   // The rows hold whole hours; simulate takes the present hour's part itself.
   const firstShare = Math.min(1, (rows[0].t + HOUR - now) / HOUR);
   const price = new Map(ahead.hours.map((h) => [h.t, h]));
+  // An hour's prices: the band's buy price, else the forecast hour's. A night hour after tomorrow takes its band
+  // from its own time (`t`), a forecast price from its source hour (`from`).
+  const priceAt = (t, from = t) => { const b = settings.bandAt?.(t), h = price.get(from); return { buy: b ? b.buy : h?.buy ?? null, sell: h?.sell ?? null }; };
   const simulations = runs.map((r) => simulate(r, n.chargeLevel, activeBattery, settings.exportMaxKw, firstShare));
   // The mid run's money by midnight, from today's so far.
   const money = { saved: soFar.saved, cost: soFar.cost, earned: soFar.earned };
   simulations[1].forEach((step, i) => {
     if (clock(step.t).key !== today) return;
     const share = i ? 1 : firstShare;
-    addMoney(money, step, rows[i].use * share - standby * share, price.get(step.t));
+    addMoney(money, step, rows[i].use * share - standby * share, priceAt(step.t, rows[i].from ?? step.t));
   });
   // The mid run's money for the rest of today, and on through every whole day the forecast has after today
   // (with a usual day at least to the month's end, see forecastOf), the battery carried from hour to hour:
@@ -461,7 +465,7 @@ export function lookAhead(ahead, now, clock, n, battery, settings, soFar) {
     if (key === today) return;
     const d = byDay.get(key) ?? byDay.set(key, { hours: 0, saved: 0, cost: 0, earned: 0 }).get(key);
     d.hours++;
-    addMoney(d, step, long[i].use - standby, price.get(step.t));
+    addMoney(d, step, long[i].use - standby, priceAt(step.t));
   });
   // A day the forecast stops inside (not whole, see WHOLE_DAY_H) is left out, and every day after it.
   const whole = [...byDay].sort(([a], [b]) => (a < b ? -1 : 1)), cut = whole.findIndex(([, d]) => d.hours < WHOLE_DAY_H);
@@ -476,12 +480,8 @@ export function lookAhead(ahead, now, clock, n, battery, settings, soFar) {
   // Tomorrow's sun only the usual day (no forecast): the bad run, which tomorrow's starts must pass too,
   // has none after today, so a start tomorrow wins on prices or the battery, never on a guessed sun.
   const bad = ahead.tomorrowSun === false ? runs[0].map((r) => (clock(r.t).key === today ? r : { ...r, sun: 0 })) : runs[0];
-  // Each row with its prices: the band's buy price, else the forecast hour's. A night hour after tomorrow
-  // takes its band from its own time, a forecast price from its source hour.
-  const priced = (runRows) => runRows.map((r) => {
-    const b = settings.bandAt?.(r.t), h = price.get(r.from ?? r.t);
-    return { ...r, buy: b ? b.buy : h?.buy ?? null, sell: h?.sell ?? null };
-  });
+  // Each row with its prices (see priceAt).
+  const priced = (runRows) => runRows.map((r) => ({ ...r, ...priceAt(r.t, r.from ?? r.t) }));
   // The advice adds each machine run where it plans it: its usual runs of the next 24 hours come out of
   // house use first (the run it plans is the next one; a day later the habit runs again), on the advice's
   // rows only (every other figure keeps them, the machines will run).

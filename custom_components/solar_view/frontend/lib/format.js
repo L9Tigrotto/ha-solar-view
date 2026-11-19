@@ -13,6 +13,8 @@ export function hourCycle(timeFormat, locale) {
 // One set of Intl formatters, kept while the language, currency, clock and time zone stay (see _render in solar-view.js). Times
 // are in Home Assistant's time zone (`zone`), as the hours they name; dates are calendar days, in UTC (see totals).
 export function formats(lang, currency, cycle, zone) {
+  // A language tag or currency Intl rejects ("en_US", "€") falls back, as the zone below does.
+  try { new Intl.NumberFormat(lang, { style: "currency", currency }); } catch { try { new Intl.NumberFormat(lang); } catch { lang = "en"; } try { new Intl.NumberFormat(lang, { style: "currency", currency }); } catch { currency = "EUR"; } }
   // A decimal point in every language, as the owner asked: "2.8 kW", "0.30 €". A group mark that is a
   // point too ("1.234" in Italian) becomes a narrow space, so the two never mix.
   const pointed = (numberFormat) => {

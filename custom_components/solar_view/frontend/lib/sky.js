@@ -3,7 +3,7 @@
 
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
 /** @type {typeof import("./core.js")} */
-const { MINUTE, HALF_HOUR, DAY, clamp01, num, daysIn } = await import(`./core.js${v}`);
+const { HALF_HOUR, DAY, clamp01, num, daysIn } = await import(`./core.js${v}`);
 
 // ---- Sky: colours follow the sun's height (sun.sun elevation, degrees) ----
 const SKY_DEEP_DEG = -18; // at or below: the night's own colours (astronomical night)
@@ -63,15 +63,12 @@ const dawnOf = (a) => { const azimuth = parseFloat(a?.azimuth); return Number.is
 // Forecast cloud cover in % to how grey the day sky is: 0 under 50, 1 from 90 up, 0 when unknown.
 const greyOf = (cloud) => (Number.isFinite(cloud) ? clamp01((cloud - CLOUD_GREY_FROM) / (CLOUD_GREY_FULL - CLOUD_GREY_FROM)) : 0);
 
-// The first weather entity, by id. Looked for again only when it goes, or after a minute (one added that
-// sorts first): every id in the house is a long list to go through on each state change.
-let weatherId, weatherAt = 0;
+// The first weather entity, by id. One pass over the ids keeping the smallest: no list is built or sorted, so
+// it is cheap enough on each state change, and never stale (an entity added or removed shows at once).
 function weatherOf(hass) {
-  if (!hass.states[weatherId] || Date.now() - weatherAt > MINUTE) {
-    weatherId = Object.keys(hass.states).filter((k) => k.startsWith("weather.")).sort()[0];
-    weatherAt = Date.now();
-  }
-  return hass.states[weatherId];
+  let first;
+  for (const id in hass.states) if (id.startsWith("weather.") && (first === undefined || id < first)) first = id;
+  return hass.states[first];
 }
 // Rain now: the fresh sensor's present hour (`hour`: {} when it has none, null without a fresh sensor, see live
 // in data.js; it wins, even saying no rain), else the weather entity. Never while that entity says snow alone:

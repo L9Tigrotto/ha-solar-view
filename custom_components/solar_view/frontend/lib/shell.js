@@ -45,8 +45,8 @@ const READ = {
   recent: [[swatch("line", "--sun"), "help.returnsBar"], ["", "help.returnsSold"], [swatch("lineAhead", "--sun"), "help.returnsAhead"], [swatch("hollow", "--sun"), "help.dayToday"], [swatch("dotPick", "--sun"), "help.returnsPick"]],
   payback: [[swatch("arc", "--sun"), "help.paybackArc"], ["", "help.paybackCost"], ["", "help.paybackLeft"]],
   hoursToday: [[swatch("line", "--sun"), "help.hoursBars"], [swatch("lineAhead", "--sun"), "help.hoursGhost"], [swatch("line", "--battery"), "help.hoursLine"], [swatch("lineAhead", "--battery"), "help.hoursAhead"], [swatch("usual", "--low"), "help.hoursFloor"], [swatch("dotPick", "--battery"), "help.hoursPick"]],
-  table: [[swatch("solid", "--battery"), "help.balanceBars"], [swatch("ghost", "--battery"), "help.balanceEnd"], [swatch("arc", "--grid"), "help.balanceSplit"], ["", "help.balanceNet"]],
-  prices: [[swatch("buy", "--grid"), "help.pricesBuy"], ["", "help.pricesBands"], [swatch("sell", "--sent"), "help.pricesSell"], ["", "help.pricesRates"]],
+  table: [[swatch("solid", "--battery"), "help.balanceBars"], [swatch("ghost", "--battery"), "help.balanceEnd"], [swatch("arc", "--grid"), "help.balanceSplit"], ["", "help.balanceNet"], ["", "help.balanceGuess"]],
+  prices: [[swatch("buy", "--grid"), "help.pricesBuy"], ["", "help.pricesBands"], [swatch("sell", "--sent"), "help.pricesSell"], ["", "help.pricesRates"], ["", "help.pricesEstimate"]],
 };
 
 // The shadow root's markup: the stylesheet, the sky and its rain and snow, the gear, one empty section per
