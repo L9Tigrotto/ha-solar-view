@@ -6,7 +6,7 @@ Most solar dashboards are for whoever installed the system. This one is for ever
 
 Any brand works, because it reads Home Assistant's own Energy settings. Three pages: **Now** (the house right now, the battery and the coming days), **Energy** (today hour by hour and a year of production) and **Money** (payback, daily returns, prices and the month balance). Swipe between them on a phone; on a wide screen they stand side by side. Light and dark. 8 languages (en, it, es, fr, de, pt, nl, pl) and a 12 or 24 hour clock, following each user's profile. Big phone text gets a layout of its own.
 
-A Home Assistant integration that serves the page: no build step. Installs and updates through HACS. No household or energy data leaves your Home Assistant: the integration asks Open-Meteo for the weather at your location and, with the Italian PUN estimate on, GME for its public prices (see [Privacy](docs/setup.md#privacy)).
+A Home Assistant integration that serves the page: no build step. Installs and updates through the Marketplace (HACS before Home Assistant 2026.11). No household or energy data leaves your Home Assistant: the integration asks Open-Meteo for the weather at your location and, with the Italian PUN estimate on, GME for its public prices (see [Privacy](docs/setup.md#privacy)).
 
 ![Now, Energy and Money side by side on a desktop, light theme](docs/screenshots/desktop-light.png)
 
@@ -22,7 +22,7 @@ On a phone, one page at a time:
 
 ## Quick start
 
-1. In HACS, add `https://github.com/L9Tigrotto/ha-solar-view` as a custom repository of type **Integration**, then download **Solar View** and restart Home Assistant.
+1. Settings, Marketplace, **Add from link**: add `https://github.com/L9Tigrotto/ha-solar-view` (type **Integration**), install **Solar view** and restart Home Assistant. Before 2026.11, add it in HACS as a custom repository of type **Integration**.
 2. Settings, Devices & services, Add integration, **Solar view**. The page appears in the sidebar.
 3. Settings, Dashboards, Energy: set the solar panels' forecast to **Solar view**, and to nothing else.
 

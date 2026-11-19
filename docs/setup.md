@@ -10,21 +10,30 @@ This guide is for the person who installs the page. The people who read it need 
   - a battery with its power sensor, its state of charge and its capacity;
   - a price on the grid connection, for the Money page;
   - Solar view picked as the solar panels' forecast in the Energy settings (step 4 below), for the coming days and the "wait" advice.
-- Optional: [HACS](https://hacs.xyz), to install and update in a few clicks. Without it, copy the folder by hand.
+- Optional: the Marketplace (Settings, Marketplace, built into Home Assistant 2026.11 and later) or, on older versions, [HACS](https://hacs.xyz), to install and update in a few clicks. Without either, copy the folder by hand.
 
 Developed and tested on Home Assistant 2026.9. Power sensors in the Energy settings are a fairly recent addition. On an older version, name the sensors yourself under [`sensors`](#sensors).
 
-## Install with HACS
+## Install from the Marketplace
 
-1. In HACS, open the three dots menu, **Custom repositories**. Add `https://github.com/L9Tigrotto/ha-solar-view` with the type **Integration**.
-2. Search HACS for **Solar View** and download it. Restart Home Assistant when HACS asks.
+1. Settings, Marketplace, **Add from link** (top right). Enter `https://github.com/L9Tigrotto/ha-solar-view` and select **Add**. If it asks for the type, pick **Integration**. A repository added from a link needs a GitHub connection: the Marketplace asks for it the first time.
+2. Open **Solar view** in the Marketplace and install it. Restart Home Assistant when it asks.
 3. Settings, Devices & services, Add integration, **Solar view**. "Solar view" appears in the sidebar.
 4. Settings, Dashboards, Energy: set the solar panels' forecast to **Solar view**, and to nothing else (another forecast beside it counts the sun twice). Until then, Settings, Repairs shows "Solar view: pick it as the solar forecast".
 5. Optional: put your options in `config/solar_view.yaml` (see [Options](#options)).
 
+**On Home Assistant 2026.10 or older,** use HACS for steps 1 and 2: its three dots menu, **Custom repositories**, add the same address with the type **Integration**, then download **Solar view** and restart.
+
 **Updating:** new versions show up in Settings, Updates. Install the update and restart Home Assistant. On a phone, if the old page stays, close the app fully and open it again.
 
-**Coming from the old Dashboard install?** Earlier versions were a HACS Dashboard with a `panel_custom` block in `configuration.yaml`. Remove that block, remove **Solar View** from HACS, then add the repository again as an **Integration** (steps above). The last Dashboard version stays available as the tag `dashboard-final`.
+**Coming from the old Dashboard install?** Earlier versions were a Dashboard with a `panel_custom` block in `configuration.yaml`. The address cannot be added as an Integration while it is still listed as a Dashboard, so:
+
+1. Remove the `panel_custom` block from `configuration.yaml`.
+2. In the Marketplace (HACS before 2026.11), remove the Dashboard **Solar view** with the menu on its row.
+3. In the three dots menu at the top right, **Custom repositories**: remove `L9Tigrotto/ha-solar-view`.
+4. Add it again as an **Integration** and install it (steps above), then restart Home Assistant. The old sidebar entry is gone after the restart.
+
+The last Dashboard version stays available as the tag `dashboard-final`.
 
 ## Install by hand
 

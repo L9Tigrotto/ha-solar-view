@@ -159,9 +159,9 @@ There is no `?v=` to raise: the panel's address carries a hash of the page's fil
 
 ## Publishing
 
-The repository has no releases, so HACS follows the latest commit on `main`. Every merge into `main` reaches every HACS install as an update. Run the checks before merging.
+The repository has no releases, so the Marketplace (HACS before Home Assistant 2026.11) follows the latest commit on `main`. Every merge into `main` reaches every install as an update. Run the checks before merging.
 
-Do not push the page's move into `custom_components/solar_view/frontend/` while HACS still follows `main`: a Dashboard install looks for `dist/solar-view.js` and stops updating. First push the tag `dashboard-final` (the last commit with `dist/`), make it a release, and check that HACS offers it.
+The page moved into `custom_components/solar_view/frontend/` on `main` on 2026-11-19. A Dashboard install looks for `dist/solar-view.js`, so it no longer updates: the tag `dashboard-final` marks its last commit. Move such an install to the Integration as the setup guide's upgrade note says.
 
 ## Adding or fixing a language
 
