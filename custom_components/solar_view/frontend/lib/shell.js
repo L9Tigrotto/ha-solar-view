@@ -56,26 +56,27 @@ const shellHtml = (css) => `<style>${css}</style>
 <div class="sky"></div><div class="stars"></div><div class="rain" aria-hidden="true" hidden>${[[6, 0], [19, 1.3], [31, 0.6], [44, 1.9], [56, 0.3], [68, 1.6], [81, 0.9], [93, 2.1]]
   .map(([x, d]) => `<i style="left:${x}%;animation-delay:-${d}s"></i>`).join("")}</div><div class="snow" aria-hidden="true" hidden>${[[4, 4, 0, 8], [11, 3, 5.1, 9.5], [18, 5, 2.4, 7.5], [26, 3, 6.8, 10], [33, 6, 1.2, 8.5], [41, 4, 4.3, 9], [48, 3, 7.4, 7.8], [55, 5, 0.6, 9.8], [62, 4, 3.6, 8.2], [70, 3, 5.9, 10.2], [77, 6, 2.1, 8.8], [84, 4, 6.3, 7.6], [91, 3, 1.7, 9.2], [96, 5, 4.8, 8.4]]
   .map(([x, s, d, t]) => `<i style="left:${x}%;--s:${s}px;--t:${t}s;animation-delay:-${d}s"></i>`).join("")}</div><div class="veil"></div><div class="hint" aria-hidden="true"></div><div class="status" role="status"></div>
-<button type="button" class="gear"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.6v4.6M12 17.8v4.6M1.6 12h4.6M17.8 12h4.6M4.6 4.6l3.3 3.3M16.1 16.1l3.3 3.3M4.6 19.4l3.3-3.3M16.1 7.9l3.3-3.3" stroke-width="3.4"/><circle cx="12" cy="12" r="5.9" stroke-width="3"/></svg></button>
+<button type="button" class="gear" aria-haspopup="dialog"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.6v4.6M12 17.8v4.6M1.6 12h4.6M17.8 12h4.6M4.6 4.6l3.3 3.3M16.1 16.1l3.3 3.3M4.6 19.4l3.3-3.3M16.1 7.9l3.3-3.3" stroke-width="3.4"/><circle cx="12" cy="12" r="5.9" stroke-width="3"/></svg></button>
 <main class="pager">${PAGES.map((p) => `<section class="page ${p}" id="${p}"></section>`).join("")}</main>
 <footer><ha-menu-button hidden></ha-menu-button><nav class="tabs">${PAGES.map((p) =>
   `<button type="button" data-page="${p}"><svg viewBox="0 0 24 24" aria-hidden="true">${TAB_ICON[p]}</svg><span></span></button>`).join("")}</nav></footer>`;
 
 // The gear's dialog: the display switches, the language, the clock, and for admins the setup check (see _fillCheck). Texts
-// come later (see _dialogTexts).
-const gearDialog = (languages) => `<dialog class="show" aria-labelledby="show-title"><form method="dialog"><h2 id="show-title" data-t="gear.showOnDevice"></h2><p data-t="gear.showOnDeviceNote"></p>
+// come later (see _dialogTexts). Each dialog scrolls its .body alone: the button under it stays in reach, and
+// the scrollbar stays inside the rounded corners.
+const gearDialog = (languages) => `<dialog class="show" aria-labelledby="show-title"><form method="dialog"><div class="body"><h2 id="show-title" data-t="gear.showOnDevice"></h2><p data-t="gear.showOnDeviceNote"></p>
 ${Object.entries(SWITCHES).map(([group, names]) => `<fieldset><legend data-t="gear.${group}"></legend>${names.map((n) =>
   `<label><span data-t="gear.switch${n[0].toUpperCase() + n.slice(1)}"></span><input type="checkbox" role="switch" name="${n}"></label>`).join("")}</fieldset>`).join("")}
 ${languagePicker(languages)}
 <fieldset class="clock"><legend id="clock-title" data-t="gear.clockTitle"></legend><select name="clock" aria-labelledby="clock-title"><option value="" data-t="gear.clockAuto"></option><option value="12" data-t="gear.clock12"></option><option value="24" data-t="gear.clock24"></option></select></fieldset>
-<fieldset class="check" hidden><legend data-t="gear.checkTitle"></legend><dl></dl></fieldset>
+<fieldset class="check" hidden><legend data-t="gear.checkTitle"></legend><dl></dl></fieldset></div>
 <button data-t="gear.showDone"></button></form></dialog>`;
 
-// How to read one card, "" for a card without one.
-const readDialog = (card) => (Object.hasOwn(READ, card) ? `<dialog class="read" data-card="${card}" aria-labelledby="read-${card}"><form method="dialog"><h2 id="read-${card}" data-t="help.title"></h2>
+// How to read one card, "" for a card without one. .for: the card's title, set as it opens (see _wireShow).
+const readDialog = (card) => (Object.hasOwn(READ, card) ? `<dialog class="read" data-card="${card}" aria-labelledby="read-${card}"><form method="dialog"><div class="body"><h2 id="read-${card}" data-t="help.title"></h2><p class="for" aria-hidden="true"></p>
 ${card === "battery" ? `<div class="pair"><figure>${batteryRing(60, 75, "--battery", null, "")}<figcaption data-t="help.charging"></figcaption></figure>
 <figure>${batteryRing(60, 45, "--battery", null, "")}<figcaption data-t="now.discharging"></figcaption></figure></div>` : ""}
-<ul>${READ[card].map(([mark, key]) => `<li>${mark}<span data-t="${key}"></span></li>`).join("")}</ul>
+<ul>${READ[card].map(([mark, key]) => `<li>${mark}<span data-t="${key}"></span></li>`).join("")}</ul></div>
 <button data-t="help.close"></button></form></dialog>` : "");
 
 // How much the browser enlarges text on its own: [page text, chart text], 1 where it does not. The

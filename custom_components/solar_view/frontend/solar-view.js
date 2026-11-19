@@ -370,15 +370,28 @@ class SolarView extends HTMLElement {
       // Named as its button is, with the card's title.
       d.removeAttribute("aria-labelledby");
       d.setAttribute("aria-label", help.getAttribute("aria-label"));
+      // Which card it explains, under the dialog's own title (already in the name above: hidden from readers).
+      const h = help.closest(".card")?.querySelector("h2"), name = d.querySelector(".for");
+      name.textContent = h ? (h.querySelector("span") ?? h).textContent : "";
       d.showModal();
     });
     // The gear steps aside while the page in view is scrolled down, so it never covers a card's "?"; it is
     // back at the top. Scroll events do not bubble: caught on the way down, from a page or the pager itself.
     const pages = /** @type {HTMLElement[]} */ ([...this._pager.children]);
+    // The wide layout's menu button steps aside with it (it stands above the first column).
+    const away = (target) => {
+      const pager = this._pager, page = target === pager ? pages.find((p) => Math.abs(p.offsetLeft - pager.offsetLeft - pager.scrollLeft) < p.clientWidth / 2) : target;
+      const gone = Math.max(pager.scrollTop, page?.scrollTop ?? 0) > 8;
+      this._gear.classList.toggle("away", gone);
+      this._menu.classList.toggle("away", gone);
+    };
     this._pager.addEventListener("scroll", (/** @type {On<Event>} */ e) => {
-      const pager = this._pager, page = e.target === pager ? pages.find((p) => Math.abs(p.offsetLeft - pager.offsetLeft - pager.scrollLeft) < p.clientWidth / 2) : e.target;
-      this._gear.classList.toggle("away", Math.max(pager.scrollTop, page?.scrollTop ?? 0) > 8);
+      away(e.target);
+      this._hint.classList.remove("on"); // a hint would stay where its mark was
     }, { capture: true, passive: true });
+    // A resize changes which element scrolls (the pages when narrow, the pager when wide): read again, or the
+    // gear stays hidden until the next scroll.
+    new ResizeObserver(() => away(this._pager)).observe(this._pager);
   }
 
   // The gear dialog's setup check, for admins only: each feature on or off and what it needs, from the data

@@ -303,7 +303,7 @@ function comingCard(v, lines, format) {
     const w = d.cover === null ? "" : `${weatherWord(lines, d.cover)}, `;
     const name = say(near(format, low) === near(format, high) ? lines.now.hintDayAheadMid : lines.now.hintDayAhead, { date: format.date(date), weather: w, low: near(format, low), high: near(format, high), amount: near(format, low) });
     return `<li ${hint(name, "")} style="--c:${SUN_DOT}"><span>${format.weekday(date)}</span>${weatherIcon(d.cover)}
-      <span class="track"><i style="--v:${at(middle)}%"></i><b style="--a:${at(low)}%;--b:${at(high)}%"></b>${mark}${i ? "" : label}</span><span class="num">${near(format, middle)}</span></li>`;
+      <span class="track">${at(middle) > 0 ? `<i style="--v:${at(middle)}%"></i>` : ""}<b style="--a:${at(low)}%;--b:${at(high)}%"></b>${mark}${i ? "" : label}</span><span class="num">${near(format, middle)}</span></li>`;
   }).join("");
   return `<section class="card coming" data-card="coming">
       <h2><span>${lines.now.comingDays}</span> <span class="num">kWh</span></h2>${helpButton(lines, "days")}

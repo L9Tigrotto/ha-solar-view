@@ -4,6 +4,9 @@
    page, swiped sideways or picked from the tab bar; a wide panel shows them side by side.
    One ink colour per theme, so contrast holds on every sky.
    Sizes follow the panel (container queries), not the window: the sidebar may be open. */
+// The skeleton's grey bars: the texts and the marks greyed (see Skeleton below), and the only parts that pulse.
+const SK_TEXTS = ":is(.sub,.battery-say p,:is(.advice,.wear,.best) p > *,p.money,.day:not(:has(.readout)),.big,.readout dd,.amount,.side b,.price b,.battery-word > span,.card > .note,.flowtext .tv,.band-now,.bands :is(.num,.band-percent),.payback > p:not(.ring-name))";
+const SK_MARKS = ":is(.week .col i,.year i,.battery-word i,.advice .tile,.wear .tile,.best .tile,.days .track i)";
 export const CSS = `
 :host{
   display:flex;flex-direction:column;position:relative;overflow:hidden;container:panel / size;
@@ -69,21 +72,21 @@ export const CSS = `
 :host([ready]) .veil{opacity:0}
 /* The sky colours are set on the host but not inherited (see registerProperty): only .sky takes them, so their glide restyles one element. */
 .sky{--sv-sky1:inherit;--sv-sky2:inherit;--sv-sky3:inherit;background:linear-gradient(180deg,var(--sv-sky1),var(--sv-sky2) 55%,var(--sv-sky3))}
-/* Stars: big and small dots, the small ones fainter. */
+/* Stars: small soft points, faint enough to sit behind the night headline. */
 .stars{opacity:var(--stars,0);
   background:
-    radial-gradient(6px 6px at 12% 9%,#fff 50%,transparent 51%),
-    radial-gradient(2.5px 2.5px at 31% 22%,rgba(255,255,255,0.6) 50%,transparent 51%),
-    radial-gradient(4px 4px at 78% 7%,#fff 50%,transparent 51%),
-    radial-gradient(2.5px 2.5px at 90% 27%,rgba(255,255,255,0.6) 50%,transparent 51%),
-    radial-gradient(6px 6px at 58% 15%,#fff 50%,transparent 51%),
-    radial-gradient(2.5px 2.5px at 7% 38%,rgba(255,255,255,0.6) 50%,transparent 51%),
-    radial-gradient(4px 4px at 68% 41%,#fff 50%,transparent 51%),
-    radial-gradient(2.5px 2.5px at 44% 5%,rgba(255,255,255,0.6) 50%,transparent 51%),
-    radial-gradient(6px 6px at 22% 30%,#fff 50%,transparent 51%),
-    radial-gradient(2.5px 2.5px at 84% 33%,rgba(255,255,255,0.6) 50%,transparent 51%),
-    radial-gradient(4px 4px at 50% 35%,#fff 50%,transparent 51%),
-    radial-gradient(2.5px 2.5px at 36% 23%,rgba(255,255,255,0.6) 50%,transparent 51%)}
+    radial-gradient(3px 3px at 12% 9%,rgba(255,255,255,.5),transparent),
+    radial-gradient(1.5px 1.5px at 31% 22%,rgba(255,255,255,.35),transparent),
+    radial-gradient(2.5px 2.5px at 78% 7%,rgba(255,255,255,.45),transparent),
+    radial-gradient(1.5px 1.5px at 90% 27%,rgba(255,255,255,.35),transparent),
+    radial-gradient(3px 3px at 58% 15%,rgba(255,255,255,.5),transparent),
+    radial-gradient(1.5px 1.5px at 7% 38%,rgba(255,255,255,.35),transparent),
+    radial-gradient(2.5px 2.5px at 68% 41%,rgba(255,255,255,.45),transparent),
+    radial-gradient(1.5px 1.5px at 44% 5%,rgba(255,255,255,.35),transparent),
+    radial-gradient(3px 3px at 22% 30%,rgba(255,255,255,.5),transparent),
+    radial-gradient(1.5px 1.5px at 84% 33%,rgba(255,255,255,.35),transparent),
+    radial-gradient(2.5px 2.5px at 50% 35%,rgba(255,255,255,.45),transparent),
+    radial-gradient(1.5px 1.5px at 36% 23%,rgba(255,255,255,.35),transparent)}
 ::selection{background:color-mix(in srgb,var(--ink) 22%,transparent)}
 :focus-visible{outline:2px solid var(--ink);outline-offset:3px;border-radius:var(--r-s)}
 h1,h2,h3,p,ol{margin:0;padding:0}
@@ -206,7 +209,7 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 :is(.advice,.wear) .tile svg{width:26px;height:26px}
 :is(.advice,.wear) p{font-size:var(--t-l);font-weight:500;line-height:1.3;letter-spacing:-.01em;text-wrap:balance}
 /* Lead lines: the sentence under the share ring, centred under it (beside the small rings too). */
-:is(.share,.rings > div) > p:not(.money){text-align:center}
+:is(.share,.rings > div,.payback) > p:not(.money){text-align:center}
 :is(.share,.payback,.rings > div) > p:not(.money,.ring-name){font-size:var(--t-l);font-weight:500;line-height:1.3;letter-spacing:-.01em;text-wrap:balance}
 /* The whole-page message (not set up, offline): a card centred on the sky. An icon, a title, what is
    wrong; for setup the path in Home Assistant as chips, and for admins the sensors not found. */
@@ -229,17 +232,17 @@ h1,h2,h3,p,ol{margin:0;padding:0}
    before the data (titles, headings, labels, units, weekdays) stays readable, as does the
    "Loading" headline. Every mark is one grey layer: a fill drawn over its track is hidden.
    A bar hugs its text (fit-content), and must stay where that text sits when loaded. */
-.skel :is(.sub,.battery-say p,:is(.advice,.wear,.best) p > *,p.money,.day:not(:has(.readout)),.big,.readout dd,.amount,.side b,.price b,.battery-word > span,.card > .note,.flowtext .tv){
+.skel ${SK_TEXTS}{
   color:transparent!important;background:var(--track);border-radius:var(--r-s);width:fit-content}
 /* The advice and washer sentences grey as spans, a bar a line, so a tile floated beside them (big text) stays clear. */
 .skel .big{display:inline-block}
-.skel :is(.readout dd,.battery-say p){margin-inline:auto}
+.skel :is(.readout dd,.battery-say p,.payback > p:not(.money)){margin-inline:auto}
 /* The headline keeps the box of the sentence shown last time, with the loading word over it. */
 .skel .now h1{position:relative;color:transparent}
 .skel .now h1::before{content:attr(data-wait);position:absolute;inset:0 0 auto;color:var(--ink)}
 .skel .now .sub{margin-inline:auto}
-.skel :is(.week .col i,.year i,.battery-word i,.advice .tile,.wear .tile,.best .tile,.days .track i){background:var(--track)!important;border-color:transparent!important;outline-color:transparent!important}
-.skel :is(.chargeLine :not(.floor),.now-label,.days .track :is(b,.use),.tick,.hours24 i,.ring :not(.track,.sk),.flow .lvl,.weather-icon){visibility:hidden}
+.skel ${SK_MARKS}{background:var(--track)!important;border-color:transparent!important;outline-color:transparent!important}
+.skel :is(.chargeLine :not(.floor),.now-label,.days .track :is(b,.use),.tick,.hours24 i,.ring :not(.track,.sk),.flow .lvl,.weather-icon,.payback .done){visibility:hidden}
 .skel .week li[aria-current] > .date{background:none;color:inherit}
 .skel .step{visibility:hidden}
 .skel .legend i{background:var(--track)}
@@ -368,10 +371,15 @@ h1,h2,h3,p,ol{margin:0;padding:0}
    the caption's first line, which keeps room for them. --cap-top: how far under the box's top that line starts. */
 .stepped{position:relative}
 .step{position:absolute;top:calc(var(--cap-top,0px) - 13px);z-index:1;display:grid;place-items:center;width:44px;height:44px;padding:0;border:0;background:none;color:var(--ink);cursor:pointer}
+/* A pointer that hovers: the round controls tint under it. */
+@media (hover:hover){
+  :is(.gear,.help):hover{border-radius:var(--pill);background:color-mix(in srgb,var(--ink) 8%,transparent)}
+  .step:not([aria-disabled]):hover svg{background:color-mix(in srgb,var(--ink) 18%,transparent)}
+}
 .step-prev{left:-10px}
 .step-next{right:-10px}
 .step svg{box-sizing:content-box;width:22px;height:22px;padding:4px;border-radius:50%;background:color-mix(in srgb,var(--ink) 10%,transparent);fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
-.step:is(:hover,:focus-visible) svg{background:color-mix(in srgb,var(--ink) 18%,transparent)}
+.step:focus-visible svg{background:color-mix(in srgb,var(--ink) 18%,transparent)}
 .step[aria-disabled=true]{opacity:.3;cursor:default}
 .step[aria-disabled=true] svg{background:color-mix(in srgb,var(--ink) 10%,transparent)}
 .stepped :is(.period,.chart-title),.stepped .day:not(:has(.readout)){padding-inline:36px}
@@ -441,6 +449,7 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 @container (max-width: 340px){.year .wide{display:none}.year .narrow{display:inline}}
 /* Dragging across a chart's row picks (an hour's only with a finger); the page still scrolls up and down. */
 :is(.week,.hours24){touch-action:pan-y;user-select:none;-webkit-user-select:none}
+:is(.week,.hours24) li:not(.future){cursor:pointer}
 /* Figures under a chart (see readout): the picked hour, day or month over them, then a label with its
    chart's dot over each figure, all centred; three to a row (two when two or four, or three at big text, so
    no label takes more than two lines), a short row centred. A figure is never narrower than its longest word. */
@@ -523,7 +532,9 @@ footer > *{pointer-events:auto}
 ha-menu-button{color:var(--ink)}
 /* Each tab an icon above a short label. */
 .tabs{display:flex;gap:2px;min-width:0;overflow-x:auto;scrollbar-width:none;padding:4px;border-radius:26px;background:var(--card);border:1px solid var(--card-line);
-  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 6px 18px -8px rgb(0 0 0 / .35)}
+/* One tab alone (the setup message) is no choice: the bar goes. */
+.tabs:not(:has(> button:not([hidden]) ~ button:not([hidden]))){display:none}
 .tabs button{appearance:none;border:0;background:none;cursor:pointer;display:grid;justify-items:center;align-content:center;gap:2px;
   min-height:50px;min-width:60px;padding:5px 10px 4px;border-radius:22px;color:var(--ink);font:500 var(--t-xs)/1.2 var(--f);white-space:nowrap}
 .tabs svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
@@ -536,8 +547,17 @@ ha-menu-button{color:var(--ink)}
 .gear svg{width:22px;height:22px;fill:none;stroke:currentColor}
 .gear.away:not(:focus-visible){opacity:0;visibility:hidden}
 :is(.gear,.help,.step,.show input[role="switch"],dialog form > button,.tabs button):focus-visible{border-radius:var(--pill)}
-dialog:is(.show,.read){width:min(360px,calc(100vw - 32px));max-height:calc(100dvh - 32px);padding:20px 20px 16px;border:1px solid var(--track);border-radius:18px;
+/* Inside the tab bar's 4px padding, which its scrolling clips. */
+.tabs button:focus-visible{outline-offset:1px}
+dialog:is(.show,.read){width:min(360px,calc((100vw - 32px) / var(--z,1)));max-height:calc((100dvh - 32px) / var(--z,1));overflow:hidden;padding:0;border:1px solid var(--track);border-radius:18px;
   background:var(--paper);color:var(--ink);font:calc(16px / var(--zt))/1.45 var(--f)}
+/* The body scrolls, inside the rounded box; the button under it stays (see gearDialog in shell.js). */
+dialog:is(.show,.read)[open],:is(.show,.read) form{display:flex;flex-direction:column;min-height:0}
+:is(.show,.read) form{flex:1 1 auto}
+:is(.show,.read) .body{min-height:0;overflow:auto;padding:20px 20px 4px}
+/* A body that scrolls takes focus (keyboard scrolling): its ring drawn inside, the dialog clips outside. */
+:is(.show,.read) .body:focus-visible{outline-offset:-2px;border-radius:17px 17px 4px 4px}
+.read .for{margin-top:2px;font-size:var(--t-m);color:var(--ink-2)}
 dialog:is(.show,.read)::backdrop{background:rgba(4,6,15,.5)}
 :is(.show,.read) h2{font-size:var(--t-l);font-weight:600;line-height:1.25;letter-spacing:-.01em}
 .show p{margin-top:4px;font-size:var(--t-m);color:var(--ink-2)}
@@ -549,24 +569,26 @@ dialog:is(.show,.read)::backdrop{background:rgba(4,6,15,.5)}
 .show input[role="switch"]::before{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--ink-2)}
 .show input[role="switch"]:checked{border-color:var(--ink);background:var(--ink)}
 .show input[role="switch"]:checked::before{left:23px;background:var(--paper)}
-/* The language: a plain select, with each language's flag beside its name where the browser can draw options
-   (appearance:base-select); elsewhere the names alone. */
+/* The language and the clock: plain selects, drawn by the page where the browser can draw options
+   (appearance:base-select), each language with its flag beside its name; elsewhere the browser's own. */
 .show :is(.language,.clock) select{width:100%;min-height:44px;margin-top:8px;padding:8px 12px;border:1px solid var(--ink-2);border-radius:var(--r-s);background:var(--paper);color:var(--ink);font:inherit}
 @supports (appearance:base-select){
-  .show .language select,.show .language select::picker(select){appearance:base-select}
-  .show .language select::picker(select){border:1px solid var(--ink-2);border-radius:var(--r-s);background:var(--paper);color:var(--ink);max-height:min(400px,60dvh);overflow-y:auto}
-  .show .language :is(select > button,selectedcontent,option){display:flex;align-items:center;gap:10px}
+  .show :is(.language,.clock) select,.show :is(.language,.clock) select::picker(select){appearance:base-select}
+  .show :is(.language,.clock) select::picker(select){border:1px solid var(--ink-2);border-radius:var(--r-s);background:var(--paper);color:var(--ink);max-height:min(400px,calc(60dvh / var(--z,1)));overflow-y:auto}
+  .show :is(.language,.clock) :is(select > button,selectedcontent,option){display:flex;align-items:center;gap:10px}
   .show .language select > button{width:100%;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:start}
-  .show .language option{min-height:44px;padding:8px 12px}
-  .show .language option:is(:hover,:focus,:checked){background:var(--track)}
-  .show .language option::checkmark{order:2;margin-left:auto}
+  .show :is(.language,.clock) option{min-height:44px;padding:8px 12px}
+  .show :is(.language,.clock) option:is(:hover,:focus,:checked){background:var(--track)}
+  .show :is(.language,.clock) option::checkmark{order:2;margin-left:auto}
   .show .language svg{flex:none;width:24px;height:16px;border-radius:2px}
+  /* A thin edge, so a white band (Poland, Italy) does not melt into the paper; not on the globe. */
+  .show .language svg:not(:has(g)){box-shadow:0 0 0 1px var(--track)}
 }
 /* The setup check (admins): each feature over what it is set to, or what it needs. */
 .show .check dl{display:grid;gap:8px;margin:8px 0 0}
 .show .check dt{font-size:var(--t-m);font-weight:500}
 .show .check dd{margin:0;font-size:var(--t-s);color:var(--ink-2);overflow-wrap:anywhere}
-dialog form > button{display:block;min-height:44px;margin:16px 0 0 auto;padding:0 22px;border:0;border-radius:var(--pill);
+dialog form > button{display:block;flex:none;min-height:44px;margin:12px 20px 16px auto;padding:0 22px;border:0;border-radius:var(--pill);
   background:var(--ink);color:var(--paper);font:600 var(--t-m) var(--f);cursor:pointer}
 /* How to read the battery ring: a rising and a falling example, then one line per mark with its swatch. */
 .read .pair{display:flex;justify-content:center;gap:28px;margin:14px 0 6px}
@@ -660,11 +682,22 @@ dialog form > button{display:block;min-height:44px;margin:16px 0 0 auto;padding:
   .tabs{display:none}
   /* The menu button, when there is one, moves to the corner above the first column. */
   footer{top:4px;right:auto;bottom:auto;left:12px;padding:0}
+  ha-menu-button.away:not(:focus-visible){opacity:0;visibility:hidden}
 }
 
 @media (prefers-reduced-motion:no-preference){
-  .tabs button{transition:background-color .2s var(--ease),color .2s var(--ease)}
-  .gear{transition:opacity .2s var(--ease),visibility .2s}
+  /* Controls answer a press: a small give, eased (and the switch's knob glides). */
+  .tabs button{transition:background-color .2s var(--ease),color .2s var(--ease),transform .12s var(--ease)}
+  .gear,ha-menu-button{transition:opacity .2s var(--ease),visibility .2s,transform .12s var(--ease),background-color .2s var(--ease)}
+  :is(.help,.step,dialog form > button){transition:transform .12s var(--ease),background-color .2s var(--ease)}
+  :is(.tabs button,.gear,.help,.step:not([aria-disabled]),dialog form > button):active{transform:scale(.96)}
+  .show input[role="switch"],.show input[role="switch"]::before{transition:left .2s var(--ease),background-color .2s var(--ease),border-color .2s var(--ease)}
+  /* A dialog fades and grows in as it opens. */
+  dialog:is(.show,.read)[open],dialog:is(.show,.read)[open]::backdrop{transition:opacity .2s var(--ease),transform .2s var(--ease)}
+  @starting-style{
+    dialog:is(.show,.read)[open]{opacity:0;transform:scale(.96)}
+    dialog:is(.show,.read)[open]::backdrop{opacity:0}
+  }
   /* Light travelling along whichever paths are live. */
   .flow .streak{display:block;animation:run 2.8s linear infinite}
   .flow .halo{animation:breathe 6s ease-in-out infinite;transform-origin:170px 36px}
@@ -684,7 +717,8 @@ dialog form > button{display:block;min-height:44px;margin:16px 0 0 auto;padding:
   .veil{transition:opacity 1.4s var(--ease)}
   /* The sky glides from one update to the next (a new hour's clouds, the theme), not in a step. */
   :host([glide]) .sky{transition:--sv-sky1 2s var(--ease),--sv-sky2 2s var(--ease),--sv-sky3 2s var(--ease)}
-  .skel .page{animation:pulse 1.6s ease-in-out infinite}
+  /* Only the grey bars pulse: the titles and the loading word stay still. */
+  .skel ${SK_TEXTS},.skel ${SK_MARKS},.skel .sk,.skel :where(.days .num)::after{animation:pulse 1.6s ease-in-out infinite}
   @keyframes pulse{50%{opacity:.55}}
   .pager.fresh .page > *{animation:rise .7s var(--ease) both}
   @keyframes rise{from{opacity:0;transform:translateY(8px)}}
