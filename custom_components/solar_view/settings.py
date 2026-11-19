@@ -13,7 +13,6 @@ _LOGGER = logging.getLogger(__name__)
 # The groups a solar_view.yaml may put its keys in (CONFIG_GROUPS in config.js; `sensors` is apart).
 GROUPS = ("plant", "battery", "grid", "payback", "predictions", "machines", "prices", "display")
 MACHINES = ("washer", "dryer", "dishwasher")
-MACHINE_FIELDS = ("kwh", "hours", "peak_kw", "sensor")
 SENSORS = ("load_power", "load_energy", "battery_health")
 LEVELS = ("none", "usual_days", "weather", "usual_days_weather")
 EXPORT_LIMIT = "export_limit_kw"   # the options' name for the page's export_max_kw

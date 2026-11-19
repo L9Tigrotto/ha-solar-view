@@ -18,7 +18,8 @@ _LOGGER = logging.getLogger(__name__)
 # Italian national holidays ("MM-DD"), all F3; Easter Monday too (easter_monday). As the page's bandOf.
 HOLIDAYS = ("01-01", "01-06", "04-25", "05-01", "06-02", "08-15", "11-01", "12-08", "12-25", "12-26")
 KINDS = {"three": {"f1", "f2", "f3"}, "two": {"f1", "f23"}, "single": {"f1"}}
-# The groups solar_view.yaml may put its keys in, as the page's configOf reads them.
+# The groups solar_view.yaml may put its keys in, as the page's configOf reads them. Kept apart from settings.GROUPS
+# so this module loads on its own (tests check they match).
 GROUPS = ("plant", "battery", "grid", "payback", "predictions", "machines", "prices", "display")
 # Each figure: its name under sensors:, and the Energy settings source type and field it comes from otherwise.
 ENERGY = {"bought": ("grid_in_energy", "grid", "stat_energy_from"), "sent": ("grid_out_energy", "grid", "stat_energy_to"),
@@ -37,7 +38,6 @@ K = (1 + LOSSES) * (1 + VAT)
 def _valid_figures(month: Any, figures: Any, name: str) -> bool:
     """One month a bill reader gave, as the set_prices action takes it: "2026-09", bands f1/f2/f3/f23 of a whole
     contract in 0..100, an optional finite fixed part. Warned about and skipped when not."""
-    import math
     import re
 
     ok = isinstance(month, str) and re.fullmatch(r"(19|20)\d{2}-(0[1-9]|1[0-2])", month) and isinstance(figures, dict)
@@ -178,20 +178,29 @@ def energy_ids(prefs: dict, config: dict) -> dict[str, list[str]]:
             out[key] = [i for i in (given if isinstance(given, list) else [given]) if isinstance(i, str) and i]
         else:
             out[key] = [s[field] for s in sources if kind and s.get("type") == kind and s.get(field)]
+        out[key] = list(dict.fromkeys(out[key]))  # an id named twice counts once, as the page's config does
     return out
 
 
-def hour_rows(stats: dict[str, list[dict]], ids: dict[str, list[str]]
+def since_outside(since: dict[str, float], start: float, end: float) -> dict[str, float]:
+    """Each meter's first month on record (epoch seconds), left out for the month [start, end) it began in: there
+    its first hour row is the true start (a meter added on the 15th misses the 1st to the 14th), not the month's."""
+    return {i: t for i, t in since.items() if not start <= t < end}
+
+
+def hour_rows(stats: dict[str, list[dict]], ids: dict[str, list[str]], since: dict[str, float] | None = None
               ) -> list[tuple[datetime, float | None, float | None]]:
     """Each hour's (start, bought kWh, house kWh) from statistics rows ({"start": epoch seconds, "change"}).
     House is the load meter when named, else what flowed in minus what flowed out, at least 0 (the page's
     houseKwh). A figure with no ids counts as 0; one whose meter has no row that hour is None, except before
     the meter's first row (it was added later, the page's missingOk): 0 when another meter of its figure has a
     row then, and always for a battery (no battery yet). An hour before the load meters' first rows (added later)
-    takes the balance, as the page does; a load meter with no rows, or missing one after its first, leaves it None."""
+    takes the balance, as the page does; a load meter with no rows, or missing one after its first, leaves it None.
+    `since`: each meter's first row on record (epoch seconds), for `stats` of one month: a meter added in a later
+    month has no row in this one, yet was not there to miss."""
     change = {i: {r["start"]: max(0.0, r["change"]) for r in stats.get(i, []) if r.get("change") is not None}
               for key in ENERGY for i in ids.get(key, [])}
-    first = {i: min(rows, default=math.inf) for i, rows in change.items()}
+    first = {i: min(min(rows, default=math.inf), (since or {}).get(i, math.inf)) for i, rows in change.items()}
     starts = sorted({t for rows in change.values() for t in rows})
 
     def part(key: str, t: float) -> float | None:
@@ -489,6 +498,15 @@ class Bills:
             if stored:
                 ids = energy_ids((await async_get_manager(self.hass)).data or {}, merge(self._config, await async_read_config(self.hass)))
                 wanted = {i for group in ids.values() for i in group}
+                # Each meter's first month on record: a meter added later is excused before it, not just in its month.
+                try:
+                    firsts = await get_instance(self.hass).async_add_executor_job(
+                        statistics_during_period, self.hass, datetime(2000, 1, 1, tzinfo=timezone.utc), None, wanted,
+                        "month", {"energy": "kWh"}, {"change"})
+                    since = {i: min(r["start"] for r in rows) for i, rows in firsts.items() if rows}
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.warning("Solar view: the meters' first months could not be read: %s", err)
+                    since = {}
                 for month, (prices, until) in todo.items():
                     if not ids["bought"]:
                         money[month] = None
@@ -507,7 +525,7 @@ class Bills:
                         stats = await get_instance(self.hass).async_add_executor_job(
                             statistics_during_period, self.hass, start, end, wanted, "hour", {"energy": "kWh"},
                             {"change"})
-                        money[month] = month_money(hour_rows(stats, ids), prices, time_zone, month, until)
+                        money[month] = month_money(hour_rows(stats, ids, since_outside(since, start.timestamp(), end.timestamp())), prices, time_zone, month, until)
                         # Kept only once its last hour's statistics are surely written (about 12 minutes past).
                         if until is None and money[month] is not None and now >= end + timedelta(hours=1):
                             self._priced[month] = (key, money[month])

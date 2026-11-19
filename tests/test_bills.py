@@ -1,4 +1,5 @@
 """bills.py: pricing a month at its bill's figures. Run: python -m pytest tests -q"""
+import math
 import pathlib
 import sys
 from datetime import date, datetime, timedelta, timezone
@@ -263,3 +264,38 @@ def test_load_reader_takes_the_owners_bill_months_function(tmp_path):
     (tmp_path / bills.READER_FILE).write_text("def other():\n    pass\n", encoding="utf-8")
     with pytest.raises(AttributeError):
         bills.load_reader(tmp_path)
+
+
+def test_hour_rows_meter_added_in_a_later_month():
+    h0 = datetime(2026, 11, 16, 11, tzinfo=UTC)
+    ids = {"bought": ["sensor.g"], "sent": [], "solar": ["sensor.p"], "battery_out": ["sensor.bo"],
+           "battery_in": ["sensor.bi"], "load": ["sensor.l"]}
+    stats = {"sensor.g": [row(T, 1)], "sensor.p": [row(T, 2)]}  # this month: no battery, no load meter yet
+    later = T + 40 * 86400
+    since = {"sensor.g": T, "sensor.p": T, "sensor.bo": later, "sensor.bi": later, "sensor.l": later}
+    assert bills.hour_rows(stats, ids, since) == [(h0, 1, 3)]
+    # without knowing when they came, they read as missing; a load meter never on record stays unknown
+    assert bills.hour_rows(stats, ids) == [(h0, 1, None)]
+    assert bills.hour_rows(stats, ids, {**since, "sensor.l": math.inf}) == [(h0, 1, None)]
+
+
+def test_energy_ids_count_an_id_once_and_groups_match_settings():
+    got = bills.energy_ids({}, {"sensors": {"grid_in_energy": ["sensor.g", "sensor.g"]}})
+    assert got["bought"] == ["sensor.g"]
+    import settings
+    assert bills.GROUPS == settings.GROUPS
+
+
+def test_hour_rows_meter_added_mid_month():
+    # a battery added at h1 in this month: its month row starts on the 1st, yet h0 (before h1) is excused
+    h0, h1 = datetime(2026, 11, 16, 11, tzinfo=UTC), datetime(2026, 11, 16, 12, tzinfo=UTC)
+    ids = {"bought": ["sensor.g"], "sent": [], "solar": ["sensor.p"], "battery_out": ["sensor.bo"], "battery_in": ["sensor.bi"], "load": []}
+    stats = {"sensor.g": [row(T, 1), row(T + 3600, 1)], "sensor.p": [row(T, 2), row(T + 3600, 2)],
+             "sensor.bo": [row(T + 3600, 0.5)], "sensor.bi": [row(T + 3600, 0)]}
+    nov1, dec1 = NOV.timestamp(), datetime(2026, 12, 1, tzinfo=ROME).timestamp()
+    since = {"sensor.g": nov1 - 86400 * 400, "sensor.p": nov1 - 86400 * 400, "sensor.bo": nov1, "sensor.bi": nov1}
+    assert bills.hour_rows(stats, ids, bills.since_outside(since, nov1, dec1)) == [(h0, 1, 3), (h1, 1, 3.5)]
+    # a meter on record since an earlier month that misses an hour this month is unknown then, not excused
+    gap = {"sensor.g": [row(T, 1), row(T + 3600, 1)], "sensor.p": [row(T + 3600, 2)]}
+    ids2 = {**ids, "battery_out": [], "battery_in": []}
+    assert bills.hour_rows(gap, ids2, bills.since_outside(since, nov1, dec1))[0] == (h0, 1, None)

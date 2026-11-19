@@ -161,8 +161,12 @@ def _range(v: float, spread: tuple[float, float] = FIXED) -> list[float]:
 
 
 def _hours_of(day: date, time_zone: ZoneInfo) -> list[datetime]:
-    """The UTC hour starts of a local day: 23, 24 or 25 of them."""
-    t, end, out = _midnight(day, time_zone), _midnight(day + timedelta(days=1), time_zone), []
+    """The UTC hour starts of a local day: 23, 24 or 25 of them. Whole UTC hours, as the weather and the sun are
+    keyed: in a zone off the hour by 30 or 45 minutes, the first one starting just after local midnight."""
+    def whole(t: datetime) -> datetime:  # the first whole UTC hour at or after t
+        h = t.replace(minute=0, second=0, microsecond=0)
+        return h if h == t else h + HOUR
+    t, end, out = whole(_midnight(day, time_zone)), whole(_midnight(day + timedelta(days=1), time_zone)), []
     while t < end:
         out.append(t)
         t += HOUR

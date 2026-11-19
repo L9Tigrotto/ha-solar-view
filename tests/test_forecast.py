@@ -330,3 +330,11 @@ def test_attributes_day_with_a_gap_does_not_hide_the_days_after_it():
     w = flat(utc("2026-11-15T23:00"), 24 * 3)
     del w[utc("2026-11-16T10:00")]  # an hour of today missing
     assert [d["d"] for d in build(utc("2026-11-16T08:30"), w)["days"]] == ["2026-11-17", "2026-11-18"]
+
+
+def test_attributes_in_a_half_hour_zone_find_the_whole_utc_hours():
+    kolkata = ZoneInfo("Asia/Kolkata")  # UTC+5:30: local midnight is 18:30 UTC
+    w = flat(utc("2026-11-15T18:00"), 24 * 3)
+    a = f.attributes(f.sun_hours(ONE, w), w, utc("2026-11-16T04:00"), kolkata, LAT, LON)
+    assert len(a["hours"]) == 48 and a["hours"][0]["t"] == "2026-11-16T00:30:00+05:30"
+    assert all(h["sun"][1] == 0.5 for h in a["hours"]) and a["days"][0] == {**a["days"][0], "d": "2026-11-16", "sun": [9.6, 12.0, 14.4]}
