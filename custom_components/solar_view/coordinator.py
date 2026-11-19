@@ -28,11 +28,12 @@ from .const import (
     CONF_EXPORT_LIMIT, CONF_MODEL, CONF_CHARGE_SENSOR, DOMAIN, ISSUE_PICK, ISSUE_WEATHER, STALE_AFTER_HOURS, STAT_ID,
 )
 from .forecast import (
-    AIFS, WINDOW_DAYS, Row, attributes, forecast_linked, is_throttled, merge_weather, roof_profile, sun_hours,
+    AIFS, FALLBACK_DAYS, Row, attributes, forecast_linked, is_throttled, merge_weather, roof_profile, sun_hours,
     learned_spread, record_pairs, update_pending, weather_url, wh_hours,
 )
 
 _LOGGER = logging.getLogger(__name__)
+REFETCH_AFTER = timedelta(minutes=55)  # saved weather younger than this is used without asking Open-Meteo
 
 
 class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
@@ -45,6 +46,7 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
         self._store: Store[dict[str, Any]] = Store(hass, 1, DOMAIN)
         self._saved: dict[str, Any] | None = None  # {"weather": {"fetched", "hourly"}, "pending": {hour: kWh},
         # "ended": the day-ahead hours that ended, "pairs": {day: [forecast, made]} (see forecast.record_pairs)}
+        self._linked = False  # see _rows
         self._said: set[str] = set()  # causes already logged, so each is said once until it goes away
 
     def _say(self, cause: str, message: str) -> None:
@@ -86,12 +88,22 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
         self._saved["ended"], self._saved["pairs"] = record_pairs(ended, self._saved.get("pairs", {}), rows, now, time_zone)
         await self._store.async_save(self._saved)
         spread = learned_spread(self._saved["pairs"])
-        return {"written": now, "attributes": attributes(sun, weather, now, time_zone, latitude, longitude, spread),
+        # weather_fetched: when Open-Meteo last answered (the weather may be reused up to STALE_AFTER_HOURS old).
+        return {"written": now, "attributes": {**attributes(sun, weather, now, time_zone, latitude, longitude, spread),
+                                               "weather_fetched": self._saved["weather"]["fetched"],
+                                               # linked: the Energy settings' solar forecast is this one alone, so
+                                               # the page may give it this sensor's learned range (see data.js)
+                                               "linked": self._linked},
                 "wh_hours": wh_hours(sun, now, time_zone)}
 
     async def _weather(self, latitude: float, longitude: float, model: str, now: datetime) -> dict[str, Any] | None:
         """Open-Meteo's hourly block: a fresh one, else the last good one while under STALE_AFTER_HOURS old.
-        Older: the repair issue and None. Never any: UpdateFailed, so setup retries (no issue: setup shows it)."""
+        Older: the repair issue and None. Never any: UpdateFailed, so setup retries (no issue: setup shows it).
+        One under REFETCH_AFTER old for the same place and model is used as it is: a restart or an options edit
+        reloads the entry, and Open-Meteo's models update hourly at most."""
+        last = self._saved.get("weather")
+        if last and last.get("where") == [latitude, longitude, model] and now - datetime.fromisoformat(last["fetched"]) < REFETCH_AFTER:
+            return last["hourly"]
         try:
             session = async_get_clientsession(self.hass)
             async with session.get(weather_url(latitude, longitude, model), timeout=aiohttp.ClientTimeout(total=30)) as resp:
@@ -124,7 +136,7 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
         return hourly
 
     async def _rows(self, entry_config: Any, now: datetime) -> list[Row] | None:
-        """The past 14 days' hours: kWh made (all solar sources in the Energy settings), throttled or not.
+        """The past FALLBACK_DAYS days' hours (see roof_profile): kWh made (all solar sources in the Energy settings), throttled or not.
         None without a solar source."""
         prefs = (await async_get_manager(self.hass)).data or {}
         sources = prefs.get("energy_sources", [])
@@ -136,12 +148,16 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
             self._say("no_solar", "Solar view: no solar panels in the Energy settings, nothing to forecast")
             return None
         self._said.discard("no_solar")
-        if forecast_linked(sources, self.config_entry.entry_id):
+        self._linked = forecast_linked(sources, self.config_entry.entry_id)
+        if self._linked:
             ir.async_delete_issue(self.hass, DOMAIN, ISSUE_PICK)
         else:
             ir.async_create_issue(self.hass, DOMAIN, ISSUE_PICK, is_fixable=False,
                                   severity=ir.IssueSeverity.WARNING, translation_key=ISSUE_PICK)
-        charge_sensor_id, limit = entry_config.get(CONF_CHARGE_SENSOR), entry_config.get(CONF_EXPORT_LIMIT)
+        limit = entry_config.get(CONF_EXPORT_LIMIT)
+        # The charge sensor set in the options, else every battery's in the Energy settings (as the page reads them).
+        soc_ids = [entry_config[CONF_CHARGE_SENSOR]] if entry_config.get(CONF_CHARGE_SENSOR) else [
+            s["stat_soc"] for s in sources if s.get("type") == "battery" and s.get("stat_soc")]
         # The YAML's export_max_kw wins over the options' (see settings.merge).
         from .panel import async_read_config
         from .settings import yaml_flat
@@ -150,9 +166,9 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
         if isinstance(own, (int, float)) and not isinstance(own, bool) and 0 <= own < math.inf:
             limit = own
         end = now.replace(minute=0, second=0, microsecond=0)
-        ids = set(solar) | set(export) | ({charge_sensor_id} if charge_sensor_id else set())
+        ids = set(solar) | set(export) | set(soc_ids)
         stats = await get_instance(self.hass).async_add_executor_job(
-            statistics_during_period, self.hass, end - timedelta(days=WINDOW_DAYS), end, ids, "hour",
+            statistics_during_period, self.hass, end - timedelta(days=FALLBACK_DAYS), end, ids, "hour",
             {"energy": "kWh"}, {"change", "max", "mean"})
 
         def summed(names: list[str]) -> dict[float, float]:
@@ -164,7 +180,10 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
             return out
 
         made, exported = summed(solar), summed(export)
-        charge = {r["start"]: r["max"] if r.get("max") is not None else r.get("mean") for r in stats.get(charge_sensor_id, [])}
+        # Full only when every battery was: the lowest of their highest charges in the hour.
+        highest = [{r["start"]: r["max"] if r.get("max") is not None else r.get("mean") for r in stats.get(i, [])} for i in soc_ids]
+        charge = {t: min(h.get(t) for h in highest) for t in set().union(*highest)
+                  if all(h.get(t) is not None for h in highest)} if highest else {}
         return [Row(datetime.fromtimestamp(t, timezone.utc), kwh,
                     is_throttled(charge.get(t), exported.get(t) if export else None, limit))
                 for t, kwh in made.items()]

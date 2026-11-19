@@ -32,6 +32,12 @@ def test_url_for():
     assert pun.HEADERS["moduleid"] == "12103"
 
 
+def test_parse_zip_refuses_a_member_too_big(monkeypatch):
+    monkeypatch.setattr(pun, "MAX_XML_BYTES", 100)
+    with pytest.raises(ValueError, match="too big"):
+        pun.parse_zip(zip_of({"20261002MGPPrezzi.xml": gme_xml("20261002", 24, lambda o: "100,0")}))
+
+
 def test_parse_zip_normal_and_25_hour_day():
     data = zip_of({
         "20261002MGPPrezzi.xml": gme_xml("20261002", 24, lambda o: "203,322430" if o == 1 else "100,0"),

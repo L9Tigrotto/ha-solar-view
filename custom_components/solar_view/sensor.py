@@ -32,7 +32,7 @@ class ForecastSensor(CoordinatorEntity[SolarViewCoordinator], SensorEntity):
     _attr_has_entity_name = True
     _attr_translation_key = "forecast"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
-    _unrecorded_attributes = frozenset({"hours", "left", "days"})
+    _unrecorded_attributes = frozenset({"hours", "left", "days", "weather_fetched"})
 
     def __init__(self, coordinator: SolarViewCoordinator, entry_id: str) -> None:
         super().__init__(coordinator)

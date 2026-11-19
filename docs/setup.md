@@ -250,7 +250,7 @@ Calling again for a month replaces it; `month` alone removes it. The integration
 
 #### Reading the bills
 
-Instead of typing the figures, copy each bill's PDF into a `solar_view_bills` folder in the config folder (`config/solar_view_bills/`, beside `configuration.yaml`). The integration reads the folder on start and at a quarter past each hour, and stores every month a bill covers as the action would. The folder is the switch: without it nothing is read. A folder made while Home Assistant runs is read from the next restart or reload of the integration.
+Instead of typing the figures, copy each bill's PDF into a `solar_view_bills` folder in the config folder (`config/solar_view_bills/`, beside `configuration.yaml`). The integration reads the folder on start and at a quarter past each hour, and stores every month a bill covers as the action would. The folder is the switch: without it nothing is read. A folder made while Home Assistant runs is read at the next quarter past.
 
 Every supplier lays its bill out differently, so no reader ships with Solar view: you write your own and put it in that folder as `bill_reader.py`. It must define one function:
 

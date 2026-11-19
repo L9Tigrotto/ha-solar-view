@@ -12,7 +12,10 @@ from zoneinfo import ZoneInfo
 
 AIFS = "ecmwf_aifs025_single"  # the default weather model, and the fallback for days a shorter model lacks
 WINDOW_DAYS = 14     # the roof profile learns from this many past days
+FALLBACK_DAYS = 45   # and from this many when those were all grey
+OVERCAST_SHARE = 0.5  # the short window's clearest hour under this share of the long one's: all grey
 CLEAR_MIN_W = 50.0   # rows whose clear-sky sunlight is at most this (W/m2) say nothing about the roof
+FROZEN_MIN_W = 300.0  # clear sky this bright and exactly 0 made: the meter was frozen, not dark (as the page)
 FULL_CHARGE_PERCENT = 97.0      # battery % at or above which spare sun may have been held back
 CAP_SHARE = 0.9      # export at this share of the limit counts as capped
 MIN_ROWS = 5         # unthrottled rows an hour of the day needs before throttled ones are left out
@@ -68,29 +71,44 @@ def roof_profile(rows: list[Row], latitude: float, longitude: float, now: dateti
     local, so a clock change never mixes two solar hours. A row whose previous hour had sun and is missing is left
     out: the recorder's catch-up row carries the energy of every hour missed. A dark or dim hour missed (clear sky
     at most CLEAR_MIN_W: a sensor unavailable at night) carries next to none, so the morning's first row stays.
+    A row of exactly 0 under a clear sky over FROZEN_MIN_W is a stalled meter: it and the row after it are left out.
+    An hour with under MIN_ROWS unthrottled rows takes the higher of their 90th percentile and its highest
+    throttled row: a throttled row says the roof could make at least that much.
+    From the last WINDOW_DAYS days; from FALLBACK_DAYS when those were all grey (their clearest hour under
+    OVERCAST_SHARE of the longer window's), as clouds already in the forecast's sunlight would count twice.
     None until the clearest hour of today has MIN_ROWS unthrottled rows."""
-    since = now - timedelta(days=WINDOW_DAYS)
     starts = {r.start for r in rows}
-    by_hour: dict[int, list[tuple[float, bool]]] = {}
-    for r in rows:
-        if r.start < since or r.kwh is None or not math.isfinite(r.kwh):
-            continue
-        if r.start - HOUR not in starts and clear_sky(r.start - HOUR, latitude, longitude) > CLEAR_MIN_W:
-            continue
-        cs = clear_sky(r.start, latitude, longitude)
-        if cs > CLEAR_MIN_W:
-            by_hour.setdefault(r.start.astimezone(timezone.utc).hour, []).append((r.kwh / cs, r.throttled))
+    # A cloud integration that stalls writes 0 in bright hours, then all it missed in one later row: both out.
+    frozen = {r.start for r in rows if r.kwh == 0 and clear_sky(r.start, latitude, longitude) > FROZEN_MIN_W}
     midnight = now.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     clearest = max(range(24), key=lambda h: clear_sky(midnight + timedelta(hours=h), latitude, longitude))
-    if sum(not t for _, t in by_hour.get(clearest, [])) < MIN_ROWS:
-        return None
-    profile = {}
-    for h in range(24):
-        got = by_hour.get(h, [])
-        kept = [v for v, t in got if not t]
-        use = kept if len(kept) >= MIN_ROWS else [v for v, _ in got]
-        profile[h] = _p90(use) if use else 0.0
-    return profile
+
+    def learned(days: int) -> dict[int, float] | None:
+        since = now - timedelta(days=days)
+        by_hour: dict[int, list[tuple[float, bool]]] = {}
+        for r in rows:
+            if r.start < since or r.kwh is None or not math.isfinite(r.kwh):
+                continue
+            if r.start - HOUR not in starts and clear_sky(r.start - HOUR, latitude, longitude) > CLEAR_MIN_W:
+                continue
+            if r.start in frozen or r.start - HOUR in frozen:
+                continue
+            cs = clear_sky(r.start, latitude, longitude)
+            if cs > CLEAR_MIN_W:
+                by_hour.setdefault(r.start.astimezone(timezone.utc).hour, []).append((r.kwh / cs, r.throttled))
+        if sum(not t for _, t in by_hour.get(clearest, [])) < MIN_ROWS:
+            return None
+        profile = {}
+        for h in range(24):
+            got = by_hour.get(h, [])
+            kept, held = [v for v, t in got if not t], [v for v, t in got if t]
+            profile[h] = _p90(kept) if len(kept) >= MIN_ROWS else max(([_p90(kept)] if kept else []) + held, default=0.0)
+        return profile
+
+    recent, longer = learned(WINDOW_DAYS), learned(FALLBACK_DAYS)
+    if recent is None or (longer is not None and recent[clearest] < OVERCAST_SHARE * longer[clearest]):
+        return longer
+    return recent
 
 
 def weather_url(latitude: float, longitude: float, model: str) -> str:

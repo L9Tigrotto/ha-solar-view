@@ -93,8 +93,30 @@ def test_profile_not_ready_until_clearest_hour_has_5_rows():
 
 def test_profile_ignores_rows_older_than_14_days():
     cut = NOW - timedelta(days=14)
-    rows = [f.Row(r.start, r.kwh * (2.5 if r.start < cut else 1), False) for r in rows_for(20, 0.004)]
+    # 1.5x: brighter, not so much that the last 14 days read as all grey (see the next test)
+    rows = [f.Row(r.start, r.kwh * (1.5 if r.start < cut else 1), False) for r in rows_for(20, 0.004)]
     assert f.roof_profile(rows, LAT, LON, NOW)[11] == pytest.approx(0.004)
+
+
+def test_profile_leaves_out_a_frozen_meter_and_its_catch_up():
+    rows = rows_for(6, 0.004)
+    frozen, jump = utc("2026-11-14T10:00"), utc("2026-11-14T11:00")
+    assert f.clear_sky(frozen, LAT, LON) > f.FROZEN_MIN_W
+    stalled = [f.Row(r.start, 0.0 if r.start == frozen else r.kwh * 2 if r.start == jump else r.kwh, False) for r in rows]
+    assert f.roof_profile(stalled, LAT, LON, NOW)[11] == pytest.approx(0.004)   # not lifted by the catch-up row
+
+
+def test_profile_falls_back_to_45_days_after_a_grey_fortnight():
+    cut = NOW - timedelta(days=14)
+    rows = [f.Row(r.start, r.kwh * (1 if r.start < cut else 0.3), False) for r in rows_for(40, 0.004)]
+    assert f.roof_profile(rows, LAT, LON, NOW)[11] == pytest.approx(0.004)   # 0.0012 from the grey days alone
+
+
+def test_profile_throttled_rows_floor_a_thin_hour():
+    # 2 unthrottled rows (under 5) at 0.004 and 10 throttled at 0.002: not their pooled percentile, the higher
+    rows = at_local_hour(10, 12, 0.004) + at_local_hour(2, 13, 0.004) + at_local_hour(10, 13, 0.002, throttled=True,
+                                                                                         end=utc("2026-11-14T00:00"))
+    assert f.roof_profile(rows, LAT, LON, NOW)[12] == pytest.approx(0.004)
 
 
 def test_profile_skips_row_after_a_missing_hour():

@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import math
 from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -184,24 +185,30 @@ def hour_rows(stats: dict[str, list[dict]], ids: dict[str, list[str]]
               ) -> list[tuple[datetime, float | None, float | None]]:
     """Each hour's (start, bought kWh, house kWh) from statistics rows ({"start": epoch seconds, "change"}).
     House is the load meter when named, else what flowed in minus what flowed out, at least 0 (the page's
-    houseKwh). A figure with no ids counts as 0; one whose meter has no row that hour is None."""
-    # ponytail: a meter added later makes its earlier hours None (the page's missingOk rule is not ported);
-    # port it if a month with a second inverter added mid-month must be priced.
+    houseKwh). A figure with no ids counts as 0; one whose meter has no row that hour is None, except before
+    the meter's first row (it was added later, the page's missingOk): 0 when another meter of its figure has a
+    row then, and always for a battery (no battery yet). An hour before the load meters' first rows (added later)
+    takes the balance, as the page does; a load meter with no rows, or missing one after its first, leaves it None."""
     change = {i: {r["start"]: max(0.0, r["change"]) for r in stats.get(i, []) if r.get("change") is not None}
               for key in ENERGY for i in ids.get(key, [])}
+    first = {i: min(rows, default=math.inf) for i, rows in change.items()}
     starts = sorted({t for rows in change.values() for t in rows})
 
     def part(key: str, t: float) -> float | None:
-        if any(t not in change[i] for i in ids.get(key, [])):
+        own = ids.get(key, [])
+        def missing_ok(i: str) -> bool:
+            return t < first[i] < math.inf and (key in ("battery_out", "battery_in") or any(t in change[o] for o in own if o != i))
+        if any(t not in change[i] and not missing_ok(i) for i in own):
             return None
-        return sum(change[i][t] for i in ids.get(key, []))
+        return sum(change[i].get(t, 0.0) for i in own)
 
     out = []
     for t in starts:
         bought = part("bought", t)
-        if ids.get("load"):
-            house = part("load", t)
-        else:
+        load = ids.get("load", [])
+        house = part("load", t) if load else None
+        # The balance without a load meter, or before every load meter's first row (added later).
+        if not load or (house is None and all(t < first[i] < math.inf for i in load)):
             flows = [part(k, t) for k in ("solar", "battery_out", "battery_in", "sent")]
             house = None if bought is None or None in flows else max(0.0, flows[0] + flows[1] + bought - flows[2] - flows[3])
         out.append((datetime.fromtimestamp(t, timezone.utc), bought, house))
@@ -260,6 +267,7 @@ class Bills:
         self.months: dict = {}  # months_attr of the last pricing
         self._listeners: list[Callable[[], None]] = []
         self._lock = asyncio.Lock()  # one pricing at a time, so an older one never lands after a newer one
+        self._pun_lock = asyncio.Lock()  # one GME download round at a time: a second waits, then finds it stored
         self.pun = pun
         self._pun_store = Store(hass, 1, PUN_STORE)
         # {"2026-09": {"three": {..}, "two": {..}, "single": {..}}}; this month's entry also has its fetch "day"
@@ -457,7 +465,8 @@ class Bills:
             stored = dict(self.stored)
             estimated = self._estimated(stored, now)
             if estimated:
-                await self._async_means(stored, estimated, now)
+                async with self._pun_lock:
+                    await self._async_means(stored, estimated, now)
         async with self._lock:
             stored = dict(self.stored)  # a call may change it while this one waits on the statistics
             time_zone = dt_util.get_default_time_zone()

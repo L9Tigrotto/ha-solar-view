@@ -15,6 +15,7 @@ except ImportError:  # tests put this folder on sys.path
     from bills import band_of
 
 # GME's own download (undocumented; pun_sensor uses the same).
+MAX_XML_BYTES = 50_000_000  # a month of hourly prices is a few MB: anything far bigger is not one (a ZIP bomb)
 URL = "https://gme.mercatoelettrico.org/DesktopModules/GmeDownload/API/ExcelDownload/downloadzipfile"
 HEADERS = {"moduleid": "12103", "tabid": "1749", "userid": "-1",
            "referer": "https://gme.mercatoelettrico.org/it-it/Home/Esiti/Elettricita/MGP/Download"}
@@ -37,6 +38,8 @@ def parse_zip(data: bytes) -> dict[tuple[date, int], float]:
         names = [n for n in z.namelist() if n.endswith("MGPPrezzi.xml")]
         if not names:
             raise ValueError("no MGPPrezzi.xml in the ZIP")
+        if any(z.getinfo(n).file_size > MAX_XML_BYTES for n in names):
+            raise ValueError("a MGPPrezzi.xml too big to be a month of prices")
         prices = {}
         try:
             for name in names:

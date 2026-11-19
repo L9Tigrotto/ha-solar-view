@@ -2,7 +2,6 @@
 the Energy dashboard."""
 from __future__ import annotations
 
-import os
 
 import voluptuous as vol
 
@@ -16,7 +15,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .bills import Bills, kind_of
-from .const import (BILLS_DIR, BILLS_STORE, CONF_PUN, DOMAIN, FILES_STORE, ISSUE_PICK, ISSUE_WEATHER, PUN_STORE,
+from .const import (BILLS_STORE, CONF_PUN, DOMAIN, FILES_STORE, ISSUE_PICK, ISSUE_WEATHER, PUN_STORE,
                     SERVICE_PRICES)
 from .coordinator import SolarViewCoordinator
 from .panel import async_serve_files, async_setup_panel, remove_panel
@@ -81,12 +80,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: SolarViewConfigEntry) ->
     # first, and startup need not wait.
     entry.async_create_background_task(hass, _read_and_price(True), "solar_view bills")
     # This month's estimate grows with its statistics: priced again at a quarter past each hour, once Home
-    # Assistant has written the last hour's (the page asks for them then too). The bills folder is read then too.
-    if bills.pun or await hass.async_add_executor_job(os.path.isdir, hass.config.path(BILLS_DIR)):
-        async def _hourly(_now) -> None:
-            await _read_and_price(bills.pun)
+    # Assistant has written the last hour's (the page asks for them then too). The bills folder is read then too,
+    # always: a folder made after setup is found within the hour (without one the read is a single is_dir).
+    async def _hourly(_now) -> None:
+        await _read_and_price(bills.pun)
 
-        entry.async_on_unload(async_track_time_change(hass, _hourly, minute=15, second=0))
+    entry.async_on_unload(async_track_time_change(hass, _hourly, minute=15, second=0))
     entry.async_on_unload(entry.add_update_listener(_reload))
     return True
 

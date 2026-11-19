@@ -132,6 +132,25 @@ def test_hour_rows_balance_and_load():
         (datetime(2026, 11, 16, 11, tzinfo=UTC), None, None)]
 
 
+def test_hour_rows_meters_added_later():
+    h0, h1 = datetime(2026, 11, 16, 11, tzinfo=UTC), datetime(2026, 11, 16, 12, tzinfo=UTC)
+    ids = {"bought": ["sensor.g"], "sent": [], "solar": ["sensor.p1", "sensor.p2"],
+           "battery_out": ["sensor.bo"], "battery_in": ["sensor.bi"], "load": []}
+    # a battery and a second inverter first seen at h1: 0 before, so h0 keeps its house
+    stats = {"sensor.g": [row(T, 1), row(T + 3600, 1)], "sensor.p1": [row(T, 2), row(T + 3600, 2)],
+             "sensor.p2": [row(T + 3600, 1)], "sensor.bo": [row(T + 3600, 0.5)], "sensor.bi": [row(T + 3600, 0)]}
+    assert bills.hour_rows(stats, ids) == [(h0, 1, 3), (h1, 1, 4.5)]
+    # a load meter first seen at h1: h0 takes the balance
+    ids["load"] = ["sensor.l"]
+    assert bills.hour_rows({**stats, "sensor.l": [row(T + 3600, 4)]}, ids) == [(h0, 1, 3), (h1, 1, 4)]
+    # a load meter with no rows at all, or missing an hour after its first: unknown, not the balance
+    assert bills.hour_rows(stats, ids) == [(h0, 1, None), (h1, 1, None)]
+    assert bills.hour_rows({**stats, "sensor.l": [row(T, 4)]}, ids)[1] == (h1, 1, None)
+    # a sole solar meter missing before its first row is still unknown (no other meter counted that hour)
+    ids = {"bought": ["sensor.g"], "sent": [], "solar": ["sensor.p2"], "battery_out": [], "battery_in": [], "load": []}
+    assert bills.hour_rows(stats, ids)[0] == (h0, 1, None)
+
+
 # ---- energy_ids ----
 PREFS = {"energy_sources": [
     {"type": "grid", "flow_from": [{"stat_energy_from": "sensor.in1"}, {"stat_energy_from": "sensor.in2"}],
