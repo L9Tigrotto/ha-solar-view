@@ -2634,6 +2634,7 @@ for (const [today, out] of [[SCENARIOS.winter.today, 0.3], [[7.8, 6.1, 0.2, 0], 
     return fail ? Promise.reject(new Error("check")) : h.callWS(m); } });
   let h = midday();
   p = await draw(h, count(h, true));
+  console.assert(p._pager.classList.contains("message") && $(p, "#now h2")?.textContent === STRINGS.en.now.loadFailedTitle, "load failed: still the skeleton, not said", $(p, "#now")?.textContent);
   at(now() + 2 * 60e3); p.hass = { ...p.hass }; await tick();
   console.assert(calls === 2, `reload: ${calls} loads two minutes after a failure, expected 2`);
   const late = new Date(Date.now()); late.setHours(23, 58, 0, 0);

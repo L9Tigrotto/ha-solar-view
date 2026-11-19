@@ -99,6 +99,8 @@ export const STRINGS = {
       hintChargeSoon: "{percent}% agora, cerca de {soonPercent}% daqui a uma hora",
       offlineTitle: "Inversor inacessível",
       offline: "O inversor não está respondendo agora. Os dados voltam assim que estiverem disponíveis.",
+      loadFailedTitle: "Não foi possível carregar os dados",
+      loadFailed: "O Home Assistant não respondeu. Tentaremos de novo em um minuto.",
       lastUpdate: "Última atualização: {time}",
       weatherSunny: "ensolarado",
       weatherPartly: "parcialmente nublado",

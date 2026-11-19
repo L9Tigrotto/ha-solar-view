@@ -98,6 +98,8 @@ export const STRINGS = {
       hintChargeSoon: "{percent}% teraz, około {soonPercent}% za godzinę",
       offlineTitle: "Falownik niedostępny",
       offline: "Falownik na razie nie odpowiada. Dane wrócą, gdy tylko będą dostępne.",
+      loadFailedTitle: "Nie można wczytać danych",
+      loadFailed: "Home Assistant nie odpowiedział. Spróbujemy ponownie za minutę.",
       lastUpdate: "Ostatnia aktualizacja: {time}",
       weatherSunny: "słonecznie",
       weatherPartly: "lekkie zachmurzenie",

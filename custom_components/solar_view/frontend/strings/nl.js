@@ -98,6 +98,8 @@ export const STRINGS = {
       hintChargeSoon: "{percent}% nu, ongeveer {soonPercent}% over een uur",
       offlineTitle: "Omvormer niet bereikbaar",
       offline: "De omvormer reageert nu niet. De gegevens komen terug zodra ze beschikbaar zijn.",
+      loadFailedTitle: "Gegevens laden lukt niet",
+      loadFailed: "Home Assistant reageerde niet. We proberen het over een minuut opnieuw.",
       lastUpdate: "Laatste update: {time}",
       weatherSunny: "zonnig",
       weatherPartly: "licht bewolkt",

@@ -642,6 +642,7 @@ class SolarView extends HTMLElement {
       this._source = source;
       this._kept = kept;
       // geo: the usual day's seasons (see usualDay).
+      this._failed = false;
       this._stats = totals(entityIds, options, rows, clock, now, [hass.config?.latitude, hass.config?.longitude]);
       this._statsVersion++;
       this._lookAhead();
@@ -652,6 +653,8 @@ class SolarView extends HTMLElement {
       if (run !== this._run) return; // an older load: the newest one keeps its own schedule
       console.warn("solar-view: loading the numbers failed", e);
       this._next = Date.now() + MINUTE; // try again in a minute, not in 5
+      // Nothing loaded yet: say so instead of staying on the skeleton.
+      if (!this._stats) { this._failed = true; this._render(); }
     }
   }
 
@@ -704,10 +707,12 @@ class SolarView extends HTMLElement {
     const silent = kinds.some((kind) => kind.every((id) => stateNum(hass, id) === null));
     if (entityIds && started) for (const id of optionalIds(entityIds)) if (!hass.states[id]) warnOnce(`${id} does not exist, so house use is worked out from the flows`);
     // While Home Assistant starts, sensors without a value are still loading, not offline.
-    const loading = !setup && (!source || !this._stats || missing.length > 0 || (silent && !started));
-    const offline = !loading && !setup && silent;
+    // failed: the first load failed and nothing was ever loaded (see _load), so the skeleton would wait for nothing.
+    const failed = !setup && !!this._failed && !this._stats;
+    const loading = !setup && !failed && (!source || !this._stats || missing.length > 0 || (silent && !started));
+    const offline = !loading && !setup && !failed && silent;
     // The setup message gets one plain page instead of the dashboard's rows and columns (see .pager.message).
-    this._pager.classList.toggle("message", setup);
+    this._pager.classList.toggle("message", setup || failed);
     // The veil is a plain day sky over the real one. It fades out once there is data, so the
     // real sky colour arrives as a transition instead of a jump.
     this._paint("l", skyAt(30, false, dark).colors);
@@ -719,7 +724,7 @@ class SolarView extends HTMLElement {
       $(p).inert = loading;
       if (loading) $(p).setAttribute("aria-hidden", "true"); else $(p).removeAttribute("aria-hidden");
     });
-    if (setup) { this._message(lines, entityIds, missing); return; }
+    if (setup || failed) { this._message(lines, entityIds, missing, failed); return; }
 
     // Loading draws the real markup from placeholder numbers and .skel greys it out, so the
     // skeleton has exactly the size of what replaces it.
@@ -774,10 +779,13 @@ class SolarView extends HTMLElement {
   }
 
   // The setup message alone on Now, instead of the pages (see _render): Energy and Money go.
-  _message(lines, entityIds, missing) {
+  // Also the first load failing (`failed`): the same lone card, with its retry note.
+  _message(lines, entityIds, missing, failed = false) {
     const hass = this._hass, $ = (id) => this.shadowRoot.getElementById(id);
     // Naming the missing sensors helps the owner; to anyone else they mean nothing.
-    const message = `${icon(SETUP_ICON)}<h2>${lines.setup.setupTitle}</h2><p>${entityIds.solarW.length ? lines.setup.setupSensorsGone : lines.setup.setupMissing}</p>
+    const said = failed ? lines.now.loadFailed : entityIds.solarW.length ? lines.setup.setupSensorsGone : lines.setup.setupMissing;
+    const message = failed ? `${icon(OFFLINE_ICON)}<h2>${lines.now.loadFailedTitle}</h2><p>${said}</p>`
+      : `${icon(SETUP_ICON)}<h2>${lines.setup.setupTitle}</h2><p>${said}</p>
         <p class="lead">${lines.setup.setupLead}</p><ol class="path">${lines.setup.setupPath.split(" › ").map((s) => `<li>${s}</li>`).join("")}</ol><p>${lines.setup.setupEnd}</p>${
         !entityIds.solarW.length && hass.user?.is_admin ? `<p>${lines.setup.setupOldVersion} <code>sensors: solar_power</code></p>` : ""}${
         missing.length && hass.user?.is_admin ? `<h3>${lines.setup.sensorsMissing}</h3><ul class="ids">${missing.map((id) => `<li>${esc(id)}</li>`).join("")}</ul>` : ""}`;
@@ -794,7 +802,7 @@ class SolarView extends HTMLElement {
       $(p).hidden = this._tabs[i].hidden = p !== "now";
     });
     // Said once to a screen reader (the readings just went), and focus that was on them goes to the message.
-    this._status.textContent = `${lines.setup.setupTitle}. ${entityIds.solarW.length ? lines.setup.setupSensorsGone : lines.setup.setupMissing}`;
+    this._status.textContent = `${failed ? lines.now.loadFailedTitle : lines.setup.setupTitle}. ${said}`;
     const head = $("now").querySelector("h2");
     head.tabIndex = -1;
     if (lost) head.focus({ preventScroll: true });

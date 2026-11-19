@@ -109,6 +109,8 @@ export const STRINGS = {
       hintChargeSoon: "{percent}% now, about {soonPercent}% in an hour",
       offlineTitle: "Inverter not reachable",
       offline: "The inverter isn't answering for now. The numbers will come back as soon as they're available.",
+      loadFailedTitle: "Can't load the numbers",
+      loadFailed: "Home Assistant didn't answer. We'll try again in a minute.",
       // When the live readings stopped, or the last came (a frozen inverter): {time} a time, or a date and a time.
       lastUpdate: "Last update: {time}",
       weatherSunny: "sunny",

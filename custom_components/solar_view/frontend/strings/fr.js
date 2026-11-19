@@ -98,6 +98,8 @@ export const STRINGS = {
       hintChargeSoon: "{percent}% maintenant, environ {soonPercent}% dans une heure",
       offlineTitle: "Onduleur injoignable",
       offline: "L'onduleur ne répond pas pour l'instant. Les données reviendront dès qu'elles seront disponibles.",
+      loadFailedTitle: "Impossible de charger les données",
+      loadFailed: "Home Assistant n'a pas répondu. Nouvel essai dans une minute.",
       lastUpdate: "Dernière mise à jour : {time}",
       weatherSunny: "ensoleillé",
       weatherPartly: "peu nuageux",

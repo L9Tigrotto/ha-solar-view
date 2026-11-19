@@ -98,6 +98,8 @@ export const STRINGS = {
       hintChargeSoon: "{percent}% jetzt, etwa {soonPercent}% in einer Stunde",
       offlineTitle: "Wechselrichter nicht erreichbar",
       offline: "Der Wechselrichter antwortet gerade nicht. Die Daten erscheinen wieder, sobald sie verfügbar sind.",
+      loadFailedTitle: "Daten können nicht geladen werden",
+      loadFailed: "Home Assistant hat nicht geantwortet. Wir versuchen es in einer Minute erneut.",
       lastUpdate: "Letzte Aktualisierung: {time}",
       weatherSunny: "sonnig",
       weatherPartly: "leicht bewölkt",
