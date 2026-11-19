@@ -134,7 +134,7 @@ function outlookLastsH(n, batterySettings, until, now) {
 
 function batteryWord(chargeLevel, floor) {
   const p = Math.round(chargeLevel);
-  return p <= floor ? "empty" : p >= 100 ? "full" : p < floor + LOW_ABOVE_FLOOR ? "low" : p < HIGH_CHARGE ? "good" : p < 100 ? "nearlyFull" : "full";
+  return p <= floor ? "empty" : p >= 100 ? "full" : p < floor + LOW_ABOVE_FLOOR ? "low" : p < HIGH_CHARGE ? "good" : "nearlyFull";
 }
 // "" (no state of charge) is neither.
 const isLow = (word) => word === "low" || word === "empty";

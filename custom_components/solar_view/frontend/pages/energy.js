@@ -185,7 +185,8 @@ function hoursTodayView(data, now, clock, pick) {
   const ahead = chargeLevel ? (data.outlook?.chargeAhead ?? []).map(([timestamp, p]) => [timestamp, p + shift]) : [];
   const was = new Map(rows.map((r) => [r.t, r])), will = new Map(ahead.map(([timestamp, p]) => [timestamp - H, p]));
   // Weather alone (no outlook): the sensor's sun for the hours ahead, this one's rest by its share; no use or grid.
-  const sunOnly = weatherOnly(data) ? data.ahead.hours.map((h) => ({ t: h.t, sun: h.sun[1] * clamp01((h.t + H - at5) / H), battery: null, grid: null, use: null })) : [];
+  // Keyed by the page's local hour start: in a zone off the hour by 30 minutes the sensor's hours are whole UTC hours.
+  const sunOnly = weatherOnly(data) ? data.ahead.hours.map((h) => ({ t: hourStart(h.t, clock), sun: h.sun[1] * clamp01((h.t + H - at5) / H), battery: null, grid: null, use: null })) : [];
   const expect = new Map((data.outlook?.hoursAhead ?? sunOnly).map((e) => [e.t, e]));
   return {
     now: at5, hours, day0, chargeLevel, floor: b?.floor, nowChargeLevel: n.chargeLevel, runs, ahead, hasRows: rows.length > 0,

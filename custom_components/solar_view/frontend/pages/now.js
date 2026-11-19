@@ -254,7 +254,7 @@ function batteryCard(v, lines, format, clock, now) {
 }
 
 // When the last reading came: its time, with its date when not today.
-const whenSeen = (timestamp, format, clock, now) => { const d = new Date(timestamp); return clock(timestamp).key === clock(now).key ? format.time(d) : `${format.date(d)}, ${format.time(d)}`; };
+const whenSeen = (timestamp, format, clock, now) => { const d = new Date(timestamp); return clock(timestamp).key === clock(now).key ? format.time(d) : `${format.date(new Date(noonOf(clock(timestamp).key)))}, ${format.time(d)}`; };
 
 // Round numbers for what is still to come: one decimal under 10, whole above.
 const near = (format, x) => format.num(x >= 10 ? Math.round(x) : x);

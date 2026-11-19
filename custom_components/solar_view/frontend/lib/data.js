@@ -125,9 +125,7 @@ function predict(hass, entityIds, options, stats, sensor, now, clock) {
     const base = { now, clock, solarWh: stats.solarWh, usual, price, sunSoFar: stats.today.solarKwh, sunUntil: stats.sunUntil, throttled };
     const l = mode.level, ahead = l === "none" ? null : l === "weather" ? forecastOf({ ...base, sensor })
       : forecastOf({ ...base, sensor: null, solarWh: l === "usual_days" ? {} : stats.solarWh, solarSpread: facts?.linked ? sensorSpread(facts) : null });
-    // Hours already past are priced by the sensor's own hours while it is fresh, else at the flat price.
-    const priceAt = (field) => (t) => { const h = facts?.hours.find((x) => inHour(x.t, t)); return h ? h[field] : price[field]; };
-    const standby = stats.standbyW / 1000, soFar = moneySoFar(stats.todayHours, priceAt("buy"), priceAt("sell"), standby, now);
+    const standby = stats.standbyW / 1000;
     const batterySettings = hasBattery(entityIds) ? options.battery : null;
     // The charge in % is of what the battery holds today: its size as bought times its state of health.
     const battery = batterySettings && { kwh: batterySettings.kwh == null ? batterySettings.kwh : batterySettings.kwh * healthShare(hass, entityIds), floor: batterySettings.floor, maxChargeKw: batterySettings.maxChargeKw, maxDischargeKw: batterySettings.maxDischargeKw, efficiency: stats.efficiency };
@@ -136,6 +134,10 @@ function predict(hass, entityIds, options, stats, sensor, now, clock) {
     // not count as 0 in what follows from them.
     const known = ENERGY.every((part) => Number.isFinite(stats.today[part]));
     const bands = out.bands, bandAt = bands && ((t) => { const c = clock(t), band = bandOf(c.key, c.hour, bands.type); return { band, name: bandName(bands.type, band), buy: bands.prices[band] }; });
+    // Hours already past are priced as lookAhead prices the hours ahead: the band's buy price, else the fresh
+    // sensor's own hour where it has a price (it writes none today), else the flat price.
+    const priceAt = (field) => (t) => { const b = field === "buy" ? bandAt?.(t)?.buy : null, h = facts?.hours.find((x) => inHour(x.t, t)); return b ?? h?.[field] ?? price[field] ?? null; };
+    const soFar = moneySoFar(stats.todayHours, priceAt("buy"), priceAt("sell"), standby, now);
     const settings = { exportMaxKw: options.exportMaxKw, standbyKwhPerHour: standby, machines: (stats.machines ?? []).filter(Boolean),
       quiet: options.quiet, gridMaxKw: options.gridMaxKw, marginPercent: options.marginPercent, bandAt };
     const outlook = ahead?.left.use && known ? lookAhead(ahead, now, clock, n, battery, settings, soFar) : null;
@@ -180,9 +182,10 @@ const lastSeen = (hass, entityIds) => {
 const seenOf = (hass, groups) => {
   const all = lastSeen(hass, groups.flat());
   if (all === null) return null;
-  const own = groups.filter((g) => g.length).map((g) => g.map((id) => Date.parse(hass.states[id]?.last_reported)))
+  const given = groups.filter((g) => g.length), own = given.map((g) => g.map((id) => Date.parse(hass.states[id]?.last_reported)))
     .filter((t) => t.every(Number.isFinite)).map((t) => Math.max(...t));
-  return Math.min(all, ...own);
+  // Every group with its last_reported: those alone (a solar-only home at rest at night changes nothing, yet writes).
+  return own.length === given.length ? Math.min(...own) : Math.min(all, ...own);
 };
 // The time of the last reading when it is too old to be live (see lastSeen), else null. A time ahead of this clock
 // (the phone's clock behind Home Assistant's) is never frozen.
@@ -277,7 +280,7 @@ function readData(hass, entityIds, options, stats, looked = {}, now = Date.now()
     sensorMonths: findBills(hass)?.attributes?.months ?? null,
     // The fresh sensor's sky by day, { "2026-11-10": { cloud, rain } }, for the coming days' icons at every level.
     // Its learned low and high over the likely sun ([low, high] multiples), for the days of the Solar Forecast.
-    sensorSpread: sensorSpread(looked.facts),
+    sensorSpread: looked.facts?.linked ? sensorSpread(looked.facts) : null,
     sensorSky: looked.facts ? Object.fromEntries(looked.facts.days.filter((d) => Number.isFinite(d.cloud)).map((d) => [d.d, { cloud: d.cloud, rain: d.rain }])) : null,
   };
 }

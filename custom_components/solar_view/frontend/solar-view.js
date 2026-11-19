@@ -163,7 +163,7 @@ class SolarView extends HTMLElement {
     this._holdUntil = undefined; // a first visit waits until then for the Energy settings before drawing (see _render)
     this._held = undefined;      // the timer that draws then
     // What _render keeps between calls: the texts and formats with what they were made for, the sky's key, payback.
-    this._lang = this._linesConfig = this._options = this._lines = undefined;
+    this._lang = this._linesConfig = this._lines = undefined;
     this._formatKey = this._format = this._clock = undefined;
     this._skyKey = this._paybackKey = this._payback = undefined;
     // What Home Assistant set (see the setters), and each card's pick (see _wireWeek).
@@ -677,8 +677,8 @@ class SolarView extends HTMLElement {
     if (this._lang === lang && this._linesConfig === this._panel?.config) return;
     this._lang = lang;
     this._linesConfig = this._panel?.config;
-    this._options = readConfig(null, this._panel?.config).options; // what the page needs before the Energy settings answer
-    this._lines = withOwnAdvice(STRINGS[lang], this._options, lang);
+    const options = readConfig(null, this._panel?.config).options; // what the page needs before the Energy settings answer
+    this._lines = withOwnAdvice(STRINGS[lang], options, lang);
     this._linesVersion++;
     learnLines(STRINGS[lang]);
     const lines = this._lines;

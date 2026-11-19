@@ -215,7 +215,7 @@ const PRESETS = {
 };
 const scheduleOf = (type) => (typeof type === "string" ? PRESETS[type] : type);
 // A band's names in order, each once: ["f1", "f2", "f3"] for type "three".
-export const bandIds = (type) => [...new Set(scheduleOf(type)?.bands.map((b) => b.name))];
+const bandIds = (type) => [...new Set(scheduleOf(type)?.bands.map((b) => b.name))];
 // How a band is shown: Italy's ids as F1, F2, F3, a band the owner named as typed.
 export const bandName = (type, id) => (typeof type === "string" ? id.toUpperCase() : id);
 // Easter Monday of year y as "MM-DD" (the Gregorian computus).

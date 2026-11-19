@@ -203,14 +203,17 @@ function totals(entityIds, options, rows, clock, now, geo) {
   const batteryDays = [...byDay(hourly, entityIds, clock)].filter(([, d]) => Number.isFinite(d.batteryKwh) && Number.isFinite(d.chargeKwh)).map(([key, d]) => ({ key, ...d }))
     .sort((a, b) => (a.key < b.key ? -1 : 1)); // by date: the buckets come in the order the meters' rows were met
   const kwhOf = (part) => batteryDays.reduce((s, d) => s + d[part], 0);
-  // The charge (mean of the first hour of the first of those days, of the last hour of the last), weighted as
+  // The charge (mean of the first hour from the energy rows' first on, of the last up to their last), weighted as
   // the live reading; null while any battery has no mean there. Its change over them, in kWh, corrects the round trip.
-  const chargeOn = (key, pick) => {
+  // The very hours the energy rows start and end at: the charge rows grow by the hour, the energy rows once a day.
+  const starts = (key) => Object.values(hourly).flat().map((r) => r.start).filter((t) => clock(t).key === key);
+  const chargeIn = (from, to, pick) => {
     const ids = entityIds.chargeLevel ?? [], weight = entityIds.chargeWeight ?? {};
-    const means = ids.map((id) => pick((rows.chargeLevel?.[id] ?? []).filter((r) => Number.isFinite(r.mean) && clock(r.start).key === key))?.mean);
+    const means = ids.map((id) => pick((rows.chargeLevel?.[id] ?? []).filter((r) => Number.isFinite(r.mean) && r.start >= from && r.start <= to))?.mean);
     return ids.length && means.every(Number.isFinite) ? means.reduce((s, m, i) => s + m * (weight[ids[i]] || 1), 0) / ids.reduce((s, id) => s + (weight[id] || 1), 0) : null;
   };
-  const charge0 = batteryDays.length ? chargeOn(batteryDays[0].key, (list) => list[0]) : null, charge1 = batteryDays.length ? chargeOn(batteryDays.at(-1).key, (list) => list.at(-1)) : null;
+  const t0 = batteryDays.length ? Math.min(...starts(batteryDays[0].key)) : null, t1 = batteryDays.length ? Math.max(...starts(batteryDays.at(-1).key)) : null;
+  const charge0 = batteryDays.length ? chargeIn(t0, Infinity, (list) => list[0]) : null, charge1 = batteryDays.length ? chargeIn(-Infinity, t1, (list) => list.at(-1)) : null;
   const storedKwh = charge0 !== null && charge1 !== null && options.battery?.kwh > 0 ? ((charge1 - charge0) / 100) * options.battery.kwh : 0;
   // A day without a row adds 0 for a part no meter counts, and between rows (one before it, one later in `keys`): a
   // meter that only counts up puts that day's energy into its next row (as in statisticsBuckets). Else (before the
@@ -368,9 +371,10 @@ const FETCHES = [
   // The bill's fixed part from an entity: its month means, from the first on record.
   { name: "fixed", life: "day", ask: (entityIds, options) => ["month", typeof options.billFixed === "string" ? [options.billFixed] : [], Date.UTC(2000, 0, 1), ["mean"]] },
   // 25 hours cover today, even a long one.
-  // Today's charge by the hour, and over the usual days the charge at their start and end (the round trip, see totals).
+  // Today's charge by the hour, and over the usual days the charge at their start and end (the round trip, see totals):
+  // a day more than they, so their first hour is still kept when the usual rows were asked early in the day.
   // grow: asked whole once a day, then from the newest row kept (see toAsk).
-  { name: "chargeLevel", life: "hour", grow: true, ask: (entityIds, options, now) => ["hour", entityIds.chargeLevel, now - Math.max(25 * HOUR, (options.usualDays ?? 0) * DAY), ["mean"]] },
+  { name: "chargeLevel", life: "hour", grow: true, ask: (entityIds, options, now) => ["hour", entityIds.chargeLevel, now - Math.max(25 * HOUR, ((options.usualDays ?? 0) + 1) * DAY), ["mean"]] },
   // With a tariff of two or three bands, or such bands from the bills sensor, the grid's hour rows of this month:
   // the share bought in each band.
   // Asked whole once a day, then from the newest row kept (see toAsk).

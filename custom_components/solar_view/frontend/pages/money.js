@@ -62,7 +62,7 @@ function moneyView({ data, now, clock, pick }, payback = paybackView(data, now, 
     const endCost = at !== key ? null : coming?.cost != null && cost !== null ? cost + coming.cost : null;
     const endBack = at !== key ? null : coming?.back != null && brought !== null ? brought + coming.back : null;
     month = { key, at, sends: data.sends, endNet: end.net, fixed: x ? fixedIn(at) : null,
-      months: Object.fromEntries(yearKeys(key).map((monthKey) => [monthKey, { net: row(monthKey) ? net(row(monthKey), monthKey) : null, noPrice: !!row(monthKey) && !anyPrice, guess: !!row(monthKey) && guessed(monthKey) }])),
+      months: Object.fromEntries(yearKeys(key).map((monthKey) => [monthKey, { net: row(monthKey) ? net(row(monthKey), monthKey) : null, noPrice: !!row(monthKey) && !anyPrice && !data.bands && !data.sensorMonths?.[monthKey]?.money && !stat([row(monthKey)]), guess: !!row(monthKey) && guessed(monthKey) }])),
       picked: x && { cost, saved: got("saved", x, at), earned: got("earned", x, at), brought, net: net(x, at), endCost, endBack } };
   }
   // This month day by day: what each day brought back from its day rows, priced as the months without the fixed
