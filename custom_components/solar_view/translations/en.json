@@ -35,7 +35,7 @@
         }
       },
       "weather": {
-        "title": "Solar view",
+        "title": "Weather and forecast",
         "data": {
           "latitude": "Latitude",
           "longitude": "Longitude",

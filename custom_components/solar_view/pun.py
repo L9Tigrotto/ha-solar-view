@@ -3,7 +3,9 @@ Plain functions with no Home Assistant import, so tests/test_pun.py can run them
 from __future__ import annotations
 
 import io
+import math
 import zipfile
+import zlib
 from datetime import date
 from xml.etree import ElementTree
 
@@ -31,18 +33,24 @@ def parse_zip(data: bytes) -> dict[tuple[date, int], float]:
         z = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile as err:
         raise ValueError("not a ZIP") from err
-    names = [n for n in z.namelist() if n.endswith("MGPPrezzi.xml")]
-    if not names:
-        raise ValueError("no MGPPrezzi.xml in the ZIP")
-    prices = {}
-    try:
-        for name in names:
-            for row in ElementTree.fromstring(z.read(name)).iter("Prezzi"):
-                d = row.findtext("Data")
-                day = date(int(d[:4]), int(d[4:6]), int(d[6:]))
-                prices[(day, int(row.findtext("Ora")) - 1)] = float(row.findtext("PUN").replace(",", ".")) / 1000
-    except (ElementTree.ParseError, AttributeError, TypeError, zipfile.BadZipFile) as err:  # bad XML or CRC, a missing tag
-        raise ValueError(f"bad {name}") from err
+    with z:
+        names = [n for n in z.namelist() if n.endswith("MGPPrezzi.xml")]
+        if not names:
+            raise ValueError("no MGPPrezzi.xml in the ZIP")
+        prices = {}
+        try:
+            for name in names:
+                for row in ElementTree.fromstring(z.read(name)).iter("Prezzi"):
+                    d = row.findtext("Data")
+                    day = date(int(d[:4]), int(d[4:6]), int(d[6:]))
+                    price = float(row.findtext("PUN").replace(",", ".")) / 1000
+                    if not math.isfinite(price):
+                        raise ValueError("a price that is no number")
+                    prices[(day, int(row.findtext("Ora")) - 1)] = price
+        # Bad XML or CRC, a missing tag, a broken or locked member.
+        except (ElementTree.ParseError, AttributeError, TypeError, zipfile.BadZipFile, zlib.error, EOFError,
+                RuntimeError, NotImplementedError) as err:
+            raise ValueError(f"bad {name}") from err
     return prices
 
 

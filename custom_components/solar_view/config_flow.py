@@ -43,6 +43,8 @@ def _schema(d: dict[str, Any], options: bool) -> vol.Schema:
 
 async def _model_known(hass: HomeAssistant, d: dict[str, Any]) -> bool:
     """False only when Open-Meteo answers 400, its answer to a model it lacks; an outage cannot tell, so it passes."""
+    if "," in d[CONF_MODEL]:  # Open-Meteo takes a list and answers 200, but only one model's values are read
+        return False
     try:
         async with async_get_clientsession(hass).get(weather_url(d[CONF_LATITUDE], d[CONF_LONGITUDE], d[CONF_MODEL]),
                                                      timeout=aiohttp.ClientTimeout(total=15)) as resp:

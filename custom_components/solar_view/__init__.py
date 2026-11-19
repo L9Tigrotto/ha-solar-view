@@ -28,7 +28,7 @@ type SolarViewConfigEntry = ConfigEntry[SolarViewCoordinator]
 
 BANDS = ("f1", "f2", "f3", "f23")
 PRICES_SCHEMA = vol.Schema({
-    vol.Required("month"): vol.All(cv.string, vol.Match(r"^(19|20)\d{2}-(0[1-9]|1[0-2])$")),
+    vol.Required("month"): vol.All(cv.string, vol.Match(r"^(19|20)\d{2}-(0[1-9]|1[0-2])\Z")),
     # Bounded so nan and inf never reach the sensor's attributes.
     **{vol.Optional(b): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)) for b in BANDS},
     # Below 0 too: a bonus can outweigh the fixed part.
@@ -66,7 +66,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: SolarViewConfigEntry) ->
     await async_setup_panel(hass, {**entry.data, **entry.options})
     coordinator = SolarViewCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
-    coordinator.bills = bills = Bills(hass, pun=bool((entry.options or {}).get(CONF_PUN)))
+    coordinator.bills = bills = Bills(hass, pun=bool((entry.options or {}).get(CONF_PUN)), config={**entry.data, **entry.options})
     await coordinator.bills.async_load()
     entry.runtime_data = coordinator
     # A coordinator without listeners stops polling: keep it running when the sensor is disabled, since the

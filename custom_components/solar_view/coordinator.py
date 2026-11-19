@@ -3,6 +3,7 @@ sensor, the Energy settings and the stored day-ahead statistic (the maths is in 
 from __future__ import annotations
 
 import logging
+import math
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -60,7 +61,6 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
         now, time_zone = dt_util.utcnow(), dt_util.get_default_time_zone()
         hourly = await self._weather(latitude, longitude, model, now)
         if hourly is None:  # stale: nothing old may pass for a forecast, in the sensor or the Energy settings
-            await self._store.async_save(self._saved)
             return None
         weather = merge_weather(hourly, model)
         rows = await self._rows(entry_config, now)
@@ -97,11 +97,15 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
             async with session.get(weather_url(latitude, longitude, model), timeout=aiohttp.ClientTimeout(total=30)) as resp:
                 resp.raise_for_status()
                 hourly = (await resp.json())["hourly"]
-        except (aiohttp.ClientError, TimeoutError, KeyError, ValueError) as err:
+            if not isinstance(hourly, dict):
+                raise ValueError("no hourly block")
+        except (aiohttp.ClientError, TimeoutError, KeyError, TypeError, ValueError) as err:
             if isinstance(err, aiohttp.ClientResponseError) and err.status == 400:  # not an outage: a model it lacks
                 self._say("bad_model", f"Solar view: Open-Meteo does not know the weather model {model!r}, "
                           "pick another in the options")
             last = self._saved.get("weather")
+            if last and last.get("where") not in (None, [latitude, longitude, model]):
+                last = None  # another place or model: its weather does not fit
             fetched = datetime.fromisoformat(last["fetched"]) if last else None
             if fetched and now - fetched < timedelta(hours=STALE_AFTER_HOURS):
                 _LOGGER.debug("Open-Meteo failed (%s), reusing the weather from %s", err, fetched)
@@ -114,7 +118,7 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
                 translation_placeholders={"since": dt_util.as_local(fetched).strftime("%H:%M")})
             _LOGGER.debug("Open-Meteo failed (%s), the weather from %s is too old to use", err, fetched)
             return None
-        self._saved["weather"] = {"fetched": now.isoformat(), "hourly": hourly}
+        self._saved["weather"] = {"fetched": now.isoformat(), "where": [latitude, longitude, model], "hourly": hourly}
         self._said.discard("bad_model")
         ir.async_delete_issue(self.hass, DOMAIN, ISSUE_WEATHER)
         return hourly
@@ -126,8 +130,9 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
         sources = prefs.get("energy_sources", [])
         solar = [s["stat_energy_from"] for s in sources if s.get("type") == "solar" and s.get("stat_energy_from")]
         export = [x for s in sources if s.get("type") == "grid"
-                  for x in [s.get("stat_energy_to"), *(f.get("stat_energy_to") for f in s.get("flow_to", []))] if x]
+                  for x in [s.get("stat_energy_to"), *(f.get("stat_energy_to") for f in s.get("flow_to") or [])] if x]
         if not solar:
+            ir.async_delete_issue(self.hass, DOMAIN, ISSUE_PICK)  # nothing to pick it for
             self._say("no_solar", "Solar view: no solar panels in the Energy settings, nothing to forecast")
             return None
         self._said.discard("no_solar")
@@ -137,6 +142,13 @@ class SolarViewCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
             ir.async_create_issue(self.hass, DOMAIN, ISSUE_PICK, is_fixable=False,
                                   severity=ir.IssueSeverity.WARNING, translation_key=ISSUE_PICK)
         charge_sensor_id, limit = entry_config.get(CONF_CHARGE_SENSOR), entry_config.get(CONF_EXPORT_LIMIT)
+        # The YAML's export_max_kw wins over the options' (see settings.merge).
+        from .panel import async_read_config
+        from .settings import yaml_flat
+
+        own = yaml_flat(await async_read_config(self.hass)).get("export_max_kw")
+        if isinstance(own, (int, float)) and not isinstance(own, bool) and 0 <= own < math.inf:
+            limit = own
         end = now.replace(minute=0, second=0, microsecond=0)
         ids = set(solar) | set(export) | ({charge_sensor_id} if charge_sensor_id else set())
         stats = await get_instance(self.hass).async_add_executor_job(

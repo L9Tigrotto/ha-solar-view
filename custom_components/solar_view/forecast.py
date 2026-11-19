@@ -116,7 +116,8 @@ def merge_weather(hourly: dict, model: str) -> dict[datetime, Weather]:
 
     def pick(var: str, i: int) -> float | None:
         for key in [f"{var}_{m}" for m in models] + [var]:
-            v = (hourly.get(key) or [None] * (i + 1))[i]
+            values = hourly.get(key)
+            v = values[i] if isinstance(values, list) and i < len(values) else None
             if v is not None:
                 return v
         return None
@@ -165,10 +166,12 @@ def attributes(sun: dict[datetime, float], weather: dict[datetime, Weather], now
                       "rain": None if w.rain is None else round(w.rain, 1), "buy": None, "sell": None})
     left = sum(sun.get(t, 0.0) * min(1.0, (t + HOUR - now) / HOUR) for t in _hours_of(today, time_zone) if t + HOUR > now)
     days, day = [], today
-    while True:
+    last = max(sun).astimezone(time_zone).date() if sun else today
+    while day <= last:  # a day with a gap is left out, not the days after it
         hs = _hours_of(day, time_zone)
         if not all(t in sun for t in hs):
-            break
+            day += timedelta(days=1)
+            continue
         lit = [weather[t].cloud for t in hs if weather[t].cloud is not None and clear_sky(t, latitude, longitude) > 0]
         days.append({"d": day.isoformat(), "sun": _range(sum(sun[t] for t in hs), spread), "use": None,
                      "cloud": round(sum(lit) / len(lit)) if lit else None,

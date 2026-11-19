@@ -302,3 +302,9 @@ def test_attributes_range_uses_the_learned_spread():
     a = f.attributes(f.sun_hours(ONE, w), w, utc("2026-11-16T08:30"), ROME, LAT, LON, (0.7, 1.4))
     assert a["hours"][12]["sun"] == [0.35, 0.5, 0.7] and a["days"][0]["sun"] == [8.4, 12.0, 16.8]
     assert f.attributes(f.sun_hours(ONE, w), w, utc("2026-11-16T08:30"), ROME, LAT, LON)["hours"][12]["sun"] == [0.4, 0.5, 0.6]
+
+
+def test_attributes_day_with_a_gap_does_not_hide_the_days_after_it():
+    w = flat(utc("2026-11-15T23:00"), 24 * 3)
+    del w[utc("2026-11-16T10:00")]  # an hour of today missing
+    assert [d["d"] for d in build(utc("2026-11-16T08:30"), w)["days"]] == ["2026-11-17", "2026-11-18"]

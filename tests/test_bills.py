@@ -189,6 +189,12 @@ def test_estimated_months_after_first_bill():
     assert bills.estimated_months({"2026-11": {}}, "2026-11") == {}
 
 
+def test_estimates_reach_back_ten_years_at_most():
+    # A typo year sends no download for every month since: only the last ten years, from the old bill.
+    got = bills.Bills._estimated({"1999-09": {}}, datetime(2026, 11, 19))
+    assert min(got) == "2016-11" and max(got) == "2026-11" and len(got) == 121 and set(got.values()) == {"1999-09"}
+
+
 def test_estimate_follows_pun_times_k():
     assert bills.K == pytest.approx(1.21)
     sep = {"f1": .3468, "f2": .3, "f3": .25, "fixed": -4}
@@ -229,3 +235,12 @@ def test_months_attr_flags_estimates_and_keeps_days_for_this_month():
         "2026-10": {"prices": {"f1": .31}, "fixed": -4, "money": {"cost": 3, "saved": 4}, "estimate": True},
         "2026-11": {"prices": {"f1": .32}, "fixed": -4, "money": {"cost": 0.6, "saved": 0}, "estimate": True,
                     "days": day}}
+
+
+def test_load_reader_takes_the_owners_bill_months_function(tmp_path):
+    assert bills.load_reader(tmp_path) is None  # no bill_reader.py: no reader
+    (tmp_path / bills.READER_FILE).write_text("def bill_months(path):\n    return {'2026-09': {'f1': 0.3, 'fixed': 5.0}}\n", encoding="utf-8")
+    assert bills.load_reader(tmp_path)(tmp_path / "x.pdf") == {"2026-09": {"f1": 0.3, "fixed": 5.0}}
+    (tmp_path / bills.READER_FILE).write_text("def other():\n    pass\n", encoding="utf-8")
+    with pytest.raises(AttributeError):
+        bills.load_reader(tmp_path)

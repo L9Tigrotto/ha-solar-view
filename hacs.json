@@ -1,4 +1,4 @@
 {
-  "name": "Solar View",
-  "render_readme": true
+  "name": "Solar view",
+  "homeassistant": "2025.11.0"
 }

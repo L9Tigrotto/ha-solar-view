@@ -31,14 +31,14 @@ MACHINE_NUMBERS = {"kwh": (0, INF, False), "hours": (0, 24, False), "peak_kw": (
 DATES = ("battery_install_date", "install_date")
 PAGE_KEYS = (*(k for k in NUMBERS if k != EXPORT_LIMIT), *DATES, "level", "quiet_hours")  # EXPORT_LIMIT is renamed in merge
 
-_HOURS = re.compile(r"^(\d{1,2})(?::(\d\d))?\s*-\s*(\d{1,2})(?::(\d\d))?$")
+_HOURS = re.compile(r"^(\d{1,2})(?::([0-5]\d))?\s*-\s*(\d{1,2})(?::([0-5]\d))?$")
 _ENTITY = re.compile(r"^[a-z0-9_]+\.[a-z0-9_]+$")
 
 
 def _number_ok(value: Any, lo: float, hi: float, whole: bool) -> bool:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return False
-    return lo <= value <= hi and (not whole or float(value).is_integer())
+    return -INF < value < INF and lo <= value <= hi and (not whole or float(value).is_integer())
 
 
 def check(key: str, value: Any) -> str | None:
