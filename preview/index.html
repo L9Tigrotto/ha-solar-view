@@ -2678,9 +2678,9 @@ if (current() && !current().offline && !current().real && (current().sky ?? curr
 
 // After the page's rise animation, which moves the cards.
 if (current() && !current().offline) setTimeout(() => {
-  // With big text (?text=2) the advice comes first, the flow under it.
-  const flow = $(panel, ".flow")?.getBoundingClientRect(), card = $(panel, ".advice")?.getBoundingClientRect(), big = panel.hasAttribute("big");
-  if (flow && card) console.assert(big ? card.bottom <= flow.top + 0.5 : flow.bottom <= card.top + 0.5, `advice card over the flow at ${innerWidth}x${innerHeight}: flow ${flow.top} to ${flow.bottom}, card ${card.top} to ${card.bottom}`);
+  // The flow above the advice, with big text (?text=2) too.
+  const flow = $(panel, ".flow")?.getBoundingClientRect(), card = $(panel, ".advice")?.getBoundingClientRect();
+  if (flow && card) console.assert(flow.bottom <= card.top + 0.5, `advice card over the flow at ${innerWidth}x${innerHeight}: flow ${flow.top} to ${flow.bottom}, card ${card.top} to ${card.bottom}`);
 }, 1200);
 
 // Check: the gear (display switches) is a button of 44 px or more, on screen and on top, and no page

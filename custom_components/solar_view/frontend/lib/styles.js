@@ -629,14 +629,16 @@ dialog form > button{display:block;flex:none;min-height:44px;margin:12px 20px 16
 }
 
 /* Big text (see BIG_TEXT in solar-view.js; the panel is then narrow and short): Now leads with the headline
-   alone and the advice, then a smaller flow. The headline starts under the gear and takes the page's width. */
+   alone and a smaller flow under it, then the advice. The headline starts under the gear and takes the page's
+   width. */
 :host([big]) .now{grid-template-rows:none}
-:host([big]) .now header{order:-2;padding:calc(52px * var(--cap) - 16px) 0 0}
+:host([big]) .now :is(header,.flowbox){order:-2}
+:host([big]) .now header{padding:calc(52px * var(--cap) - 16px) 0 0}
 :host([big]) .now .sub{display:none}
 :host([big]) .now h1{font-size:calc(20px / var(--zt))}
 :host([big]) .now :is(.wear,.advice){order:-1}
-/* Bigger text still (about 1.8 and up on a phone): the battery card comes next, before the flow, with a
-   smaller ring and its title for screen readers only, so the ring and its word show without a scroll. */
+/* Bigger text still (about 1.8 and up on a phone): the battery card comes next, before the coming days, with
+   a smaller ring and its title for screen readers only. */
 @container (max-height:560px) and (max-width:1003px){
   :host([big]) .now .battery{order:-1}
   :host([big]) .battery h2{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}

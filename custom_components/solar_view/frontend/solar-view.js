@@ -217,7 +217,7 @@ class SolarView extends HTMLElement {
     const [zf, zs] = (zoom ??= textScale());
     this.style.setProperty("--zf", zf);
     this.style.setProperty("--zs", zs);
-    // Big text: Now leads with the headline and the advice, the flow smaller (see :host([big]) in styles.js).
+    // Big text: Now leads with the headline and a smaller flow, then the advice (see :host([big]) in styles.js).
     this.toggleAttribute("big", zf > BIG_TEXT);
     // Still nothing from Home Assistant: show the veil's plain day sky, not a blank page. The theme
     // is not known yet, so the system's stands in for it.
