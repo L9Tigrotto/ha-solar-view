@@ -1417,7 +1417,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => flatLines(t).map(([, v]) 
       && !soon(p) && !p.shadowRoot.querySelector("#energy .rings-ahead"), "mode Weather: the sensor's sky lost, or forecast figures without house use", p._ahead?.from, p._outlook);
     // Nor the usual day beside it (the coming days' use line, payback's time left), nor the month's money end.
     const money = p.shadowRoot.querySelector("#money")?.textContent ?? "";
-    console.assert(!$(p, ".coming .use") && !money.includes("by the end of the month") && !/About .* left/.test(money),
+    console.assert(!$(p, ".coming .use") && !money.includes("by the end of the month") && !money.includes("pay for itself"),
       "mode Weather: a usual day line, payback time left or month end beside weather alone");
 
     // The "?": a labelled button that opens a modal dialog; closing it the way Escape does gives focus back to it.
@@ -1472,7 +1472,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => flatLines(t).map(([, v]) 
     const shown = parseFloat(c.querySelector(".month-total .est dd")?.textContent.replace(/[^\d.]/g, ""));
     const bar = c.querySelector(".year [aria-pressed=true]"), ghost = bar?.querySelector("i.ghost"), solid = bar?.querySelector("i:not(.ghost)");
     console.assert(a?.from === "page" && coming.length === left && coming.every((li, i) => +li.dataset.i === today + i && li.dataset.hint === li.getAttribute("aria-label")
-        && li.getAttribute("aria-label").endsWith(keys[i] in s.sunDays ? "from the solar forecast" : "as on a usual day"))
+        && li.getAttribute("aria-label").endsWith(keys[i] in s.sunDays ? " kWh." : "as on a typical day.") && li.getAttribute("aria-label").includes(keys[i] in s.sunDays ? "solar production is expected" : "the panels should produce"))
       && (!left || c.querySelector(".series.later")?.getAttribute("d").startsWith("M"))
       // ?gap=1 leaves a day of this month without numbers: no month end then.
       && (s.monthDays.some((x) => x.none) ? !ghost && !c.querySelector(".month-total .est")
@@ -1511,7 +1511,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => flatLines(t).map(([, v]) 
     // sentence, and Month balance's faded bar with where the month should end; none of it with weather alone.
     const money = (q) => q.shadowRoot.getElementById("money");
     const owed = [...money(p).querySelectorAll(".recent .week li.ahead")];
-    console.assert(!priced || owed.length === left && owed.every((li) => /bring back about .+ from the grid/.test(li.dataset.hint ?? li.getAttribute("aria-label") ?? ""))
+    console.assert(!priced || owed.length === left && owed.every((li) => /expected savings are .+ should cost about /.test(li.dataset.hint ?? li.getAttribute("aria-label") ?? ""))
       && (q.get("gap") === "1" || !!money(p).querySelector(".months i.ghost") && money(p).textContent.includes("by the end of the month")), // ?gap=1: this month unknown
       "money, level usual: the days to come on Daily returns, or the month end on Month balance, missing", owed.length, left);
     console.assert(!money(weatherAlone).querySelector(".recent li.ahead, .months i.ghost"), "money, weather alone: money predicted without house use");
@@ -1547,7 +1547,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => flatLines(t).map(([, v]) 
       && rows.every((li) => li.querySelector(".weather-icon circle") && !li.querySelector(".weather-icon .cloud"))
       && pills.every(([a, m, b]) => a >= 0 && a <= m && m <= b && b <= 100) && Math.max(u, ...pills.map((x) => x[2])) === 100
       && (u > 0) === !!p.shadowRoot.querySelector(".coming .days.with-use li:first-child .now-label") && rows.every((li) => !!li.querySelector(".use") === u > 0)
-      && rows.every((li) => /\d/.test(li.getAttribute("aria-label")) && li.getAttribute("aria-label").includes(" kWh of sun")), "coming days: rows, icons or pills wrong", rows.map((li) => li.outerHTML));
+      && rows.every((li) => /\d/.test(li.getAttribute("aria-label")) && / kWh$/.test(li.getAttribute("aria-label"))), "coming days: rows, icons or pills wrong", rows.map((li) => li.outerHTML));
     const dayIcons = async (k) => [...(await draw(fakeHass(SCENARIOS[k]), en)).shadowRoot.querySelectorAll(".coming .days li")].map((li) => (li.querySelector(".weather-icon .drop") ? "rain" : li.querySelector(".weather-icon circle") ? (li.querySelector(".weather-icon .cloud") ? "partly" : "sun") : li.querySelector(".weather-icon .cloud") ? "cloud" : "-"));
     const cloudy = await dayIcons("cloudy"), rainy = await dayIcons("rain");
     console.assert(cloudy.length === 7 && cloudy.every((i) => i === "partly") && p.shadowRoot.querySelector(".coming .days li").getAttribute("aria-label").includes(t.now.weatherSunny)
@@ -1720,7 +1720,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => flatLines(t).map(([, v]) 
     // Installed on the 21st: October brought a third of its whole month's money. Gone by, the time left is the
     // true one (to the card's tenth of a year); counted as a whole month, it is too long.
     const ledger = battery.slice(9, 13).map((x, i) => (i ? x : { ...x, ...Object.fromEntries(["sun", "self", "out", "saved", "earned", "back"].map((k) => [k, x[k] / 3])) }));
-    const years = (since) => +paybackCard(ledger, { cost: 9000, before: 0, since }, { lines: t, format: formats("en", "EUR") }, true, { lat: 47.7 }).match(/About ([\d.]+) years/)?.[1];
+    const years = (since) => +paybackCard(ledger, { cost: 9000, before: 0, since }, { lines: t, format: formats("en", "EUR") }, true, { lat: 47.7 }).match(/in about ([\d.]+) years/)?.[1];
     let owed = 9000 - ledger.reduce((a, x) => a + x.back, 0) - battery[12].back, after = 0; // January under way, nothing so far
     while (owed > 0) owed -= battery[(13 + after++) % 12].back;
     console.assert(Math.abs(years("2025-10-21") - after / 12) <= 0.1 && years("2025-10-01") - after / 12 > 0.5, "payback: a part install month not gone by",
@@ -1738,7 +1738,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => flatLines(t).map(([, v]) 
     // ?gap=1 leaves out a day with days on record after it: their rows hold its energy, so payback still adds up.
     if (q.get("gap") === "1" && new Date(Date.now()).getDate() > 2) console.assert($(p, "#money .payback .note")?.textContent !== t.money.paybackIncomplete, "payback with a gap: the incomplete note", $(p, "#money .payback")?.textContent);
     else console.assert(/^[\d,]+ €$/.test($(p, "#money .payback .ring-mid")?.textContent) && $(p, "#money .payback .ring .size")?.textContent === "9,000 €"
-      && $(p, "#money .payback .ring-name")?.textContent === t.money.plantCost && $(p, "#money .payback .money:not(.month)").textContent.startsWith("About ")
+      && $(p, "#money .payback .ring-name")?.textContent === t.money.plantCost && $(p, "#money .payback .money:not(.month)").textContent.startsWith("The system should pay for itself in about ")
       && /^This month: [\d,]+ € saved( and sold)?$/.test($(p, "#money .payback .month")?.textContent)
       && !/%/.test($(p, "#money .payback").textContent), "payback: amount, cost, its name or time left missing, or a percentage shown", $(p, "#money .payback")?.textContent);
     // A day bar picks its own day; Energy's days keep today, also after a redraw.
@@ -1780,7 +1780,7 @@ for (const text of Object.values(TEXTS).flatMap((t) => flatLines(t).map(([, v]) 
   console.assert(card(p)?.querySelector(".past") && card(p).querySelector(".ahead") && +floor?.getAttribute("y1") === 100 - p._source.options.battery.floor && card(p).querySelector(".chargeLine .series")
     && hints(p).length === Math.round((m1 - m0) / 36e5) && hints(p).slice(0, past).every((h) => /^At .*, the panels made .* the house used .* the grid gave .* and the battery was at \d+%\.$/.test(h)
       || (q.get("gap") === "1" && h.endsWith(STRINGS.en.shared.noData))) // ?gap=1: 1:00 and 2:00 have no rows
-    && / the panels made /.test(hints(p)[past]) && !/ battery /.test(hints(p)[past]) && hints(p).slice(past + 1).every((h) => /^At .*, the panels should make .* the grid give .* and the battery be at about \d+%\.$/.test(h))
+    && / the panels made /.test(hints(p)[past]) && !/ battery /.test(hints(p)[past]) && hints(p).slice(past + 1).every((h) => /^At .*, the panels should produce .* the grid should supply .*\. The battery should be around \d+%\.$/.test(h))
     && (past === hints(p).length - 1 || card(p).querySelector(".series.later")?.getAttribute("d")),
     "hour by hour: charge line, dashes, floor, energy lines, their dashes or hour hints wrong", hints(p));
   // This hour picked at first on both charts, its sentence under them; a tap on the charge chart picks an hour on both.
