@@ -283,16 +283,17 @@ const optionalIds = (entityIds) => entityIds.loadW;
 // words. `mode` is the level in use after any step down (see modeOf), `sensor` whether the forecast sensor is
 // fresh (see sensorOf), `battery` whether there is one, `money` whether Money has numbers to show, `forecast`
 // whether the Energy settings have a Solar Forecast, `outlook`
-// whether the page looks ahead (without, no machine line can show), `misread` the options a warning named.
+// whether the page looks ahead (without, no machine line can show), `bands` whether this month has price bands
+// (a bill's or the PUN estimate's count without a tariff), `misread` the options a warning named.
 // The forecast row only where a level would use it and no fresh forecast sensor stands in for it. A machine
 // without a sensor runs on its typed figures, or the assumed washer's.
-const setupCheck = (options, { mode, sensor, battery, money, forecast, outlook, misread = [] }) => [
+const setupCheck = (options, { mode, sensor, battery, money, forecast, outlook, bands, misread = [] }) => [
   { key: "level", asked: options.level, used: mode.level },
   ...([null, "usual_days_weather"].includes(options.level) && !sensor ? [{ key: "forecast", on: forecast }] : []),
   ...(battery ? [{ key: "battery", on: options.battery.kwh > 0, kwh: options.battery.kwh }] : []),
   { key: "money", on: money },
   { key: "payback", on: !!options.payback },
-  { key: "bands", on: !!options.tariff },
+  { key: "bands", on: !!options.tariff || !!bands },
   ...(outlook ? options.machines.map((m) => ({ key: "machine", type: m.type, sensor: m.sensor, kwh: m.kwh, hours: m.hours })) : []),
   ...(misread.length ? [{ key: "misread", names: misread }] : []),
 ];

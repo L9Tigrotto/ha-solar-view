@@ -413,7 +413,7 @@ class SolarView extends HTMLElement {
       misread: (r) => [lines.gear.checkUnusedOptions, r.names.map(esc).join(", ")],
     };
     const { options, ids: entityIds, misread } = this._source;
-    box.querySelector("dl").innerHTML = setupCheck(options, { mode: data.mode, sensor: !!this._looked.facts, battery: !!data.battery, money: !this._views.money?.empty, forecast: entityIds.hasForecast, outlook: !!data.outlook?.hoursAhead, misread })
+    box.querySelector("dl").innerHTML = setupCheck(options, { mode: data.mode, sensor: !!this._looked.facts, battery: !!data.battery, money: !this._views.money?.empty, forecast: entityIds.hasForecast, outlook: !!data.outlook?.hoursAhead, bands: !!data.bands, misread })
       .map((r) => said[r.key](r)).map(([term, definition]) => `<div><dt>${term}</dt><dd>${definition}</dd></div>`).join("");
   }
 
