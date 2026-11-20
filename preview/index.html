@@ -1157,12 +1157,15 @@ for (const text of Object.values(TEXTS).flatMap((t) => flatLines(t).map(([, v]) 
     const thin = (h) => (h >= 10 && h <= 15 ? 0.6 : 0);
     console.assert(is(one(at(sat("09:00")), thin, { b: null }), "at", "grid", sat("10:00")) && is(one(at(sat("09:00")), thin, { b: null, sell: () => 0.35 }), "at", "grid", sat("16:00")),
       "advice: export forgone not priced", one(at(sat("09:00")), thin, { b: null }), one(at(sat("09:00")), thin, { b: null, sell: () => 0.35 }));
-    // Two machines, 1 kWh spare an hour from 10 to 15, no battery: the washer now, the second (0.6 an
-    // hour) after it at 14:00; alone it would go now.
+    // Two machines, 1 kWh spare an hour from 10 to 15, no battery: each is planned alone, so both go now,
+    // the second (0.6 an hour) too, though after the washer it would have to wait for 14:00.
     const B = { type: "dishwasher", kwh: 1.2, hours: 2, peakKw: 2 }, wide = (h) => (h >= 10 && h <= 15 ? 1.3 : 0);
     const both = plan(at(sat("12:00")), wide, { b: null, machines: [W, B] });
-    console.assert(both?.length === 2 && is(both[0], "now", "sunNow") && is(both[1], "at", "sun", sat("14:00")) && is(one(at(sat("12:00")), wide, { b: null, machines: [B] }), "now", "sunNow"),
-      "advice: the second machine not planned after the first", both);
+    console.assert(both?.length === 2 && is(both[0], "now", "sunNow") && is(both[1], "now", "sunNow"),
+      "advice: the second machine planned after the first", both);
+    // The washer running now with 2 kWh left over 2 hours takes the spare sun until 14:00: the dishwasher waits for it.
+    const busy = plan(at(sat("12:00")), wide, { b: null, machines: [{ ...W, running: { kwh: 2, hours: 2 } }, B] });
+    console.assert(busy?.[0]?.kind === "running" && is(busy[1], "at", "sun", sat("14:00")), "advice: a running machine not planned around", busy);
     console.assert(plan(at(sat("12:00")), day, { machines: [] }) === null, "advice: without machines");
     // The machines' usual runs come out of the advice's rows only: 0.3 spare an hour from 10 to 15, no battery,
     // the washer 0.5 an hour takes grid; with 0.3 of the usual use its own usual runs, the sun covers it.

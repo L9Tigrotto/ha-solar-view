@@ -4,7 +4,7 @@
 const v = new URL(import.meta.url).search; // this file's own ?v=, so /local/ never serves a stale sibling
 /** @type {[typeof import("./core.js"), typeof import("./sky.js"), typeof import("./forecast.js"),
  *   typeof import("./config.js")]} */
-const [{ MINUTE, FIVE_MIN, HOUR, DAY, WHOLE_DAY_H, roundTo, noonOf, quarterPast, shiftKey, shiftMonth, monthDayKeys, yearKeys, dayHours, hourStart, clamp01, sumKnown }, { clearSky }, { efficiencyOf, machineOf, usualSunAt }, { USUAL_MIN }] = await Promise.all([
+const [{ MINUTE, FIVE_MIN, HOUR, DAY, WHOLE_DAY_H, roundTo, noonOf, quarterPast, shiftKey, shiftMonth, monthDayKeys, yearKeys, dayHours, hourStart, clamp01, sumKnown }, { clearSky }, { efficiencyOf, machineOf, runningOf, usualSunAt }, { USUAL_MIN }] = await Promise.all([
   import(`./core.js${v}`), import(`./sky.js${v}`), import(`./forecast.js${v}`), import(`./config.js${v}`)]);
 
 const ENERGY = ["solarKwh", "batteryKwh", "chargeKwh", "gridImportKwh", "gridExportKwh", "loadKwh"];
@@ -333,7 +333,15 @@ function totals(entityIds, options, rows, clock, now, geo) {
     // runs (see machineOf), the tariff sensor's hour means and this month's grid hour rows (see bandsOf).
     chargeLevelDay: chargeLevelDay(rows.chargeLevel, entityIds.chargeWeight ?? {}, clock, now, entityIds.chargeLevel ?? []),
     fixedMonths: Object.fromEntries((rows.fixed?.[options.billFixed] ?? []).filter((r) => Number.isFinite(r.mean)).map((r) => [clock(r.start).key.slice(0, 7), r.mean])),
-    machines: (options.machines ?? []).map((a) => machineOf(a, machineHours[a.sensor], rows.machineFive?.[a.sensor])),
+    // A machine running now also carries what is left of its run (see runningOf), from its 5 minute rows of the
+    // last day: the day's call, then today's (`recent`, which wins where both have a row).
+    machines: (options.machines ?? []).map((a) => {
+      const m = machineOf(a, machineHours[a.sensor], rows.machineFive?.[a.sensor]);
+      const five = [...new Map([...(rows.machineFive?.[a.sensor] ?? []), ...(recent[a.sensor] ?? [])].filter((r) => r.start >= now - DAY).map((r) => [r.start, r])).values()]
+        .sort((x, y) => x.start - y.start);
+      const running = m && five.length ? runningOf(m, five, now) : null;
+      return running ? { ...m, running } : m;
+    }),
     priceRows: rows.priceRows?.[options.tariff?.sensor] ?? [],
     gridMonth: rows.gridMonth ?? {},
   };
@@ -380,7 +388,8 @@ const FETCHES = [
   // Asked whole once a day, then from the newest row kept (see toAsk).
   { name: "gridMonth", life: "hour", grow: true, ask: (entityIds, options, now, clock) => ["hour", (options.tariff && options.tariff.type !== "single") || options.billedBands ? entityIds.gridImportKwh : [], now - (+clock(now).key.slice(8) + 1) * DAY] },
   { name: "solarForecast", life: "hour", when: solarFc, ask: () => null },
-  { name: "recent", life: "new", ask: (entityIds, options, now, clock) => ["5minute", allIds(entityIds), recentSince(now, clock)] },
+  // With the machines' sensors too, where the machines are drawn: which one is running now (see totals).
+  { name: "recent", life: "new", ask: (entityIds, options, now, clock) => ["5minute", [...new Set([...allIds(entityIds), ...(draws(options.level) ? machineIds(options) : [])])], recentSince(now, clock)] },
 ];
 // Until when what is asked at `now` is kept, by its lifetime.
 function untilOf(life, now, clock) {

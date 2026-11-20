@@ -283,6 +283,18 @@ export function machineOf(m, hourRows, fiveRows) {
   const peakKw = five.length >= RUN_MIN ? Math.max(...five.map((r) => (r.peak * HOUR) / FIVE_MIN)) : m.peakKw ?? PEAK_KW;
   return kwh > 0 && long > 0 ? { type: m.type, kwh, hours: long, peakKw } : null;
 }
+// A machine m ({ kwh, hours }, see machineOf) running now, from its sensor's 5 minute rows ({ start, change },
+// in order, the last day is enough): its last run, still open while fewer than RUN_GAP rows came after it
+// (runsOf joins a pause that long) and it was seen within RUN_GAP + 2 rows of now (a sensor that stops
+// writing). What is left of a usual run: { kwh, hours }, each 0 or more. null when it is not running.
+// shortcut: Home Assistant writes the 5 minute rows a few minutes late, so a machine just started shows 5-10
+// minutes on; read the sensor's live state if that ever bothers.
+export function runningOf(m, rows, now) {
+  const run = runsOf(rows, FIVE_MIN, RUN_5MIN_KWH, RUN_GAP).at(-1);
+  if (!run || rows.at(-1).start - run.to >= RUN_GAP * FIVE_MIN || now - run.to > (RUN_GAP + 2) * FIVE_MIN) return null;
+  // A device clock behind Home Assistant's would put the run's start ahead of now.
+  return { kwh: Math.max(0, m.kwh - run.kwh), hours: Math.max(0, m.hours - Math.max(0, now - run.from) / HOUR) };
+}
 
 // ---- What the page derives ----
 const FREE_KWH = 0.01;     // a start "takes nothing from the grid" up to this (rounding)
@@ -352,7 +364,7 @@ function withNight(runs, clock, tomorrow) {
 // Inside the quiet hours [from, to) by the clock (hours, a range may pass midnight).
 const inQuiet = (c, q) => { const h = c.hour + c.minute / 60; return !!q && q[0] !== q[1] && (q[0] < q[1] ? h >= q[0] && h < q[1] : h >= q[0] || h < q[1]); };
 
-// When to start each movable machine (settings.machines, in order, each planned after the ones before),
+// When to start each movable machine (settings.machines, each planned alone: nothing tells which will run),
 // with the battery floor raised by settings.marginPercent, so a forecast a little off still leaves it above
 // the real floor. The rows run through the night after tomorrow (withNight); starts are now and every
 // whole hour of today and tomorrow, never inside the quiet hours. A start is free when it takes nothing
@@ -364,8 +376,9 @@ const inQuiet = (c, q) => { const h = c.hour + c.minute / 60; return !!q && q[0]
 // The earliest free start wins, else the cheapest (ties to the earliest). A start tomorrow is taken only
 // when it saves DEFER_KWH of grid at the mean buy price over today's best. "wait" instead of now when the
 // grid would have to give more than settings.gridMaxKw: the house's draw now plus the machine's peak,
-// less the sun now and, above the raised floor, the battery (up to its discharge rate). [{ type, kind:
-// "now" | "at" | "wait", t, why, band, kw }] or null.
+// less the sun now and, above the raised floor, the battery (up to its discharge rate). A machine running
+// now (m.running, see runningOf) is "running" instead. [{ type, kind: "now" | "at" | "wait" | "running", t,
+// why, band, kw }] or null.
 function advise(rows, bad, now, n, battery, settings, firstShare, clock) {
   const { machines = [], quiet = null, gridMaxKw = null, marginPercent = 0, exportMaxKw } = settings;
   if (!machines.length) return null;
@@ -387,12 +400,12 @@ function advise(rows, bad, now, n, battery, settings, firstShare, clock) {
       grid += more; fromBattery += step.fromBattery - base[i].fromBattery;
       cost += more * buy(runRows[i]) + (base[i].toGrid - step.toGrid) * sell(runRows[i]);
     });
-    return { t, loaded, grid, fromBattery, cost };
+    return { t, grid, fromBattery, cost };
   };
   const pickOf = (list) => list.find((w) => w.free) ?? list.reduce((b, w) => (w.cost < b.cost - TIE ? w : b), list[0]);
-  const out = [];
+  const out = [], base = runSimulation(rows), baseBad = runSimulation(bad);
   for (const m of machines) {
-    const base = runSimulation(rows), baseBad = runSimulation(bad);
+    if (m.running) { out.push({ type: m.type, kind: "running", t: now, why: null, band: null, bandName: null, kw: null }); continue; }
     const starts = [now, ...rows.map((r) => r.t).filter((t) => t > now && t < lastStart)].filter((t) => t + m.hours * HOUR <= end + TIE && !inQuiet(clock(t), quiet));
     const tried = starts.map((t) => {
       const middle = tryOn(rows, base, t, m);
@@ -417,7 +430,6 @@ function advise(rows, bad, now, n, battery, settings, firstShare, clock) {
     const draw = ((n.loadW ?? 0) - (n.solarW ?? 0)) / 1000 + m.peakKw - room;
     if (pick === first && gridMaxKw != null && draw > gridMaxKw + TIE) { out.push({ type: m.type, kind: "wait", t: now, why: null, band: null, bandName: null, kw: (n.loadW ?? 0) / 1000 }); continue; }
     out.push({ type: m.type, kind: pick === first ? "now" : "at", t: pick.t, why, band: why === "cheaper" ? band.band : null, bandName: why === "cheaper" ? band.name ?? band.band.toUpperCase() : null, kw: null });
-    rows = pick.loaded; bad = withLoad(bad, now, pick.t, m.kwh, m.hours, firstShare);
   }
   return out.length ? out : null;
 }
@@ -430,7 +442,7 @@ function advise(rows, bad, now, n, battery, settings, firstShare, clock) {
 // it: every figure would be a guess.
 /** @typedef {{ saved: number | null, cost: number | null, earned: number | null }} Money */
 /** What follows from the forecast (see lookAhead); chargeAhead's [t, %] rows as its comment below says.
- * @typedef {{ lastsUntil: number | null, best: { type: string, kind: string, t: number, why: string, band: string | null, bandName: string | null,
+ * @typedef {{ lastsUntil: number | null, best: { type: string, kind: string, t: number, why: string | null, band: string | null, bandName: string | null,
  *   kw: number | null }[] | null, chargeInHour: number[] | null, fills: boolean, chargeAhead: number[][] | null,
  *   hoursAhead: { t: number, sun: number, battery: number, grid: number, use: number }[] | null, restToday: Money | null,
  *   daysMoney: ({ key: string } & Money)[] | null }} Outlook */
@@ -442,7 +454,7 @@ export function lookAhead(ahead, now, clock, n, battery, settings, soFar) {
   // The present hour at whichever is worse, the present reading or the forecast hour: an oven switched
   // on now, or a cloud now, counts on every card.
   const present = (r, i) => (i ? r : { ...r, use: Math.max(r.use, (n.loadW ?? 0) / 1000), sun: Math.min(r.sun, (n.solarW ?? Infinity) / 1000) });
-  const runs = ["bad", "mid", "good"].map((kind) => scenarioHours(ahead, kind, now, clock).map(present)), rows = runs[1];
+  const raws = ["bad", "mid", "good"].map((kind) => scenarioHours(ahead, kind, now, clock)), runs = raws.map((r) => r.map(present)), rows = runs[1];
   if (!rows.length) return none;
   // The rows hold whole hours; simulate takes the present hour's part itself.
   const firstShare = Math.min(1, (rows[0].t + HOUR - now) / HOUR);
@@ -491,7 +503,16 @@ export function lookAhead(ahead, now, clock, n, battery, settings, soFar) {
   // house use first (the run it plans is the next one; a day later the habit runs again), on the advice's
   // rows only (every other figure keeps them, the machines will run).
   const bare = (runRows) => (ahead.machineW ? runRows.map((r) => (r.t < now + 24 * HOUR ? { ...r, use: Math.max(0, r.use - ahead.machineW[clock(r.t).hour] / 1000) } : r)) : runRows);
-  const [night, nightBad] = withNight([bare(rows), bare(bad)], clock, shiftKey(today, 1)).map(priced);
+  // A machine running now (see runningOf): the rest of its run goes on the advice's rows from now, so the others
+  // are planned around it. The present hour's reading already holds its draw: that hour takes the larger of the
+  // two, not both. After withNight, which would copy a run going past midnight into the night after tomorrow.
+  const left = (settings.machines ?? []).map((m) => m.running).filter((r) => r && r.kwh > 0 && r.hours > 0);
+  const running = (runRows, raw) => {
+    if (!left.length) return runRows;
+    const loaded = left.reduce((rs, r) => withLoad(rs, now, now, r.kwh, r.hours, firstShare), [{ ...runRows[0], use: bare(raw.slice(0, 1))[0].use }, ...runRows.slice(1)]);
+    return loaded.map((r, i) => (i ? r : { ...r, use: Math.max(r.use, runRows[0].use) }));
+  };
+  const [night, nightBad] = withNight([bare(rows), bare(bad)], clock, shiftKey(today, 1)).map((rs, k) => priced(running(rs, raws[1 - k])));
   return {
     lastsUntil: battery ? lastsUntil(rows, now, n, activeBattery, firstShare) : null,
     best: advise(night, nightBad, now, n, activeBattery, settings, firstShare, clock),

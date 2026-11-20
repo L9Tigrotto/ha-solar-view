@@ -76,6 +76,7 @@ export const STRINGS = {
       startAt: "Conviene avviare {machine} alle {time}",
       startTomorrow: "Conviene avviare {machine} domani alle {time}",
       startWait: "Aspetta ad avviare {machine}. La casa sta consumando {power}.",
+      running: { washer: "La lavatrice è in funzione", dryer: "L'asciugatrice è in funzione", dishwasher: "La lavastoviglie è in funzione" },
       whySunNow: "Adesso dovrebbe bastare il sole.",
       whyBatteryNow: "La batteria può fornire gran parte dell'energia.",
       whyBestNow: "Questo è l'orario più conveniente tra oggi e domani.",

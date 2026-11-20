@@ -101,7 +101,8 @@ The washer line says when to start each machine under `machines`: only the ones 
 - **No guessed sun tomorrow.** When tomorrow's sun is only the usual day's (no hour of tomorrow in the Solar Forecast), tomorrow's low run has no sun at all. A start tomorrow can still win on cheaper hours or on the battery, never on that guessed sun.
 - **Never a start inside `quiet_hours`.** The machine may still run on into them. The default `"0-7"` keeps 23:00 open, which starts band F3 on weekdays.
 - **"Wait"** instead of "now" when the house's draw now, plus the machine's peak, less the sun now and the battery, is over `grid_max_kw`.
-- **Machines are planned in the order listed**, each after the ones before, so two never count on the same sun.
+- **Each machine is planned alone**, as if it were the only one to run. Nothing tells which machines will run, so two may count on the same sun.
+- **A machine running now** shows as running, when it has a `sensor`. It counts as running while its sensor's 5 minute rows show a run, through pauses up to 15 minutes (a washer soaking). What is left of its usual run goes on the hours ahead, so the other machines are planned around it. Home Assistant writes those rows a few minutes late, so a machine just started shows 5 to 10 minutes on, and one just finished stays up to 20 minutes.
 
 A machine with a `sensor` learns its runs: the energy of a run from the last 10 runs in 90 days of hour statistics, and its length and peak from the 5 minute statistics (Home Assistant keeps those about 10 days). Until 3 runs are on record, the typed figures count. The peak is 2 kW when nothing better is known.
 

@@ -311,6 +311,7 @@ h1,h2,h3,p,ol{margin:0;padding:0}
 .best{display:flex;align-items:center;gap:12px;margin-top:12px;padding:10px 12px;border-radius:var(--r-m);font-weight:600;text-align:left;
   background:color-mix(in srgb,var(--ink) 6%,transparent);border:1px solid var(--card-line);--tile:#f9e2af}
 .best[data-kind="wait"]{--tile:#89b4fa}
+.best[data-kind="running"]{--tile:#a6e3a1}
 .best .tile{flex:none;display:grid;place-items:center;width:40px;height:40px;border-radius:var(--r-m);background:var(--tile);color:#0b1626}
 .best .tile svg{width:24px;height:24px}
 .best p{text-wrap:balance}

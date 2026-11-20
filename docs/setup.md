@@ -176,7 +176,7 @@ machines:
 |---|---|---|
 | `battery_margin` | Percent kept above `battery_floor` when a start is called free. | `10` |
 | `quiet_hours` | Hours in which no start is suggested, as `"0-7"` or `"23:30-6:30"`. Only the start counts: a machine may run on into them. A 23:00 start in band F3 is often the cheapest. Use `"22-7"` if nobody wants late starts. | `"0-7"` |
-| `washer`, `dryer`, `dishwasher` | The machines you can start at any time, planned in the order written. Each takes `kwh` (energy of a run), `hours` (length of a run), `peak_kw` (highest draw) and `sensor` (its energy sensor). With a sensor, the page learns the runs once 3 are on record. Without a sensor, a `kwh` or `hours` left out is 1 kWh or 2 hours, so the type alone is a run of 1 kWh over 2 hours. `false` leaves it out. | None: no machine, so no washer line |
+| `washer`, `dryer`, `dishwasher` | The machines you can start at any time, each planned alone. Each takes `kwh` (energy of a run), `hours` (length of a run), `peak_kw` (highest draw) and `sensor` (its energy sensor). With a sensor, the page learns the runs once 3 are on record, and sees when the machine is running: its line then says so, and the other machines are planned around the rest of its run. Without a sensor, a `kwh` or `hours` left out is 1 kWh or 2 hours, so the type alone is a run of 1 kWh over 2 hours. `false` leaves it out. | None: no machine, so no washer line |
 
 Machines you do not move in time, such as an oven, need no entry. Their use is already in the house's.
 

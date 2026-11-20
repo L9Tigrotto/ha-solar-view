@@ -265,7 +265,7 @@ const weatherWord = (lines, cover) => ({ "": lines.now.weatherSunny, partly: lin
 // charge reading) on a card of its own, named by its type's word.
 const bestLine = (best, lines, format, clock, now) => best.map((b) => {
   const name = esc(lines.shared[b.type]);
-  const what = b.kind === "wait" ? say(lines.now.startWait, { machine: name, power: `${format.num(Math.round(b.kw * 10) / 10)} kW` })
+  const what = b.kind === "running" ? lines.now.running[b.type] : b.kind === "wait" ? say(lines.now.startWait, { machine: name, power: `${format.num(Math.round(b.kw * 10) / 10)} kW` })
     : b.kind === "now" ? say(lines.now.startNow, { machine: name })
       : say(clock(b.t).key === clock(now).key ? lines.now.startAt : lines.now.startTomorrow, { machine: name, time: format.time(new Date(b.t)) });
   const why = b.why && say(lines.now[`why${cap(b.why)}`], { band: esc(b.bandName ?? "") });
