@@ -250,7 +250,7 @@ def reader_requirements(folder: Path) -> list[str]:
     file = folder / READER_FILE
     if not file.is_file():
         return []
-    for node in ast.parse(file.read_text(encoding="utf-8")).body:
+    for node in ast.parse(file.read_text(encoding="utf-8-sig")).body:
         if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "REQUIREMENTS" for t in node.targets):
             value = ast.literal_eval(node.value)
             if not isinstance(value, list) or not all(isinstance(r, str) for r in value):
@@ -369,12 +369,25 @@ class Bills:
                 return False  # nothing new: the reader is not even loaded
             try:  # the owner's reader, loaded each scan so an edit to it takes hold at the next reload
                 requirements = await self.hass.async_add_executor_job(reader_requirements, folder)
-                if requirements:  # installed by Home Assistant as a manifest's are; a failure is tried at the next scan
-                    from homeassistant.requirements import async_process_requirements
+                if requirements:  # installed by Home Assistant as a manifest's are
+                    from homeassistant.requirements import (
+                        RequirementsNotFound,
+                        async_clear_install_history,
+                        async_process_requirements,
+                    )
 
                     from .const import DOMAIN
 
-                    await async_process_requirements(self.hass, DOMAIN, requirements, is_built_in=False)
+                    try:
+                        await async_process_requirements(self.hass, DOMAIN, requirements, is_built_in=False)
+                    except RequirementsNotFound as err:
+                        # HA keeps a failed install until restart; forgotten so the next scan tries again (at boot
+                        # pip can fail before DNS is up)
+                        async_clear_install_history(self.hass)
+                        if ("requirements", "error") not in self._warned:
+                            self._warned.add(("requirements", "error"))
+                            _LOGGER.warning("Solar view: %s needs %s, which could not be installed (tried again each hour): %s", READER_FILE, requirements, err)
+                        return False
                 reader = await self.hass.async_add_executor_job(load_reader, folder)
             except Exception as err:  # noqa: BLE001
                 if ("reader", "error") not in self._warned:
