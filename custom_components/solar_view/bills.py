@@ -241,6 +241,24 @@ def months_attr(stored: dict, money: dict[str, dict | None], estimates: dict[str
     return out
 
 
+def reader_requirements(folder: Path) -> list[str]:
+    """The pip specs of a top-level `REQUIREMENTS = ["pypdf==7.1.1"]` in <folder>/bill_reader.py, read without running
+    the file (its own imports may need them), for Home Assistant to install before load_reader: again after each
+    update, which drops packages it did not install. [] without the file or the line; a malformed one raises."""
+    import ast
+
+    file = folder / READER_FILE
+    if not file.is_file():
+        return []
+    for node in ast.parse(file.read_text(encoding="utf-8")).body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "REQUIREMENTS" for t in node.targets):
+            value = ast.literal_eval(node.value)
+            if not isinstance(value, list) or not all(isinstance(r, str) for r in value):
+                raise ValueError("REQUIREMENTS must be a list of pip requirement strings")
+            return value
+    return []
+
+
 def load_reader(folder: Path) -> Callable[[Path], dict[str, dict[str, float]]] | None:
     """The `bill_months(path)` of <folder>/bill_reader.py: a function that turns one bill PDF into
     {"2026-09": {"f1": .., "f2": .., "f3": .., "fixed": ..}}, written by the owner for their own supplier's layout
@@ -350,6 +368,13 @@ class Bills:
             if not any(d is not None and d not in self._files for _, d in files):
                 return False  # nothing new: the reader is not even loaded
             try:  # the owner's reader, loaded each scan so an edit to it takes hold at the next reload
+                requirements = await self.hass.async_add_executor_job(reader_requirements, folder)
+                if requirements:  # installed by Home Assistant as a manifest's are; a failure is tried at the next scan
+                    from homeassistant.requirements import async_process_requirements
+
+                    from .const import DOMAIN
+
+                    await async_process_requirements(self.hass, DOMAIN, requirements, is_built_in=False)
                 reader = await self.hass.async_add_executor_job(load_reader, folder)
             except Exception as err:  # noqa: BLE001
                 if ("reader", "error") not in self._warned:

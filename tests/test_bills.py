@@ -266,6 +266,18 @@ def test_load_reader_takes_the_owners_bill_months_function(tmp_path):
         bills.load_reader(tmp_path)
 
 
+def test_reader_requirements_read_without_running_the_reader(tmp_path):
+    assert bills.reader_requirements(tmp_path) == []  # no bill_reader.py
+    file = tmp_path / bills.READER_FILE
+    file.write_text("import pypdf_not_installed\nREQUIREMENTS = ['pypdf==7.1.1']\n", encoding="utf-8")
+    assert bills.reader_requirements(tmp_path) == ["pypdf==7.1.1"]  # its failing import never ran
+    file.write_text("def bill_months(path):\n    REQUIREMENTS = ['x']\n", encoding="utf-8")
+    assert bills.reader_requirements(tmp_path) == []  # only a top-level line counts
+    file.write_text("REQUIREMENTS = 'pypdf'\n", encoding="utf-8")
+    with pytest.raises(ValueError):
+        bills.reader_requirements(tmp_path)
+
+
 def test_hour_rows_meter_added_in_a_later_month():
     h0 = datetime(2026, 11, 16, 11, tzinfo=UTC)
     ids = {"bought": ["sensor.g"], "sent": [], "solar": ["sensor.p"], "battery_out": ["sensor.bo"],
